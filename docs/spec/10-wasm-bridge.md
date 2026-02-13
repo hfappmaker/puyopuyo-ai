@@ -2,16 +2,49 @@
 
 ## 概要
 
-Rust で実装したゲームロジックとAIを、ブラウザから利用できるようにする橋渡し層。
+Rust で実装したゲームロジックとAIを、`wasm-bindgen` を使ってブラウザから利用できるようにする橋渡し層。
 
-## 提供する機能
+## WasmGame クラス
 
-| 機能 | 説明 |
-|------|------|
-| ゲーム初期化 | シードを指定してゲームを開始 |
-| 盤面取得 | 現在の盤面状態を取得 |
-| ぷよ組取得 | 現在のぷよ組・ネクストを取得 |
-| スコア取得 | スコア・最大連鎖数・設置数を取得 |
-| AI最善手 | AIが計算した最善の配置を取得 |
-| AI実行 | 最善手を計算し、ピースを配置位置に移動する（確定は次の一手ボタンで行う） |
-| リスタート | ゲームを最初からやり直す |
+`#[wasm_bindgen]` で公開される主要クラス。内部に `GameState` を保持する。
+
+## API 一覧
+
+### ゲーム管理
+
+| メソッド | 引数 | 戻り値 | 説明 |
+|---------|------|--------|------|
+| `new(seed)` | `u64` | `WasmGame` | シードを指定してゲームを初期化 |
+| `restart(seed)` | `u64` | - | 新しいシードでゲームをリセット |
+
+### 状態取得
+
+| メソッド | 戻り値 | 説明 |
+|---------|--------|------|
+| `get_board()` | `Vec<u8>` (長さ78) | 盤面データ。列優先・下から上。各バイトは PuyoColor (0-4) |
+| `get_current_piece()` | `Vec<u8>` (長さ6 or 0) | `[axis_color, sat_color, col, row_int, row_frac×100, orientation]` |
+| `get_next_piece()` | `Vec<u8>` (長さ2) | `[axis_color, sat_color]` |
+| `get_next_next_piece()` | `Vec<u8>` (長さ2) | `[axis_color, sat_color]` |
+| `get_score()` | `u32` | 現在のスコア |
+| `get_max_chain()` | `u32` | 最大連鎖数 |
+| `get_phase()` | `u8` | ゲームフェーズ（0=Falling, 1=Resolving, 2=GameOver） |
+| `get_total_pieces()` | `u32` | 設置済みぷよ組数 |
+
+### 操作
+
+| メソッド | 戻り値 | 説明 |
+|---------|--------|------|
+| `move_left()` | `bool` | 左移動。成功なら `true` |
+| `move_right()` | `bool` | 右移動。成功なら `true` |
+| `rotate_cw()` | `bool` | 時計回り回転。成功なら `true` |
+| `rotate_ccw()` | `bool` | 反時計回り回転。成功なら `true` |
+| `hard_drop()` | `u32` | ハードドロップ。発生した連鎖数を返す |
+| `soft_drop()` | `bool` | 1マス下降。移動できたら `true`、着地位置なら `false` |
+| `tick(gravity)` | `u32` | 重力による落下。着地して連鎖が発生したら連鎖数を返す |
+
+### AI
+
+| メソッド | 戻り値 | 説明 |
+|---------|--------|------|
+| `ai_best_move()` | `Vec<u8>` (長さ2 or 0) | `[col, orientation]` 形式で最善手を返す。orientation: 0=North, 1=East, 2=South, 3=West |
+| `ai_play_move()` | `u32` | 最善手を計算し即座に適用。発生した連鎖数を返す |

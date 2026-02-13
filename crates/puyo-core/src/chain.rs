@@ -1,4 +1,4 @@
-use crate::board::{Board, PuyoColor, COLS, ROWS};
+use crate::board::{Board, PuyoColor, COLS, ROWS, VISIBLE_ROWS};
 use std::collections::VecDeque;
 
 /// Result of resolving all chains on a board.
@@ -31,7 +31,7 @@ pub fn find_groups(board: &Board) -> Vec<Group> {
     let mut groups = Vec::new();
 
     for col in 0..COLS {
-        for row in 0..ROWS {
+        for row in 0..VISIBLE_ROWS {
             let color = board.get(col, row);
             if !color.is_color() || visited[col][row] {
                 continue;
@@ -51,7 +51,7 @@ pub fn find_groups(board: &Board) -> Vec<Group> {
                 for (dc, dr) in neighbors {
                     let nc = c as i32 + dc;
                     let nr = r as i32 + dr;
-                    if nc < 0 || nc >= COLS as i32 || nr < 0 || nr >= ROWS as i32 {
+                    if nc < 0 || nc >= COLS as i32 || nr < 0 || nr >= VISIBLE_ROWS as i32 {
                         continue;
                     }
                     let nc = nc as usize;
@@ -205,5 +205,56 @@ mod tests {
         let groups = find_groups(&board);
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].cells.len(), 4);
+    }
+
+    #[test]
+    fn test_hidden_row_puyo_not_cleared() {
+        use crate::board::VISIBLE_ROWS;
+        let mut board = Board::new();
+        // 4 red in col 0 rows 0-3 (visible, should clear)
+        for row in 0..4 {
+            board.set(0, row, PuyoColor::Red);
+        }
+        // 1 red in hidden row (row 12) — should NOT be cleared
+        board.set(0, VISIBLE_ROWS, PuyoColor::Red);
+        let result = resolve_chains(&mut board);
+        assert_eq!(result.chain_count, 1);
+        // Hidden row puyo survives and falls down via gravity
+        assert_eq!(board.get(0, 0), PuyoColor::Red);
+        assert_eq!(board.column_height(0), 1);
+    }
+
+    #[test]
+    fn test_hidden_row_puyo_falls_after_clear() {
+        use crate::board::VISIBLE_ROWS;
+        let mut board = Board::new();
+        // Col 0: 4 red (rows 0-3), then green on top (row 4)
+        for row in 0..4 {
+            board.set(0, row, PuyoColor::Red);
+        }
+        board.set(0, 4, PuyoColor::Green);
+        // Place a green in hidden row
+        board.set(0, VISIBLE_ROWS, PuyoColor::Green);
+        resolve_chains(&mut board);
+        // After red clears, green from row 4 and hidden row fall down
+        assert_eq!(board.get(0, 0), PuyoColor::Green);
+        assert_eq!(board.get(0, 1), PuyoColor::Green);
+        assert_eq!(board.column_height(0), 2);
+    }
+
+    #[test]
+    fn test_hidden_row_only_does_not_clear() {
+        use crate::board::VISIBLE_ROWS;
+        let mut board = Board::new();
+        // Place 4 red in hidden row across cols 0-3
+        // (Only 1 hidden row per column, so place them vertically is impossible.
+        //  Instead, place 4 in row VISIBLE_ROWS across 4 columns.)
+        for col in 0..4 {
+            board.set(col, VISIBLE_ROWS, PuyoColor::Red);
+        }
+        let groups = find_groups(&board);
+        assert!(groups.is_empty(), "Hidden-row-only puyos should not form clearable groups");
+        let result = resolve_chains(&mut board);
+        assert_eq!(result.chain_count, 0);
     }
 }

@@ -1,6 +1,20 @@
 use puyo_core::board::{Board, COLS, ROWS};
 use puyo_core::chain;
 
+/// Trait for board evaluation strategies.
+pub trait Evaluator {
+    fn evaluate(&self, board: &Board) -> f64;
+}
+
+/// The existing hand-tuned heuristic evaluator.
+pub struct HeuristicEvaluator;
+
+impl Evaluator for HeuristicEvaluator {
+    fn evaluate(&self, board: &Board) -> f64 {
+        evaluate(board)
+    }
+}
+
 /// Evaluation weights.
 const W_CHAIN_SCORE: f64 = 1.0;
 const W_CHAIN_LENGTH: f64 = 50.0;

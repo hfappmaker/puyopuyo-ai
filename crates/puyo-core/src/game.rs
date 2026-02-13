@@ -216,7 +216,7 @@ impl GameState {
             // The piece can't go below the highest column it occupies
             let min_row = match fp.orientation {
                 Orientation::North => axis_height as f32,       // axis on bottom
-                Orientation::South => (axis_height) as f32,     // axis on top, satellite on bottom
+                Orientation::South => (axis_height + 1) as f32,  // satellite lands at column_height, axis one above
                 _ => axis_height.max(sat_height) as f32,        // side by side
             };
 
@@ -249,11 +249,9 @@ impl GameState {
             let landing_row = match fp.orientation {
                 Orientation::North => axis_height as f32,
                 Orientation::South => {
-                    // satellite below: both land based on column heights
-                    let sat_land = sat_height;
-                    let _axis_land = sat_height + 1; // axis is above satellite
-                    // But they're in the same column, so satellite lands first
-                    sat_land as f32
+                    // satellite below axis, both in same column
+                    // satellite lands at column_height, axis one row above
+                    (sat_height + 1) as f32
                 }
                 Orientation::East | Orientation::West => {
                     axis_height.max(sat_height) as f32
@@ -393,5 +391,72 @@ mod tests {
         assert_eq!(game.score, 0);
         assert_eq!(game.max_chain, 0);
         assert_eq!(game.phase, GamePhase::Falling);
+    }
+
+    #[test]
+    fn test_soft_drop_south_orientation_landing() {
+        let mut game = GameState::new(42);
+        // Pre-fill column 2 with 3 puyos
+        game.board.drop_puyo(2, PuyoColor::Red);
+        game.board.drop_puyo(2, PuyoColor::Blue);
+        game.board.drop_puyo(2, PuyoColor::Green);
+        assert_eq!(game.board.column_height(2), 3);
+
+        game.current_piece = Some(FallingPiece {
+            piece: Piece::new(PuyoColor::Yellow, PuyoColor::Red),
+            col: 2,
+            row: 10.0,
+            orientation: Orientation::South,
+        });
+
+        while game.soft_drop() {}
+
+        // axis should stop at column_height + 1 = 4
+        // satellite at fp.row - 1 = 3 (first free row)
+        let fp = game.current_piece.as_ref().unwrap();
+        assert_eq!(fp.row, 4.0);
+    }
+
+    #[test]
+    fn test_tick_south_orientation_landing() {
+        let mut game = GameState::new(42);
+        game.board.drop_puyo(2, PuyoColor::Red);
+        game.board.drop_puyo(2, PuyoColor::Blue);
+        assert_eq!(game.board.column_height(2), 2);
+
+        game.current_piece = Some(FallingPiece {
+            piece: Piece::new(PuyoColor::Yellow, PuyoColor::Green),
+            col: 2,
+            row: 4.0,
+            orientation: Orientation::South,
+        });
+        game.phase = GamePhase::Falling;
+
+        // Tick with gravity that would bring axis below landing row
+        let _result = game.tick(1.5);
+
+        // After landing: satellite (Green) at row 2, axis (Yellow) at row 3
+        assert_eq!(game.board.column_height(2), 4);
+        assert_eq!(game.board.get(2, 2), PuyoColor::Green);
+        assert_eq!(game.board.get(2, 3), PuyoColor::Yellow);
+    }
+
+    #[test]
+    fn test_south_orientation_empty_column() {
+        let mut game = GameState::new(42);
+        assert_eq!(game.board.column_height(3), 0);
+
+        game.current_piece = Some(FallingPiece {
+            piece: Piece::new(PuyoColor::Red, PuyoColor::Blue),
+            col: 3,
+            row: 6.0,
+            orientation: Orientation::South,
+        });
+
+        while game.soft_drop() {}
+
+        // Empty column: satellite at row 0, axis at row 1
+        let fp = game.current_piece.as_ref().unwrap();
+        assert_eq!(fp.row, 1.0);
     }
 }

@@ -4,26 +4,71 @@
 
 2個1組のぷよ（軸ぷよ + 衛星ぷよ）で構成される。
 
-## 方向
+```rust
+pub struct Piece {
+    pub axis_color: PuyoColor,
+    pub satellite_color: PuyoColor,
+}
+```
+
+## 方向 (Orientation)
 
 衛星ぷよは軸ぷよに対して4方向に配置できる。
 
-| 方向 | 衛星の位置 |
-|------|-----------|
-| North | 軸の上 |
-| East | 軸の右 |
-| South | 軸の下 |
-| West | 軸の左 |
+| 方向 | 衛星の位置 | オフセット (dcol, drow) |
+|------|-----------|----------------------|
+| North | 軸の上 | (0, +1) |
+| East | 軸の右 | (+1, 0) |
+| South | 軸の下 | (0, -1) |
+| West | 軸の左 | (-1, 0) |
+
+## 回転
+
+- 時計回り (CW): North → East → South → West → North
+- 反時計回り (CCW): North → West → South → East → North
+
+## 配置 (Placement)
+
+AIの探索結果は「軸ぷよをどの列に、どの方向で置くか」で表現される。
+
+```rust
+pub struct Placement {
+    pub col: usize,            // 軸の列 (0-5)
+    pub orientation: Orientation,
+}
+```
+
+## 落下中のぷよ組 (FallingPiece)
+
+ゲームプレイ中のぷよ組の状態を管理する。
+
+```rust
+pub struct FallingPiece {
+    pub piece: Piece,
+    pub col: usize,          // 軸の列
+    pub row: f32,            // 軸の行（小数で滑らかな落下を表現）
+    pub orientation: Orientation,
+}
+```
 
 ## 出現位置
 
-- 3列目（列2）の上端に出現
+- 列2（3列目）の行12.0（非可視行の上端）に出現
 - 初期方向は North（衛星が上）
-
-## 配置
-
-AIの探索結果は「どの列に、どの方向で置くか」で表現される。
 
 ## ウォールキック
 
-壁際で回転できない場合、自動的に反対方向に1マスずれて回転を成立させる。
+壁際で回転できない場合、衛星の方向と反対に1マスずらして回転を成立させる。
+
+1. 回転後の方向で配置可能か判定
+2. 配置不可の場合、`kick_col = col - dc`（衛星の反対方向）に移動して再判定
+3. それでも不可なら回転失敗
+
+## 操作
+
+| 操作 | 説明 |
+|------|------|
+| `try_move_left` | 左に1マス移動（境界チェック付き） |
+| `try_move_right` | 右に1マス移動（境界チェック付き） |
+| `try_rotate_cw` | 時計回り回転（ウォールキック付き） |
+| `try_rotate_ccw` | 反時計回り回転（ウォールキック付き） |

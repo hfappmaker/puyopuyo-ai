@@ -1,12 +1,22 @@
 use wasm_bindgen::prelude::*;
 
+use burn::backend::ndarray::NdArray;
+use burn::prelude::*;
+use burn::record::{BinBytesRecorder, FullPrecisionSettings, Recorder};
+
+use puyo_ai::eval::{Evaluator, HeuristicEvaluator};
+use puyo_ai::nn_eval::NnEvaluator;
+use puyo_ai::search;
 use puyo_core::game::{GamePhase, GameState};
 use puyo_core::piece::Orientation;
-use puyo_ai::search;
+use puyo_nn::model::{PuyoValueNet, PuyoValueNetConfig};
+
+type InferBackend = NdArray;
 
 #[wasm_bindgen]
 pub struct WasmGame {
     state: GameState,
+    evaluator: Box<dyn Evaluator>,
 }
 
 #[wasm_bindgen]
@@ -15,7 +25,28 @@ impl WasmGame {
     pub fn new(seed: u64) -> WasmGame {
         WasmGame {
             state: GameState::new(seed),
+            evaluator: Box::new(HeuristicEvaluator),
         }
+    }
+
+    /// Load NN model weights from bytes.
+    /// model_bytes: binary model data (BinBytesRecorder format)
+    /// mean, std_dev: normalization parameters for the model
+    #[wasm_bindgen]
+    pub fn load_nn_model(&mut self, model_bytes: &[u8], mean: f32, std_dev: f32) {
+        let device: <InferBackend as Backend>::Device = Default::default();
+        let config = PuyoValueNetConfig::new();
+        let record = BinBytesRecorder::<FullPrecisionSettings>::default()
+            .load(model_bytes.to_vec(), &device)
+            .expect("Failed to load model record");
+        let model: PuyoValueNet<InferBackend> = config.init(&device).load_record(record);
+        self.evaluator = Box::new(NnEvaluator::new(model, device, mean, std_dev));
+    }
+
+    /// Switch back to heuristic evaluator.
+    #[wasm_bindgen]
+    pub fn use_heuristic(&mut self) {
+        self.evaluator = Box::new(HeuristicEvaluator);
     }
 
     /// Get the board as a flat Vec<u8>, column-major, bottom to top.
@@ -144,6 +175,7 @@ impl WasmGame {
             &self.state.board,
             &current_piece,
             &self.state.next_piece,
+            &*self.evaluator,
         );
 
         match result {
@@ -177,6 +209,7 @@ impl WasmGame {
             &self.state.board,
             &current_piece,
             &self.state.next_piece,
+            &*self.evaluator,
         );
 
         match result {

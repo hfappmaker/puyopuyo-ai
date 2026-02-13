@@ -1,0 +1,25 @@
+[package]
+name = "puyo-trainer"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "generate-data"
+path = "src/bin/generate_data.rs"
+
+[[bin]]
+name = "train"
+path = "src/bin/train.rs"
+
+[[bin]]
+name = "self-play"
+path = "src/bin/self_play.rs"
+
+[dependencies]
+puyo-core = { path = "../puyo-core" }
+puyo-ai = { path = "../puyo-ai" }
+puyo-nn = { path = "../puyo-nn" }
+burn = { version = "0.16", features = ["ndarray", "autodiff", "train"] }
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+bincode = "1"

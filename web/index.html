@@ -122,6 +122,14 @@
         <h3>ぷよ数</h3>
         <div class="value" id="pieces-display">0</div>
       </div>
+      <div class="panel">
+        <h3>AI モード</h3>
+        <select id="ai-mode-select" style="width:100%;padding:4px;background:#1a1a2e;color:#eee;border:1px solid #444;border-radius:4px;">
+          <option value="heuristic">ヒューリスティック</option>
+          <option value="nn">ニューラルネット</option>
+        </select>
+        <div id="ai-mode-status" style="font-size:11px;color:#888;margin-top:4px;"></div>
+      </div>
       <div id="controls" class="panel">
         <h3>操作</h3>
         ← → 移動<br>

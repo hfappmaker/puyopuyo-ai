@@ -16,6 +16,8 @@ export interface WasmGame {
   soft_drop(): boolean;
   ai_best_move(): Uint8Array;
   ai_play_move(): number;
+  load_nn_model(model_bytes: Uint8Array, mean: number, std_dev: number): void;
+  use_heuristic(): void;
   restart(seed: bigint): void;
   free(): void;
 }

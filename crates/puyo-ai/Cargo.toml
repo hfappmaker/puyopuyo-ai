@@ -3,5 +3,11 @@ name = "puyo-ai"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+nn = ["puyo-nn", "burn"]
+
 [dependencies]
 puyo-core = { path = "../puyo-core" }
+puyo-nn = { path = "../puyo-nn", optional = true }
+burn = { version = "0.16", default-features = false, features = ["ndarray"], optional = true }

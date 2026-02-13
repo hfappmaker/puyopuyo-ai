@@ -35,6 +35,10 @@ export class GameLoop {
     this.renderer.render(this.game);
   }
 
+  getGame(): WasmGame {
+    return this.game;
+  }
+
   private handleAction(action: InputAction): void {
     if (this.aiPreviewing && action !== "ai_move" && action !== "restart") {
       return;

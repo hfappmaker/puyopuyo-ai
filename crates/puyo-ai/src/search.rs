@@ -2,7 +2,9 @@ use puyo_core::board::Board;
 use puyo_core::game::GameState;
 use puyo_core::piece::{Piece, Placement};
 
-use crate::eval;
+use crate::eval::Evaluator;
+#[cfg(test)]
+use crate::eval::HeuristicEvaluator;
 use crate::placement::enumerate_placements;
 
 /// Result of AI search.
@@ -25,7 +27,11 @@ fn simulate_placement(board: &Board, piece: &Piece, placement: &Placement) -> Bo
 }
 
 /// Depth-1 search: evaluate all placements for the current piece.
-pub fn search_depth1(board: &Board, current: &Piece) -> Option<SearchResult> {
+pub fn search_depth1(
+    board: &Board,
+    current: &Piece,
+    evaluator: &dyn Evaluator,
+) -> Option<SearchResult> {
     let placements = enumerate_placements(board, current);
     if placements.is_empty() {
         return None;
@@ -36,7 +42,7 @@ pub fn search_depth1(board: &Board, current: &Piece) -> Option<SearchResult> {
 
     for placement in &placements {
         let result_board = simulate_placement(board, current, placement);
-        let score = eval::evaluate(&result_board);
+        let score = evaluator.evaluate(&result_board);
 
         if score > best_score {
             best_score = score;
@@ -54,7 +60,12 @@ pub fn search_depth1(board: &Board, current: &Piece) -> Option<SearchResult> {
 /// Depth-2 search: evaluate all placements for current + next piece.
 /// For each current placement, try all next placements and take the max.
 /// Pick the current placement that maximizes the best-case next score.
-pub fn search_depth2(board: &Board, current: &Piece, next: &Piece) -> Option<SearchResult> {
+pub fn search_depth2(
+    board: &Board,
+    current: &Piece,
+    next: &Piece,
+    evaluator: &dyn Evaluator,
+) -> Option<SearchResult> {
     let placements = enumerate_placements(board, current);
     if placements.is_empty() {
         return None;
@@ -82,7 +93,7 @@ pub fn search_depth2(board: &Board, current: &Piece, next: &Piece) -> Option<Sea
         for next_placement in &next_placements {
             let board_after_next =
                 simulate_placement(&board_after_current, next, next_placement);
-            let score = eval::evaluate(&board_after_next);
+            let score = evaluator.evaluate(&board_after_next);
             if score > best_next_score {
                 best_next_score = score;
             }
@@ -102,15 +113,20 @@ pub fn search_depth2(board: &Board, current: &Piece, next: &Piece) -> Option<Sea
 }
 
 /// Main AI entry point: try depth-2, fall back to depth-1.
-pub fn find_best_move(board: &Board, current: &Piece, next: &Piece) -> Option<SearchResult> {
+pub fn find_best_move(
+    board: &Board,
+    current: &Piece,
+    next: &Piece,
+    evaluator: &dyn Evaluator,
+) -> Option<SearchResult> {
     // Try depth 2 first
-    if let Some(result) = search_depth2(board, current, next) {
+    if let Some(result) = search_depth2(board, current, next, evaluator) {
         if result.score > f64::NEG_INFINITY {
             return Some(result);
         }
     }
     // Fallback to depth 1
-    search_depth1(board, current)
+    search_depth1(board, current, evaluator)
 }
 
 #[cfg(test)]
@@ -122,7 +138,8 @@ mod tests {
     fn test_depth1_finds_move() {
         let board = Board::new();
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
-        let result = search_depth1(&board, &piece);
+        let evaluator = HeuristicEvaluator;
+        let result = search_depth1(&board, &piece, &evaluator);
         assert!(result.is_some());
     }
 
@@ -131,7 +148,8 @@ mod tests {
         let board = Board::new();
         let current = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
-        let result = search_depth2(&board, &current, &next);
+        let evaluator = HeuristicEvaluator;
+        let result = search_depth2(&board, &current, &next, &evaluator);
         assert!(result.is_some());
     }
 
@@ -152,7 +170,8 @@ mod tests {
 
         let current = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
-        let result = find_best_move(&board, &current, &next);
+        let evaluator = HeuristicEvaluator;
+        let result = find_best_move(&board, &current, &next, &evaluator);
         assert!(result.is_some());
     }
 
@@ -166,7 +185,8 @@ mod tests {
 
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
-        let result = find_best_move(&board, &piece, &next);
+        let evaluator = HeuristicEvaluator;
+        let result = find_best_move(&board, &piece, &next, &evaluator);
         assert!(result.is_some());
         // The AI should place the red at column 0 to complete the chain
         let r = result.unwrap();
