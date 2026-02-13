@@ -52,29 +52,14 @@
       font-weight: bold;
       color: #e94560;
     }
-    #next-canvas {
+    #next-canvas,
+    #next-next-canvas {
       border: none;
     }
     #controls {
       font-size: 11px;
       color: #666;
       line-height: 1.6;
-    }
-    #ai-status {
-      font-size: 14px;
-      font-weight: bold;
-      color: #0f3460;
-      padding: 6px 12px;
-      border-radius: 4px;
-      text-align: center;
-    }
-    #ai-status.active {
-      background: #e94560;
-      color: #fff;
-    }
-    #ai-status.inactive {
-      background: #333;
-      color: #888;
     }
     #game-over-overlay {
       display: none;
@@ -122,6 +107,10 @@
         <canvas id="next-canvas" width="80" height="80"></canvas>
       </div>
       <div class="panel">
+        <h3>NEXT 2</h3>
+        <canvas id="next-next-canvas" width="60" height="60"></canvas>
+      </div>
+      <div class="panel">
         <h3>スコア</h3>
         <div class="value" id="score-display">0</div>
       </div>
@@ -133,11 +122,12 @@
         <h3>ぷよ数</h3>
         <div class="value" id="pieces-display">0</div>
       </div>
-      <div id="ai-status" class="inactive">自動再生: OFF</div>
       <div id="controls" class="panel">
         <h3>操作</h3>
-        Space / → 次の一手<br>
-        A 自動再生切替<br>
+        ← → 移動<br>
+        ↑ 回転<br>
+        ↓ ドロップ<br>
+        Space AI配置 / 確定<br>
         R リスタート
       </div>
     </div>

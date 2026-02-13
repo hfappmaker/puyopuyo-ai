@@ -9,7 +9,24 @@
       "Bash(npx tsc:*)",
       "Bash(npx vite:*)",
       "Bash(curl:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(git -C /workspaces/puyopuyo-ai status)",
+      "Bash(git -C /workspaces/puyopuyo-ai log --oneline -10)",
+      "Bash(git -C /workspaces/puyopuyo-ai diff --stat)",
+      "Bash(git -C /workspaces/puyopuyo-ai diff HEAD crates/puyo-core/src/board.rs)",
+      "Bash(ls:*)",
+      "Bash(wasm-pack build:*)",
+      "Bash(wasm-objdump:*)",
+      "Bash(wasm2wat:*)",
+      "Bash(cargo check:*)",
+      "Bash(kill:*)",
+      "Bash(wait:*)",
+      "Bash(npm ls:*)",
+      "Bash(# Try building without externref/reference-types to avoid potential compatibility issues # First check current wasm-bindgen version wasm-bindgen --version ; cargo metadata --format-version 1 | python3 -c \"\"import sys,json; m=json.load\\(sys.stdin\\); [print\\(p[''name''],p[''version'']\\) for p in m[''packages''] if ''wasm-bindgen'' in p[''name'']]\"\")",
+      "Bash(python3:*)",
+      "Bash(cargo metadata:*)",
+      "Bash(# Check if the issue is with externref table - newer wasm-bindgen uses externref # which may cause issues. Let''s check the actual lock file for exact version cat /workspaces/puyopuyo-ai/Cargo.lock)",
+      "Bash(node -e:*)"
     ]
   }
 }

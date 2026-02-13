@@ -8,8 +8,9 @@ async function main() {
 
   const boardCanvas = document.getElementById("board-canvas") as HTMLCanvasElement;
   const nextCanvas = document.getElementById("next-canvas") as HTMLCanvasElement;
+  const nextNextCanvas = document.getElementById("next-next-canvas") as HTMLCanvasElement;
 
-  const renderer = new Renderer(boardCanvas, nextCanvas);
+  const renderer = new Renderer(boardCanvas, nextCanvas, nextNextCanvas);
   const ui = new UI();
 
   const createGame = (seed: bigint) => new wasm.WasmGame(seed);

@@ -9,7 +9,7 @@ export default defineConfig({
   },
   server: {
     fs: {
-      allow: [".", "../crates/puyo-wasm/pkg"],
+      allow: [".", "wasm-pkg"],
     },
   },
 });

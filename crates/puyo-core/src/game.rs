@@ -22,6 +22,7 @@ pub struct GameState {
     pub board: Board,
     pub current_piece: Option<FallingPiece>,
     pub next_piece: Piece,
+    pub next_next_piece: Piece,
     pub score: u32,
     pub max_chain: u32,
     pub phase: GamePhase,
@@ -34,11 +35,13 @@ impl GameState {
         let mut rng = Rng::new(seed);
         let current = Self::generate_piece(&mut rng);
         let next = Self::generate_piece(&mut rng);
+        let next_next = Self::generate_piece(&mut rng);
 
         let mut state = GameState {
             board: Board::new(),
             current_piece: None,
             next_piece: next,
+            next_next_piece: next_next,
             score: 0,
             max_chain: 0,
             phase: GamePhase::Falling,
@@ -65,7 +68,8 @@ impl GameState {
     /// Advance to the next piece.
     fn advance_piece(&mut self) {
         let next = self.next_piece;
-        self.next_piece = Self::generate_piece(&mut self.rng);
+        self.next_piece = self.next_next_piece;
+        self.next_next_piece = Self::generate_piece(&mut self.rng);
         self.spawn_piece(next);
     }
 
@@ -309,6 +313,14 @@ impl GameState {
         (
             self.next_piece.axis_color as u8,
             self.next_piece.satellite_color as u8,
+        )
+    }
+
+    /// Get next-next piece info: (axis_color, satellite_color)
+    pub fn get_next_next_piece_info(&self) -> (u8, u8) {
+        (
+            self.next_next_piece.axis_color as u8,
+            self.next_next_piece.satellite_color as u8,
         )
     }
 }

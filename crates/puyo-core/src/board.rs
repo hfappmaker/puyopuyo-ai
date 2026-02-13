@@ -26,11 +26,11 @@ impl PuyoColor {
 }
 
 pub const COLS: usize = 6;
-pub const ROWS: usize = 14; // 12 visible + 2 hidden top rows
+pub const ROWS: usize = 13; // 12 visible + 1 hidden top row
 pub const VISIBLE_ROWS: usize = 12;
 
 /// Board stored in column-major order: columns[col][row].
-/// Row 0 is the bottom, row 13 is the top.
+/// Row 0 is the bottom, row 12 is the top.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
     pub columns: [[PuyoColor; ROWS]; COLS],
@@ -89,10 +89,9 @@ impl Board {
         }
     }
 
-    /// Check if game is over (column 2, the 3rd column, has puyo at row 12 or above).
+    /// Check if game is over (column 2, the 3rd column, has puyo at row 11, filling all visible rows).
     pub fn is_game_over(&self) -> bool {
-        // The "death" row is row 11 (0-indexed) for the 3rd column (index 2)
-        self.column_height(2) > VISIBLE_ROWS
+        self.column_height(2) >= VISIBLE_ROWS
     }
 
     /// Flatten board to a Vec<u8> for WASM transfer. Column-major, bottom to top.
@@ -165,10 +164,13 @@ mod tests {
     fn test_game_over() {
         let mut board = Board::new();
         assert!(!board.is_game_over());
-        // Fill column 2 up to row 12 (13 puyos, 0-indexed row 12)
-        for _ in 0..=VISIBLE_ROWS {
+        // Fill column 2 to height 11 (not yet game over)
+        for _ in 0..VISIBLE_ROWS - 1 {
             board.drop_puyo(2, PuyoColor::Red);
         }
+        assert!(!board.is_game_over());
+        // One more puyo fills to height 12 -> game over
+        board.drop_puyo(2, PuyoColor::Red);
         assert!(board.is_game_over());
     }
 

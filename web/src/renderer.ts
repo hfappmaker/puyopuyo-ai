@@ -18,16 +18,19 @@ const EYE_OFFSET_Y = -4;
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private nextCtx: CanvasRenderingContext2D;
+  private nextNextCtx: CanvasRenderingContext2D;
 
-  constructor(boardCanvas: HTMLCanvasElement, nextCanvas: HTMLCanvasElement) {
+  constructor(boardCanvas: HTMLCanvasElement, nextCanvas: HTMLCanvasElement, nextNextCanvas: HTMLCanvasElement) {
     this.ctx = boardCanvas.getContext("2d")!;
     this.nextCtx = nextCanvas.getContext("2d")!;
+    this.nextNextCtx = nextNextCanvas.getContext("2d")!;
   }
 
   render(game: WasmGame): void {
     this.drawBoard(game);
     this.drawCurrentPiece(game);
     this.drawNext(game);
+    this.drawNextNext(game);
   }
 
   private drawBoard(game: WasmGame): void {
@@ -174,6 +177,22 @@ export class Renderer {
     // Draw satellite above axis (North orientation)
     this.drawPuyo(ctx, 40, 20, satColor, 1.0);
     this.drawPuyo(ctx, 40, 56, axisColor, 1.0);
+  }
+
+  private drawNextNext(game: WasmGame): void {
+    const ctx = this.nextNextCtx;
+    const data = game.get_next_next_piece();
+    if (data.length < 2) return;
+
+    const axisColor = data[0];
+    const satColor = data[1];
+
+    ctx.fillStyle = "#16213e";
+    ctx.fillRect(0, 0, 60, 60);
+
+    // Draw satellite above axis (North orientation), scaled down
+    this.drawPuyo(ctx, 30, 15, satColor, 0.75);
+    this.drawPuyo(ctx, 30, 42, axisColor, 0.75);
   }
 
   private drawPuyo(

@@ -19,7 +19,7 @@ impl WasmGame {
     }
 
     /// Get the board as a flat Vec<u8>, column-major, bottom to top.
-    /// Length = 6 * 14 = 84. Each byte is a PuyoColor (0=empty, 1-4=colors).
+    /// Length = 6 * 13 = 78. Each byte is a PuyoColor (0=empty, 1-4=colors).
     #[wasm_bindgen]
     pub fn get_board(&self) -> Vec<u8> {
         self.state.board.to_flat()
@@ -41,6 +41,13 @@ impl WasmGame {
     #[wasm_bindgen]
     pub fn get_next_piece(&self) -> Vec<u8> {
         let (axis, sat) = self.state.get_next_piece_info();
+        vec![axis, sat]
+    }
+
+    /// Get next-next piece info: [axis_color, sat_color]
+    #[wasm_bindgen]
+    pub fn get_next_next_piece(&self) -> Vec<u8> {
+        let (axis, sat) = self.state.get_next_next_piece_info();
         vec![axis, sat]
     }
 
@@ -103,6 +110,12 @@ impl WasmGame {
             Some(result) => result.chain_count,
             None => 0,
         }
+    }
+
+    /// Soft drop: move piece down by 1 cell. Returns true if moved, false if at landing position.
+    #[wasm_bindgen]
+    pub fn soft_drop(&mut self) -> bool {
+        self.state.soft_drop()
     }
 
     /// Tick game with gravity. Returns chain count if piece landed and chains occurred.
