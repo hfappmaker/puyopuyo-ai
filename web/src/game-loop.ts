@@ -2,21 +2,17 @@ import type { WasmGame } from "./types";
 import { Renderer } from "./renderer";
 import { InputHandler } from "./input";
 import { UI } from "./ui";
-import {
-  GRAVITY_NORMAL,
-  GRAVITY_FAST,
-  AI_PLAY_INTERVAL,
-  PHASE_FALLING,
-  PHASE_GAME_OVER,
-} from "./constants";
+import { PHASE_GAME_OVER } from "./constants";
+
+const AUTO_PLAY_INTERVAL = 500; // ms between auto-steps
 
 export class GameLoop {
   private game: WasmGame;
   private renderer: Renderer;
   private input: InputHandler;
   private ui: UI;
-  private aiMode: boolean = false;
-  private lastAiTime: number = 0;
+  private autoPlay: boolean = false;
+  private autoPlayTimer: number = 0;
   private gameOverShown: boolean = false;
   private createGame: (seed: bigint) => WasmGame;
 
@@ -31,93 +27,82 @@ export class GameLoop {
     this.input = new InputHandler();
     this.ui = ui;
     this.createGame = createGame;
+
+    this.input.onAction = (action) => this.handleAction(action);
   }
 
   start(): void {
-    const loop = (timestamp: number) => {
-      this.update(timestamp);
-      this.render();
-      requestAnimationFrame(loop);
-    };
-    requestAnimationFrame(loop);
+    this.ui.update(this.game);
+    this.renderer.render(this.game);
   }
 
-  private update(timestamp: number): void {
-    const phase = this.game.get_phase();
-
-    // Handle input
-    const actions = this.input.consumeJustPressed();
-    for (const action of actions) {
-      switch (action) {
-        case "toggle_ai":
-          this.aiMode = !this.aiMode;
-          this.ui.setAIStatus(this.aiMode);
-          break;
-        case "restart":
-          this.restart();
-          return;
-      }
-
-      if (phase === PHASE_GAME_OVER) continue;
-
-      if (!this.aiMode) {
-        switch (action) {
-          case "move_left":
-            this.game.move_left();
-            break;
-          case "move_right":
-            this.game.move_right();
-            break;
-          case "rotate_cw":
-            this.game.rotate_cw();
-            break;
-          case "rotate_ccw":
-            this.game.rotate_ccw();
-            break;
-          case "hard_drop":
-            this.game.hard_drop();
-            break;
-        }
-      }
+  private handleAction(action: string): void {
+    switch (action) {
+      case "step":
+        this.step();
+        break;
+      case "toggle_auto":
+        this.toggleAutoPlay();
+        break;
+      case "restart":
+        this.restart();
+        break;
     }
+  }
 
-    if (phase === PHASE_GAME_OVER) {
+  private step(): void {
+    if (this.game.get_phase() === PHASE_GAME_OVER) {
       if (!this.gameOverShown) {
         this.ui.showGameOver(this.game);
         this.gameOverShown = true;
       }
+      this.stopAutoPlay();
       return;
     }
 
-    // AI mode
-    if (this.aiMode && phase === PHASE_FALLING) {
-      if (timestamp - this.lastAiTime > AI_PLAY_INTERVAL) {
-        this.game.ai_play_move();
-        this.lastAiTime = timestamp;
-      }
-    }
+    this.game.ai_play_move();
 
-    // Gravity
-    if (!this.aiMode && phase === PHASE_FALLING) {
-      const gravity = this.input.isHeld("soft_drop")
-        ? GRAVITY_FAST
-        : GRAVITY_NORMAL;
-      this.game.tick(gravity);
+    if (this.game.get_phase() === PHASE_GAME_OVER) {
+      this.ui.showGameOver(this.game);
+      this.gameOverShown = true;
+      this.stopAutoPlay();
     }
 
     this.ui.update(this.game);
-  }
-
-  private render(): void {
     this.renderer.render(this.game);
   }
 
+  private toggleAutoPlay(): void {
+    if (this.autoPlay) {
+      this.stopAutoPlay();
+    } else {
+      this.startAutoPlay();
+    }
+  }
+
+  private startAutoPlay(): void {
+    if (this.autoPlay) return;
+    this.autoPlay = true;
+    this.ui.setAutoPlayStatus(true);
+    this.autoPlayTimer = window.setInterval(() => this.step(), AUTO_PLAY_INTERVAL);
+  }
+
+  private stopAutoPlay(): void {
+    if (!this.autoPlay) return;
+    this.autoPlay = false;
+    this.ui.setAutoPlayStatus(false);
+    window.clearInterval(this.autoPlayTimer);
+    this.autoPlayTimer = 0;
+  }
+
   private restart(): void {
+    this.stopAutoPlay();
     const seed = BigInt(Date.now());
     this.game.free();
     this.game = this.createGame(seed);
     this.gameOverShown = false;
     this.ui.hideGameOver();
     this.ui.update(this.game);
+    this.renderer.render(this.game);
   }
 }

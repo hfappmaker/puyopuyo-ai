@@ -74,8 +74,8 @@ impl GameState {
         if self.phase != GamePhase::Falling {
             return false;
         }
+        let heights = self.get_column_heights();
         if let Some(ref mut fp) = self.current_piece {
-            let heights = self.get_column_heights();
             fp.try_move_left(&heights)
         } else {
             false
@@ -87,8 +87,8 @@ impl GameState {
         if self.phase != GamePhase::Falling {
             return false;
         }
+        let heights = self.get_column_heights();
         if let Some(ref mut fp) = self.current_piece {
-            let heights = self.get_column_heights();
             fp.try_move_right(&heights)
         } else {
             false
@@ -100,8 +100,8 @@ impl GameState {
         if self.phase != GamePhase::Falling {
             return false;
         }
+        let heights = self.get_column_heights();
         if let Some(ref mut fp) = self.current_piece {
-            let heights = self.get_column_heights();
             fp.try_rotate_cw(&heights)
         } else {
             false
@@ -113,8 +113,8 @@ impl GameState {
         if self.phase != GamePhase::Falling {
             return false;
         }
+        let heights = self.get_column_heights();
         if let Some(ref mut fp) = self.current_piece {
-            let heights = self.get_column_heights();
             fp.try_rotate_ccw(&heights)
         } else {
             false
@@ -137,7 +137,7 @@ impl GameState {
 
     /// Place a piece on the board at the given placement.
     pub fn place_piece(&mut self, piece: &Piece, placement: &Placement) {
-        let (dc, dr) = placement.orientation.offset();
+        let (dc, _dr) = placement.orientation.offset();
 
         match placement.orientation {
             Orientation::North => {
@@ -247,7 +247,7 @@ impl GameState {
                 Orientation::South => {
                     // satellite below: both land based on column heights
                     let sat_land = sat_height;
-                    let axis_land = sat_height + 1; // axis is above satellite
+                    let _axis_land = sat_height + 1; // axis is above satellite
                     // But they're in the same column, so satellite lands first
                     sat_land as f32
                 }

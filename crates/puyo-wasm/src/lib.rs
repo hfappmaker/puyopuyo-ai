@@ -1,6 +1,5 @@
 use wasm_bindgen::prelude::*;
 
-use puyo_core::board::COLS;
 use puyo_core::game::{GamePhase, GameState};
 use puyo_core::piece::Orientation;
 use puyo_ai::search;

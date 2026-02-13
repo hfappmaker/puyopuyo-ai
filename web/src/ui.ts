@@ -4,7 +4,7 @@ export class UI {
   private scoreEl: HTMLElement;
   private chainEl: HTMLElement;
   private piecesEl: HTMLElement;
-  private aiStatusEl: HTMLElement;
+  private autoPlayEl: HTMLElement;
   private gameOverOverlay: HTMLElement;
   private finalScoreEl: HTMLElement;
   private finalChainEl: HTMLElement;
@@ -13,7 +13,7 @@ export class UI {
     this.scoreEl = document.getElementById("score-display")!;
     this.chainEl = document.getElementById("chain-display")!;
     this.piecesEl = document.getElementById("pieces-display")!;
-    this.aiStatusEl = document.getElementById("ai-status")!;
+    this.autoPlayEl = document.getElementById("ai-status")!;
     this.gameOverOverlay = document.getElementById("game-over-overlay")!;
     this.finalScoreEl = document.getElementById("final-score")!;
     this.finalChainEl = document.getElementById("final-chain")!;
@@ -25,9 +25,9 @@ export class UI {
     this.piecesEl.textContent = game.get_total_pieces().toString();
   }
 
-  setAIStatus(active: boolean): void {
-    this.aiStatusEl.textContent = active ? "AI: ON" : "AI: OFF";
-    this.aiStatusEl.className = active ? "active" : "inactive";
+  setAutoPlayStatus(active: boolean): void {
+    this.autoPlayEl.textContent = active ? "自動再生: ON" : "自動再生: OFF";
+    this.autoPlayEl.className = active ? "active" : "inactive";
   }
 
   showGameOver(game: WasmGame): void {

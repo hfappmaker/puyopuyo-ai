@@ -1,4 +1,3 @@
-use crate::board::PuyoColor;
 use crate::chain::Group;
 
 /// Chain power table (standard Puyo Puyo rules).
@@ -54,6 +53,7 @@ pub fn calculate_step_score(chain_num: u32, groups: &[Group]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::board::PuyoColor;
 
     fn make_group(color: PuyoColor, count: usize) -> Group {
         let cells: Vec<(usize, usize)> = (0..count).map(|i| (0, i)).collect();

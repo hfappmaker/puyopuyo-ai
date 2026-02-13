@@ -4,7 +4,11 @@
       "WebFetch(domain:puyonexus.com)",
       "Bash(cargo test:*)",
       "Bash(where:*)",
-      "Bash(where.exe:*)"
+      "Bash(where.exe:*)",
+      "Bash(cargo build:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite:*)",
+      "Bash(curl:*)"
     ]
   }
 }

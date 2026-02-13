@@ -156,67 +156,24 @@ mod tests {
 
     #[test]
     fn test_two_chain() {
-        let mut board = Board::new();
-        // Set up a 2-chain:
-        // Col 0: Blue Blue Blue Blue (will be exposed after Red clears)
-        // Col 0-3: Red at row 4 (on top of blues)
-        // Actually let's do it properly:
-        // Bottom layer: 4 blue in col 0
-        for _ in 0..4 {
-            board.drop_puyo(0, PuyoColor::Blue);
-        }
-        // Red on top spanning cols 0-3 at the bottom
-        // Let me redo: simpler 2-chain
-        let mut board = Board::new();
-        // Col 0: R R R B
-        // Col 1: B B B B  <- will clear when gravity drops B from col 0
-        // No, let me think more carefully.
-
         // 2-chain: first clear triggers gravity which creates second clear.
-        // Col 0: G G G
-        // Col 1: G R R R
-        // Col 2: R
-        // Col 3: R
-        // When 4 R clears (row 0 of cols 1,2,3 + ?), then G falls...
-        // Simpler approach:
-        // Col 0 bottom-up: B B B R R R R
-        // Clear: 4 R clears (rows 3-6), then B B B falls, but only 3 B's - not enough.
-        // Need to set up properly:
-
-        // Vertical 2-chain:
-        // Col 0: B B B   (rows 0,1,2)
-        // Col 1: B R R R R (rows 0,1,2,3,4) - wait cols don't work like that
-        // Let me just use a known working pattern:
-        // Col 0 bottom: R R R, on top: G G G G  <- when G clears, nothing new
-        // That's just 1 chain.
-
-        // Real 2-chain: after first clear, gravity makes new group of 4.
-        // Col 0: B B B (rows 0,1,2)
-        // Col 1: B     (row 0)
-        // On top of col 0's B B B, put R R R R vertically (rows 3,4,5,6)
-        // After R clears, nothing new happens. Not a 2-chain.
-
-        // Proper 2-chain:
-        // Col 0: R R R   (rows 0,1,2)
-        // Col 1: G R     (rows 0,1)
-        // Col 2: G       (row 0)
-        // Col 3: G       (row 0)
-        // Col 4: G       (row 0) - now 4 G's? No, (1,0),(2,0),(3,0),(4,0) = 4 G's horizontal
-        // But also need R to chain. Let me just use:
-
-        // Set up: 4 Red in a column clears, then 4 Blue are exposed
-        // Col 0: B B B B R R R R  (blue at bottom, red on top)
-        // Red (rows 4,5,6,7) clears -> board has B B B B which is 4 -> clears = 2 chain!
+        // Col 0: B B B  (rows 0,1,2) — only 3 blues, not clearable yet
+        // Col 1: R R R R (rows 0,1,2,3) — 4 reds, clearable
+        // Col 1: B       (row 4, on top of reds) — after reds clear, B falls to row 0
+        // After chain 1: Col 0 has B at (0,0),(0,1),(0,2) and Col 1 has B at (1,0)
+        // = 4 connected blues → chain 2!
         let mut board = Board::new();
-        for _ in 0..4 {
+        for _ in 0..3 {
             board.drop_puyo(0, PuyoColor::Blue);
         }
         for _ in 0..4 {
-            board.drop_puyo(0, PuyoColor::Red);
+            board.drop_puyo(1, PuyoColor::Red);
         }
+        board.drop_puyo(1, PuyoColor::Blue);
         let result = resolve_chains(&mut board);
         assert_eq!(result.chain_count, 2);
         assert_eq!(board.column_height(0), 0);
+        assert_eq!(board.column_height(1), 0);
     }
 
     #[test]

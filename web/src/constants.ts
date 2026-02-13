@@ -30,8 +30,6 @@ export const PUYO_HIGHLIGHT: Record<number, string> = {
 };
 
 // Game phases
-export const PHASE_FALLING = 0;
-export const PHASE_RESOLVING = 1;
 export const PHASE_GAME_OVER = 2;
 
 // Orientation offsets (matching Rust)
@@ -42,7 +40,3 @@ export const ORIENTATION_OFFSETS: [number, number][] = [
   [-1, 0],  // West: satellite left
 ];
 
-// Game speed
-export const GRAVITY_NORMAL = 0.05;  // cells per frame
-export const GRAVITY_FAST = 1.0;     // cells per frame (soft drop)
-export const AI_PLAY_INTERVAL = 200; // ms between AI moves

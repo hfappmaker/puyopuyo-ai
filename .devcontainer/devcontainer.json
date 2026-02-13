@@ -9,7 +9,8 @@
         "rust-lang.rust-analyzer",
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode",
-        "Anthropic.claude-code"
+        "Anthropic.claude-code",
+        "bierner.markdown-mermaid"
       ]
     }
   },

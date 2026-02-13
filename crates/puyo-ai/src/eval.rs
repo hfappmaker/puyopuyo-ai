@@ -1,4 +1,4 @@
-use puyo_core::board::{Board, PuyoColor, COLS, ROWS, VISIBLE_ROWS};
+use puyo_core::board::{Board, COLS, ROWS};
 use puyo_core::chain;
 
 /// Evaluation weights.
@@ -156,6 +156,7 @@ fn count_center_weight(board: &Board) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use puyo_core::board::{PuyoColor, VISIBLE_ROWS};
 
     #[test]
     fn test_empty_board_eval() {

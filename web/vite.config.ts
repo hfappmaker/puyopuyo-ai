@@ -7,4 +7,9 @@ export default defineConfig({
   build: {
     target: "esnext",
   },
+  server: {
+    fs: {
+      allow: [".", "../crates/puyo-wasm/pkg"],
+    },
+  },
 });
