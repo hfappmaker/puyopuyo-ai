@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "crates/puyo-core",
+    "crates/puyo-ai",
+    "crates/puyo-wasm",
+]
+resolver = "2"

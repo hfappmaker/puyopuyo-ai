@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ぷよぷよ AI - とことんモード</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      background: #1a1a2e;
+      color: #eee;
+      font-family: 'Segoe UI', 'Hiragino Sans', sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+    #app {
+      display: flex;
+      gap: 24px;
+      align-items: flex-start;
+    }
+    canvas {
+      border: 2px solid #444;
+      border-radius: 4px;
+    }
+    #sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-width: 160px;
+    }
+    .panel {
+      background: #16213e;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .panel h3 {
+      font-size: 12px;
+      color: #888;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .panel .value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #e94560;
+    }
+    #next-canvas {
+      border: none;
+    }
+    #controls {
+      font-size: 11px;
+      color: #666;
+      line-height: 1.6;
+    }
+    #ai-status {
+      font-size: 14px;
+      font-weight: bold;
+      color: #0f3460;
+      padding: 6px 12px;
+      border-radius: 4px;
+      text-align: center;
+    }
+    #ai-status.active {
+      background: #e94560;
+      color: #fff;
+    }
+    #ai-status.inactive {
+      background: #333;
+      color: #888;
+    }
+    #game-over-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.7);
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+    }
+    #game-over-overlay.show {
+      display: flex;
+    }
+    #game-over-box {
+      background: #16213e;
+      border: 2px solid #e94560;
+      border-radius: 12px;
+      padding: 32px;
+      text-align: center;
+    }
+    #game-over-box h2 {
+      color: #e94560;
+      font-size: 32px;
+      margin-bottom: 16px;
+    }
+    #game-over-box p {
+      margin-bottom: 8px;
+    }
+    #game-over-box .restart-hint {
+      margin-top: 16px;
+      color: #888;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <canvas id="board-canvas" width="240" height="480"></canvas>
+    <div id="sidebar">
+      <div class="panel">
+        <h3>NEXT</h3>
+        <canvas id="next-canvas" width="80" height="80"></canvas>
+      </div>
+      <div class="panel">
+        <h3>スコア</h3>
+        <div class="value" id="score-display">0</div>
+      </div>
+      <div class="panel">
+        <h3>最大連鎖</h3>
+        <div class="value" id="chain-display">0</div>
+      </div>
+      <div class="panel">
+        <h3>ぷよ数</h3>
+        <div class="value" id="pieces-display">0</div>
+      </div>
+      <div id="ai-status" class="inactive">AI: OFF</div>
+      <div id="controls" class="panel">
+        <h3>操作</h3>
+        ← → 移動<br>
+        ↑ / X 右回転<br>
+        Z 左回転<br>
+        ↓ 高速落下<br>
+        Space ハードドロップ<br>
+        A AIモード切替<br>
+        R リスタート
+      </div>
+    </div>
+  </div>
+  <div id="game-over-overlay">
+    <div id="game-over-box">
+      <h2>GAME OVER</h2>
+      <p>スコア: <span id="final-score">0</span></p>
+      <p>最大連鎖: <span id="final-chain">0</span></p>
+      <p class="restart-hint">Rキーでリスタート</p>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

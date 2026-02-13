@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:puyonexus.com)",
+      "Bash(cargo test:*)",
+      "Bash(where:*)",
+      "Bash(where.exe:*)"
+    ]
+  }
+}
