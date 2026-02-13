@@ -8,7 +8,8 @@
       "Bash(cargo build:*)",
       "Bash(npx tsc:*)",
       "Bash(npx vite:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(grep:*)"
     ]
   }
 }

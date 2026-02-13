@@ -1,4 +1,4 @@
-export type InputAction = "step" | "toggle_auto" | "restart";
+export type InputAction = "next_move" | "toggle_auto" | "restart";
 
 export class InputHandler {
   onAction: ((action: InputAction) => void) | null = null;
@@ -19,7 +19,7 @@ export class InputHandler {
     switch (e.code) {
       case "Space":
       case "ArrowRight":
-        return "step";
+        return "next_move";
       case "KeyA":
         return "toggle_auto";
       case "KeyR":

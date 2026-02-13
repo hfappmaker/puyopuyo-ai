@@ -32,6 +32,10 @@ export const PUYO_HIGHLIGHT: Record<number, string> = {
 // Game phases
 export const PHASE_GAME_OVER = 2;
 
+// Animation
+export const DROP_SPEED = 3.0;      // cells per second
+export const AUTO_PLAY_DELAY = 300; // ms between auto-play moves
+
 // Orientation offsets (matching Rust)
 export const ORIENTATION_OFFSETS: [number, number][] = [
   [0, 1],   // North: satellite above
