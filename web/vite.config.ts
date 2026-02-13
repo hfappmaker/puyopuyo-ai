@@ -8,6 +8,7 @@ export default defineConfig({
     target: "esnext",
   },
   server: {
+    host: true,
     fs: {
       allow: [".", "wasm-pkg"],
     },

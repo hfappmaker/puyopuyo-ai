@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl:*)",
+      "Bash(node:*)",
+      "Bash(npx tsc:*)",
+      "Bash(fuser:*)",
+      "Bash(ss:*)"
+    ]
+  }
+}
