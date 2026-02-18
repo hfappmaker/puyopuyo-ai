@@ -18,6 +18,11 @@ web/dist/
 # Claude Code (personal settings)
 .claude/settings.local.json
 
+# Environment variables (secrets)
+.env
+**/.env
+**/.env.*
+
 # OS
 .DS_Store
 Thumbs.db

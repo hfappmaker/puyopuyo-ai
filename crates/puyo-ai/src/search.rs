@@ -189,7 +189,6 @@ mod tests {
         let result = find_best_move(&board, &piece, &next, &evaluator);
         assert!(result.is_some());
         // The AI should place the red at column 0 to complete the chain
-        let r = result.unwrap();
         // With North orientation, axis at col 0 means red goes to col 0
         // (axis_color = Red, col = 0 with various orientations could work)
         // We just verify it found a move; exact placement depends on eval weights

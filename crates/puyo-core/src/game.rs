@@ -339,7 +339,6 @@ mod tests {
     #[test]
     fn test_hard_drop_and_next() {
         let mut game = GameState::new(42);
-        let first_next = game.next_piece;
         game.hard_drop();
         // After hard drop, current piece should be what was next
         if game.phase == GamePhase::Falling {

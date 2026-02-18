@@ -3,6 +3,7 @@
   "build": {
     "dockerfile": "Dockerfile"
   },
+  "runArgs": ["--env-file", ".devcontainer/.env"],
   "customizations": {
     "vscode": {
       "extensions": [
@@ -15,5 +16,5 @@
     }
   },
   "forwardPorts": [5173],
-  "postCreateCommand": "bash scripts/build-wasm.sh"
+  "postCreateCommand": "bash scripts/build-wasm.sh && bash scripts/setup-claude-plugins.sh"
 }
