@@ -204,7 +204,7 @@ fn main() {
         }
 
         println!(
-            "Game {:<4}/{}: max_chain={:2}, moves={:2}, eps={:.3}, {}",
+            "Game {:4}/{}: max_chain={:2}, moves={:2}, eps={:.3}, {}",
             game_idx + 1,
             NUM_GAMES,
             game.max_chain,
