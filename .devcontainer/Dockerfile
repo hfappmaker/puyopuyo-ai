@@ -4,10 +4,11 @@ FROM rust:latest
 RUN rustup target add wasm32-unknown-unknown \
     && cargo install wasm-pack
 
-# Install Node.js 20 LTS
+# Install Node.js 20 LTS and Git LFS
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && npm install -g npm@latest
+    && apt-get install -y nodejs git-lfs \
+    && npm install -g npm@latest \
+    && git lfs install
 
 # Install Claude Code globally
 RUN curl -fsSL https://claude.ai/install.sh | bash
