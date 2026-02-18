@@ -87,7 +87,7 @@ pub fn evaluate_placement(board: &Board) -> f64 {
 }
 
 /// Count same-color adjacent pairs (horizontal and vertical).
-fn count_connectivity(board: &Board) -> u32 {
+pub fn count_connectivity(board: &Board) -> u32 {
     let mut count = 0;
     for col in 0..COLS {
         for row in 0..ROWS {
@@ -109,7 +109,7 @@ fn count_connectivity(board: &Board) -> u32 {
 }
 
 /// Count groups of exactly 3 same-color connected puyos (potential chains).
-fn count_potential_chains(board: &Board) -> u32 {
+pub fn count_potential_chains(board: &Board) -> u32 {
     let mut visited = [[false; ROWS]; COLS];
     let mut count = 0;
 

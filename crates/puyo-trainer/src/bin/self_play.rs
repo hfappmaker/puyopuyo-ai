@@ -8,7 +8,7 @@ use burn::optim::{AdamConfig, GradientsParams, Optimizer};
 use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 
-use puyo_ai::eval::Evaluator;
+use puyo_ai::eval::{count_connectivity, count_potential_chains, Evaluator};
 use puyo_ai::search;
 use puyo_core::board::Board;
 use puyo_core::game::{GamePhase, GameState};
@@ -36,7 +36,8 @@ const EPSILON_END: f32 = 0.01;
 const TARGET_UPDATE_INTERVAL: u64 = 50;
 const MAX_MOVES_PER_GAME: u32 = 50;
 const GAME_OVER_PENALTY: f32 = -100.0;
-const FLATNESS_WEIGHT: f32 = -0.3;
+const CONNECTIVITY_WEIGHT: f32 = 0.1;
+const POTENTIAL_CHAIN_WEIGHT: f32 = 0.5;
 
 /// NN-based evaluator for self-play search.
 struct SelfPlayEvaluator<'a> {
@@ -61,11 +62,11 @@ impl<'a> Evaluator for SelfPlayEvaluator<'a> {
     }
 }
 
-/// Compute height variance of the board (lower = flatter = better).
-fn compute_height_variance(board: &Board) -> f32 {
-    let heights: Vec<f32> = (0..COLS).map(|c| board.column_height(c) as f32).collect();
-    let avg = heights.iter().sum::<f32>() / COLS as f32;
-    heights.iter().map(|&h| (h - avg).powi(2)).sum::<f32>() / COLS as f32
+/// Compute shaping reward for a board state (encourages connectivity and potential chains).
+fn compute_shaping_reward(board: &Board) -> f32 {
+    let connectivity = count_connectivity(board) as f32;
+    let potential = count_potential_chains(board) as f32;
+    CONNECTIVITY_WEIGHT * connectivity + POTENTIAL_CHAIN_WEIGHT * potential
 }
 
 fn main() {
@@ -154,8 +155,8 @@ fn main() {
 
             move_count += 1;
             let chain_reward = (chain_result.chain_count as f32).powi(2);
-            let flatness_penalty = FLATNESS_WEIGHT * compute_height_variance(&game.board);
-            trajectory.push((board_data, chain_reward + flatness_penalty));
+            let shaping_reward = compute_shaping_reward(&game.board);
+            trajectory.push((board_data, chain_reward + shaping_reward));
         }
 
         let is_game_over = game.board.is_game_over();
@@ -164,36 +165,22 @@ fn main() {
             continue;
         }
 
-        // TD(0) update for each transition
+        // Monte Carlo: compute discounted returns from the end of the episode
         let num_steps = trajectory.len();
+        let mut returns = vec![0.0f32; num_steps];
+        let terminal_bonus = if is_game_over { GAME_OVER_PENALTY } else { 0.0 };
+        let mut running_return = terminal_bonus;
+        for t in (0..num_steps).rev() {
+            let (_, reward) = &trajectory[t];
+            running_return = reward + GAMMA * running_return;
+            returns[t] = running_return;
+        }
+
+        // Update model for each step using Monte Carlo return as target
         for t in 0..num_steps {
-            let (board_data, reward) = &trajectory[t];
-            let reward = *reward;
+            let (board_data, _) = &trajectory[t];
+            let mc_target = (returns[t] - mean) / std_dev;
 
-            // Compute TD target
-            let td_target = if t + 1 < num_steps {
-                let (next_board_data, _) = &trajectory[t + 1];
-                let next_tensor = Tensor::<InferBackend, 1>::from_floats(
-                    next_board_data.as_slice(),
-                    &infer_device,
-                )
-                .reshape([1, NUM_CHANNELS, ROWS, COLS]);
-                let next_val = target_model.forward(next_tensor);
-                let next_val_scalar = next_val.into_data().to_vec::<f32>().unwrap()[0];
-                let next_denorm = next_val_scalar * std_dev + mean;
-                // Normalize the TD target
-                ((reward + GAMMA * next_denorm) - mean) / std_dev
-            } else {
-                // Terminal state — penalize game over
-                let terminal_reward = if is_game_over {
-                    reward + GAME_OVER_PENALTY
-                } else {
-                    reward
-                };
-                (terminal_reward - mean) / std_dev
-            };
-
-            // Forward pass on training model
             let input = Tensor::<TrainBackend, 1>::from_floats(
                 board_data.as_slice(),
                 &device,
@@ -202,7 +189,7 @@ fn main() {
             let prediction = model.forward(input);
 
             let target = Tensor::<TrainBackend, 1>::from_floats(
-                [td_target].as_slice(),
+                [mc_target].as_slice(),
                 &device,
             )
             .reshape([1, 1]);
@@ -211,7 +198,6 @@ fn main() {
             let diff = prediction - target;
             let loss = diff.clone().mul(diff).mean();
 
-            // Update
             let grads = loss.backward();
             let grads = GradientsParams::from_grads(grads, &model);
             model = optim.step(LEARNING_RATE, model, grads);
