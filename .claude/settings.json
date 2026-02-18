@@ -1,12 +1,12 @@
 {
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
   "permissions": {
     "deny": [
       "Read(//**/.env)",
       "Read(//**/.env.*)"
     ]
-  },
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": true,

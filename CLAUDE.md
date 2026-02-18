@@ -1,37 +1,79 @@
-# Puyo Puyo AI
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 日本語でコミュニケーションすること。
 
+## ビルド・テスト
+
+```bash
+cargo build                          # Rustビルド（全クレート）
+cargo test --workspace               # 全テスト実行
+cargo test -p puyo-core              # 単一クレートのテスト
+cargo test -p puyo-ai test_name      # 単一テスト実行
+bash scripts/build-wasm.sh           # WASMビルド（テスト→WASM→npm install）
+cd web && npm run dev                # フロントエンド開発サーバー
+cd web && npm run build              # フロントエンドプロダクションビルド（tsc + vite build）
+```
+
+WASMの手動ビルド: `wasm-pack build crates/puyo-wasm --target web --out-dir ../../web/wasm-pkg`
+
+Rust側を変更したらWASM再ビルドが必要。Viteキャッシュが残る場合は `rm -rf web/node_modules/.vite`。
+
 ## プロジェクト構造
-- Rustワークスペース: `puyo-core`, `puyo-ai`, `puyo-nn`, `puyo-trainer`, `puyo-wasm`
-- フロントエンド: TypeScript + Vite (`web/`)
-- WASMブリッジでRust AIをブラウザに接続
 
-## アーキテクチャ
-- **Evaluator trait** (`puyo-ai/src/eval.rs`): ヒューリスティック/NN評価の多態性
-- **Feature flag** `nn` (`puyo-ai`): NN依存を制御
-- **Burn 0.16**: NNフレームワーク（NdArrayバックエンド、CPU/WASM対応）
-- **BinFileRecorder**: モデル保存用 / **BinBytesRecorder**: WASMでのバイト読み込み用
+Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド（`web/`）。
 
-## ボード表現
-- One-hot: 5チャンネル (Empty, Red, Green, Blue, Yellow) × 13行 × 6列 = 390 floats
-- CNN: Conv2d×3 → AdaptiveAvgPool2d → Linear×2 → スカラー値
+| クレート | 役割 |
+|---------|------|
+| `puyo-core` | ゲームエンジン（Board, GameState, Piece, Chain, Score, RNG） |
+| `puyo-ai` | AI探索・評価（Evaluator trait, search_depth1/depth2, find_best_move） |
+| `puyo-nn` | CNN評価ネットワーク（PuyoValueNet, one-hot encoding） |
+| `puyo-trainer` | 学習パイプライン（3つのバイナリ: generate-data, train, self-play） |
+| `puyo-wasm` | WASMブリッジ（wasm-bindgen, WasmGame struct） |
 
-## 学習パイプライン
-- `generate-data`: ヒューリスティックAIで10Kゲーム → ~1Mサンプル (`data/training_data.bin`)
-- `train`: 教師あり学習、MSE損失（連鎖数予測、z-scoreで正規化）
+依存方向: `puyo-core` ← `puyo-ai` ← `puyo-wasm`、`puyo-core` ← `puyo-nn` ← `puyo-trainer`
+
+## アーキテクチャの要点
+
+### Evaluator trait（多態性の中心）
+`puyo-ai/src/eval.rs`の`Evaluator`トレイト（`evaluate(&Board) -> f64`）がAIの核。
+- `HeuristicEvaluator`: 7つの重み付き特徴量（連鎖スコア、高さペナルティ、連結度など）
+- `NnEvaluator`（`puyo-ai/src/nn_eval.rs`、`nn` feature flag有効時のみ）: CNNで盤面評価
+
+### Feature flag `nn`
+`puyo-ai`の`nn`フィーチャーフラグでNN依存を制御。`puyo-wasm`は`nn`を有効にしてビルド。
+`nn`無しでは`nn_eval`モジュールと`burn`依存がコンパイルから除外される。
+
+### ボード表現とCNN
+- ボード: 6列×13行、`PuyoColor` enum（Empty, Red, Green, Blue, Yellow）
+- One-hot encoding: 5チャンネル × 13行 × 6列 = 390 floats → `[batch, 5, 13, 6]` テンソル
+- PuyoValueNet: Conv2d(5→32)→Conv2d(32→32)→Conv2d(32→64)→AdaptiveAvgPool2d([4,3])→Linear(768→128)→Linear(128→1)
+- Burn 0.16、NdArrayバックエンド（CPU/WASM対応）
+
+### WASMブリッジ
+`WasmGame`構造体が`GameState`と`Box<dyn Evaluator>`を保持。
+`load_nn_model()`でNNモデルをバイト列から読み込み（`BinBytesRecorder`使用）、`use_heuristic()`でヒューリスティックに切替。
+
+### 学習パイプライン
+- `generate-data`: ヒューリスティックAIで~10Kゲーム → ~1Mサンプル（`data/training_data.bin`）
+- `train`: 教師あり学習、MSE損失、z-score正規化（連鎖数予測）
 - `self-play`: TD(0) + ターゲットネットワークで強化学習
 - 正規化パラメータ: `artifacts/norm_params.txt`
 - 評価値 = 連鎖数（スコアや生存ではない）
 
+### フロントエンド（web/src/）
+- `main.ts`: エントリポイント、AI モード切替（heuristic/NN）
+- `game-loop.ts`: ゲームループ管理（入力・描画・状態管理）
+- `renderer.ts`: Canvas描画（目付きぷよ・ゴースト・落下アニメ）
+- `model-loader.ts`: NNモデル読み込み（`web/public/models/`から）
+- `wasm.ts` / `types.ts`: WASMモジュールローダーと型定義
+
 ## モデルファイル
-- `artifacts/puyo_model.bin` (~500KB): 学習済みモデル
+
+- `artifacts/puyo_model.bin` (~500KB): 学習済みモデル（`BinFileRecorder`形式）
 - `web/public/models/`: ブラウザ用デプロイ先
 
-## ビルド・テスト
-```bash
-cargo build                    # Rustビルド
-cargo test                     # テスト
-bash scripts/build-wasm.sh     # WASMビルド
-cd web && npm run dev          # フロントエンド開発サーバー
-```
+## 仕様書
+
+詳細な仕様は `docs/spec/` 配下（00〜13の各ドキュメント）を参照。
