@@ -1,3 +1,6 @@
+#[cfg(feature = "gpu")]
+use burn::backend::CudaJit;
+#[cfg(not(feature = "gpu"))]
 use burn::backend::ndarray::NdArray;
 use burn::backend::Autodiff;
 use burn::module::AutodiffModule;
@@ -10,17 +13,24 @@ use puyo_nn::model::PuyoValueNetConfig;
 use puyo_trainer::data::Dataset;
 use puyo_core::board::{COLS, ROWS};
 
+#[cfg(feature = "gpu")]
+type TrainBackend = Autodiff<CudaJit<f32>>;
+#[cfg(not(feature = "gpu"))]
 type TrainBackend = Autodiff<NdArray>;
 
 const DATA_PATH: &str = "data/training_data.bin";
 const MODEL_PATH: &str = "artifacts/puyo_model";
-const BATCH_SIZE: usize = 256;
+const BATCH_SIZE: usize = 512;
 const NUM_EPOCHS: usize = 20;
 const LEARNING_RATE: f64 = 1e-3;
-const MAX_TRAIN_SAMPLES: usize = 100_000;
 
 fn main() {
     std::fs::create_dir_all("artifacts").expect("Failed to create artifacts directory");
+
+    #[cfg(feature = "gpu")]
+    println!("Backend: CUDA (GPU)");
+    #[cfg(not(feature = "gpu"))]
+    println!("Backend: NdArray (CPU)");
 
     let device = Default::default();
 
@@ -30,14 +40,10 @@ fn main() {
     let num_samples = dataset.samples.len();
     println!("Loaded {} samples", num_samples);
 
-    // Subsample for CPU training speed
-    let used_samples = num_samples.min(MAX_TRAIN_SAMPLES);
-    println!("Using {} samples (of {})", used_samples, num_samples);
-
-    // Split into train/val (90/10)
-    let split = (used_samples as f64 * 0.9) as usize;
+    // Split into train/val (90/10) — use full dataset on GPU
+    let split = (num_samples as f64 * 0.9) as usize;
     let train_samples = &dataset.samples[..split];
-    let val_samples = &dataset.samples[split..used_samples];
+    let val_samples = &dataset.samples[split..];
     println!("Train: {}, Val: {}", train_samples.len(), val_samples.len());
 
     // Compute normalization stats on training set
@@ -62,9 +68,8 @@ fn main() {
         let mut epoch_loss = 0.0f32;
         let mut num_batches = 0;
 
-        // Shuffle indices (simple deterministic shuffle)
+        // Shuffle indices
         let mut indices: Vec<usize> = (0..train_samples.len()).collect();
-        // Fisher-Yates shuffle using epoch as seed
         let mut rng_state = epoch as u64 + 42;
         for i in (1..indices.len()).rev() {
             rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
@@ -86,7 +91,6 @@ fn main() {
             for &idx in &indices[batch_start..batch_end] {
                 let sample = &train_samples[idx];
                 input_data.extend_from_slice(&sample.board_data);
-                // Normalize target
                 target_data.push((sample.target - mean) / std_dev);
             }
 
@@ -142,7 +146,7 @@ fn main() {
     }
 
     // Save model
-    let model_valid = model.valid(); // Remove autodiff
+    let model_valid = model.valid();
     model_valid
         .save_file(MODEL_PATH, &BinFileRecorder::<FullPrecisionSettings>::new())
         .expect("Failed to save model");

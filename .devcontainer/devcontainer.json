@@ -3,7 +3,17 @@
   "build": {
     "dockerfile": "Dockerfile"
   },
-  "runArgs": ["--env-file", ".devcontainer/.env"],
+  "hostRequirements": {
+    "gpu": "optional"
+  },
+  "runArgs": [
+    "--env-file", ".devcontainer/.env",
+    "--gpus", "all"
+  ],
+  "containerEnv": {
+    "NVIDIA_VISIBLE_DEVICES": "all",
+    "NVIDIA_DRIVER_CAPABILITIES": "compute,utility"
+  },
   "customizations": {
     "vscode": {
       "extensions": [

@@ -1,3 +1,6 @@
+#[cfg(feature = "gpu")]
+use burn::backend::CudaJit;
+#[cfg(not(feature = "gpu"))]
 use burn::backend::ndarray::NdArray;
 use burn::backend::Autodiff;
 use burn::module::AutodiffModule;
@@ -13,12 +16,19 @@ use puyo_nn::encoding::{board_to_tensor_data, NUM_CHANNELS, TENSOR_SIZE};
 use puyo_nn::model::{PuyoValueNet, PuyoValueNetConfig};
 use puyo_core::board::{COLS, ROWS};
 
+#[cfg(feature = "gpu")]
+type TrainBackend = Autodiff<CudaJit<f32>>;
+#[cfg(not(feature = "gpu"))]
 type TrainBackend = Autodiff<NdArray>;
+
+#[cfg(feature = "gpu")]
+type InferBackend = CudaJit<f32>;
+#[cfg(not(feature = "gpu"))]
 type InferBackend = NdArray;
 
 const MODEL_PATH: &str = "artifacts/puyo_model";
 const OUTPUT_PATH: &str = "artifacts/puyo_model_selfplay";
-const NUM_GAMES: u64 = 100;
+const NUM_GAMES: u64 = 500;
 const GAMMA: f32 = 0.99;
 const LEARNING_RATE: f64 = 1e-4;
 const EPSILON_START: f32 = 0.1;
@@ -58,6 +68,11 @@ fn compute_height_variance(board: &Board) -> f32 {
 }
 
 fn main() {
+    #[cfg(feature = "gpu")]
+    println!("Backend: CUDA (GPU)");
+    #[cfg(not(feature = "gpu"))]
+    println!("Backend: NdArray (CPU)");
+
     let device: <TrainBackend as Backend>::Device = Default::default();
     let infer_device: <InferBackend as Backend>::Device = Default::default();
 
@@ -90,7 +105,7 @@ fn main() {
         let epsilon = EPSILON_START
             + (EPSILON_END - EPSILON_START) * (game_idx as f32 / NUM_GAMES as f32);
 
-        let seed = 100_000 + game_idx; // Different seeds from training data
+        let seed = 100_000 + game_idx;
         let mut game = GameState::new(seed);
 
         // Collect trajectory: (board_data, reward)
@@ -208,7 +223,6 @@ fn main() {
 
         // Update target network periodically
         if (game_idx + 1) % TARGET_UPDATE_INTERVAL == 0 {
-            // Save current model and reload as target
             let valid_model = model.valid();
             valid_model
                 .save_file("/tmp/puyo_temp_model", &BinFileRecorder::<FullPrecisionSettings>::new())
