@@ -24,6 +24,8 @@ const LEARNING_RATE: f64 = 1e-4;
 const EPSILON_START: f32 = 0.1;
 const EPSILON_END: f32 = 0.01;
 const TARGET_UPDATE_INTERVAL: u64 = 50;
+const GAME_OVER_PENALTY: f32 = -100.0;
+const FLATNESS_WEIGHT: f32 = -0.3;
 
 /// NN-based evaluator for self-play search.
 struct SelfPlayEvaluator<'a> {
@@ -46,6 +48,13 @@ impl<'a> Evaluator for SelfPlayEvaluator<'a> {
         // Denormalize
         (normalized * self.std_dev + self.mean) as f64
     }
+}
+
+/// Compute height variance of the board (lower = flatter = better).
+fn compute_height_variance(board: &Board) -> f32 {
+    let heights: Vec<f32> = (0..COLS).map(|c| board.column_height(c) as f32).collect();
+    let avg = heights.iter().sum::<f32>() / COLS as f32;
+    heights.iter().map(|&h| (h - avg).powi(2)).sum::<f32>() / COLS as f32
 }
 
 fn main() {
@@ -84,8 +93,9 @@ fn main() {
         let seed = 100_000 + game_idx; // Different seeds from training data
         let mut game = GameState::new(seed);
 
-        // Collect trajectory: (board_data, chain_count)
-        let mut trajectory: Vec<([f32; TENSOR_SIZE], u32)> = Vec::new();
+        // Collect trajectory: (board_data, reward)
+        let mut trajectory: Vec<([f32; TENSOR_SIZE], f32)> = Vec::new();
+        let mut game_chain_total = 0u32;
 
         while game.phase == GamePhase::Falling {
             let current_piece = match &game.current_piece {
@@ -128,8 +138,13 @@ fn main() {
                 }
             };
 
-            trajectory.push((board_data, chain_result.chain_count));
+            game_chain_total += chain_result.chain_count;
+            let chain_reward = (chain_result.chain_count as f32).powi(2);
+            let flatness_penalty = FLATNESS_WEIGHT * compute_height_variance(&game.board);
+            trajectory.push((board_data, chain_reward + flatness_penalty));
         }
+
+        let is_game_over = game.board.is_game_over();
 
         if trajectory.is_empty() {
             continue;
@@ -138,8 +153,8 @@ fn main() {
         // TD(0) update for each transition
         let num_steps = trajectory.len();
         for t in 0..num_steps {
-            let (board_data, chain_count) = &trajectory[t];
-            let reward = *chain_count as f32;
+            let (board_data, reward) = &trajectory[t];
+            let reward = *reward;
 
             // Compute TD target
             let td_target = if t + 1 < num_steps {
@@ -155,8 +170,13 @@ fn main() {
                 // Normalize the TD target
                 ((reward + GAMMA * next_denorm) - mean) / std_dev
             } else {
-                // Terminal state
-                (reward - mean) / std_dev
+                // Terminal state — penalize game over
+                let terminal_reward = if is_game_over {
+                    reward + GAME_OVER_PENALTY
+                } else {
+                    reward
+                };
+                (terminal_reward - mean) / std_dev
             };
 
             // Forward pass on training model
@@ -183,7 +203,7 @@ fn main() {
             model = optim.step(LEARNING_RATE, model, grads);
         }
 
-        total_chains += trajectory.iter().map(|(_, c)| *c as u64).sum::<u64>();
+        total_chains += game_chain_total as u64;
         total_max_chain = total_max_chain.max(game.max_chain);
 
         // Update target network periodically
