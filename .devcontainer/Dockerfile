@@ -20,6 +20,7 @@ RUN apt-get update -o Acquire::AllowInsecureRepositories=true \
     cuda-compiler-12-4 \
     libcublas-dev-12-4 \
     cuda-cudart-dev-12-4 \
+    cuda-nvrtc-12-4 \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/usr/local/cuda-12.4/bin:${PATH}"
