@@ -18,12 +18,12 @@ type InferBackend = NdArray;
 
 const MODEL_PATH: &str = "artifacts/puyo_model";
 const OUTPUT_PATH: &str = "artifacts/puyo_model_selfplay";
-const NUM_GAMES: u64 = 5_000;
+const NUM_GAMES: u64 = 100;
 const GAMMA: f32 = 0.99;
 const LEARNING_RATE: f64 = 1e-4;
 const EPSILON_START: f32 = 0.1;
 const EPSILON_END: f32 = 0.01;
-const TARGET_UPDATE_INTERVAL: u64 = 500;
+const TARGET_UPDATE_INTERVAL: u64 = 50;
 
 /// NN-based evaluator for self-play search.
 struct SelfPlayEvaluator<'a> {

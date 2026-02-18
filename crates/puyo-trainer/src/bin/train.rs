@@ -15,8 +15,9 @@ type TrainBackend = Autodiff<NdArray>;
 const DATA_PATH: &str = "data/training_data.bin";
 const MODEL_PATH: &str = "artifacts/puyo_model";
 const BATCH_SIZE: usize = 256;
-const NUM_EPOCHS: usize = 50;
+const NUM_EPOCHS: usize = 20;
 const LEARNING_RATE: f64 = 1e-3;
+const MAX_TRAIN_SAMPLES: usize = 100_000;
 
 fn main() {
     std::fs::create_dir_all("artifacts").expect("Failed to create artifacts directory");
@@ -29,10 +30,14 @@ fn main() {
     let num_samples = dataset.samples.len();
     println!("Loaded {} samples", num_samples);
 
+    // Subsample for CPU training speed
+    let used_samples = num_samples.min(MAX_TRAIN_SAMPLES);
+    println!("Using {} samples (of {})", used_samples, num_samples);
+
     // Split into train/val (90/10)
-    let split = (num_samples as f64 * 0.9) as usize;
+    let split = (used_samples as f64 * 0.9) as usize;
     let train_samples = &dataset.samples[..split];
-    let val_samples = &dataset.samples[split..];
+    let val_samples = &dataset.samples[split..used_samples];
     println!("Train: {}, Val: {}", train_samples.len(), val_samples.len());
 
     // Compute normalization stats on training set
@@ -112,7 +117,17 @@ fn main() {
             let grads = loss.backward();
             let grads = GradientsParams::from_grads(grads, &model);
             model = optim.step(LEARNING_RATE, model, grads);
+
+            if num_batches % 50 == 0 {
+                let total_batches = (train_samples.len() + BATCH_SIZE - 1) / BATCH_SIZE;
+                eprint!(
+                    "\r  batch {}/{} loss={:.6}",
+                    num_batches, total_batches,
+                    epoch_loss / num_batches as f32
+                );
+            }
         }
+        eprintln!();
 
         // Validation
         let val_loss = compute_val_loss(&model, val_samples, mean, std_dev, &device);
