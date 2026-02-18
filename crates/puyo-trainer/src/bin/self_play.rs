@@ -34,6 +34,7 @@ const LEARNING_RATE: f64 = 1e-4;
 const EPSILON_START: f32 = 0.1;
 const EPSILON_END: f32 = 0.01;
 const TARGET_UPDATE_INTERVAL: u64 = 50;
+const MAX_MOVES_PER_GAME: u32 = 50;
 const GAME_OVER_PENALTY: f32 = -100.0;
 const FLATNESS_WEIGHT: f32 = -0.3;
 
@@ -98,8 +99,6 @@ fn main() {
         .expect("Failed to load target model");
 
     let mut optim = AdamConfig::new().init();
-    let mut total_chains = 0u64;
-    let mut total_max_chain = 0u32;
 
     for game_idx in 0..NUM_GAMES {
         let epsilon = EPSILON_START
@@ -110,9 +109,9 @@ fn main() {
 
         // Collect trajectory: (board_data, reward)
         let mut trajectory: Vec<([f32; TENSOR_SIZE], f32)> = Vec::new();
-        let mut game_chain_total = 0u32;
+        let mut move_count = 0u32;
 
-        while game.phase == GamePhase::Falling {
+        while game.phase == GamePhase::Falling && move_count < MAX_MOVES_PER_GAME {
             let current_piece = match &game.current_piece {
                 Some(fp) => fp.piece,
                 None => break,
@@ -153,7 +152,7 @@ fn main() {
                 }
             };
 
-            game_chain_total += chain_result.chain_count;
+            move_count += 1;
             let chain_reward = (chain_result.chain_count as f32).powi(2);
             let flatness_penalty = FLATNESS_WEIGHT * compute_height_variance(&game.board);
             trajectory.push((board_data, chain_reward + flatness_penalty));
@@ -218,8 +217,15 @@ fn main() {
             model = optim.step(LEARNING_RATE, model, grads);
         }
 
-        total_chains += game_chain_total as u64;
-        total_max_chain = total_max_chain.max(game.max_chain);
+        println!(
+            "Game {:<4}/{}: max_chain={:2}, moves={:2}, eps={:.3}, {}",
+            game_idx + 1,
+            NUM_GAMES,
+            game.max_chain,
+            move_count,
+            epsilon,
+            if is_game_over { "GAMEOVER" } else { "ok" },
+        );
 
         // Update target network periodically
         if (game_idx + 1) % TARGET_UPDATE_INTERVAL == 0 {
@@ -231,15 +237,7 @@ fn main() {
                 .init(&infer_device)
                 .load_file("/tmp/puyo_temp_model", &BinFileRecorder::<FullPrecisionSettings>::new(), &infer_device)
                 .expect("Failed to load target model");
-
-            let avg_chains = total_chains as f32 / (game_idx + 1) as f32;
-            println!(
-                "Game {}/{}: avg_chains_per_game={:.2}, max_chain={}",
-                game_idx + 1,
-                NUM_GAMES,
-                avg_chains,
-                total_max_chain
-            );
+            println!("[TARGET UPDATE] game={}", game_idx + 1);
         }
     }
 
