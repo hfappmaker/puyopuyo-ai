@@ -112,6 +112,7 @@ fn main() {
     let mut curriculum_phase: usize = 0;
     let mut phase_start_game: Option<u64> = None;
     let mut total_update_steps: u64 = 0;
+    let mut trained_game_count: u64 = 0;
 
     for game_idx in 0..NUM_GAMES {
         let avg_chain = if recent_chains.is_empty() {
@@ -257,6 +258,7 @@ fn main() {
             model = optim.step(LEARNING_RATE, model, grads);
             total_update_steps += 1;
         }
+        trained_game_count += 1;
 
         println!(
             "Game {:4}/{}: max_chain={:2}, moves={:2}, eps={:.3}, phase={}, steps={}, {}",
@@ -271,7 +273,7 @@ fn main() {
         );
 
         // Update target network periodically
-        if (game_idx + 1) % TARGET_UPDATE_INTERVAL == 0 {
+        if trained_game_count % TARGET_UPDATE_INTERVAL == 0 {
             let valid_model = model.valid();
             valid_model
                 .save_file("/tmp/puyo_temp_model", &BinFileRecorder::<FullPrecisionSettings>::new())
