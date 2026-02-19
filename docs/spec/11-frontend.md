@@ -56,11 +56,24 @@ AIプレビュー時の移動は `rotateTo` と `moveTo` によって最短経�
 
 | ファイル | 役割 |
 |---------|------|
-| `main.ts` | エントリポイント。WASM ロード・各モジュール初期化 |
+| `main.ts` | エントリポイント。WASM ロード・各モジュール初期化・AI モード切り替え |
 | `game-loop.ts` | ゲームループ管理。入力処理・AI操作・リスタート |
 | `renderer.ts` | Canvas 描画。盤面・現在ピース・ゴースト・ネクスト・ネクネク |
 | `input.ts` | キーボード入力のマッピング |
 | `ui.ts` | スコア・ゲームオーバーオーバーレイの DOM 操作 |
-| `wasm.ts` | WASM モジュールのロードとキャッシュ |
+| `wasm.ts` | WASM モジュールのロードとキャッシュ（シングルトン） |
 | `constants.ts` | 定数定義（サイズ・色・オフセット） |
 | `types.ts` | WasmGame インターフェース定義 |
+| `model-loader.ts` | NN モデルの fetch・パース・ロード |
+
+## NN モデルの読み込み
+
+`model-loader.ts` は以下の URL からリソースを並列 fetch し、`game.load_nn_model()` に渡す。
+
+| リソース | URL |
+|---------|-----|
+| モデル本体 | `/models/puyo_model_selfplay.bin` |
+| 正規化パラメータ | `/models/norm_params.txt` |
+
+`norm_params.txt` は `mean` と `std_dev` を改行区切りで2行記載したテキストファイル。
+fetch に失敗した場合や、リソースが存在しない場合は `console.warn` を出力してヒューリスティックにフォールバックする。

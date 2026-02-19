@@ -83,8 +83,8 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
 
 | 名前 | 値 | 説明 |
 |------|-----|------|
-| `BATCH_SIZE` | 256 | バッチサイズ |
-| `NUM_EPOCHS` | 50 | エポック数 |
+| `BATCH_SIZE` | 512 | バッチサイズ |
+| `NUM_EPOCHS` | 20 | エポック数 |
 | `LEARNING_RATE` | 1e-3 | 学習率 |
 | `MODEL_PATH` | `artifacts/puyo_model` | モデル保存先 |
 
@@ -93,14 +93,14 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
 1. データを 90:10 で訓練/検証に分割
 2. 訓練セットの目標値を標準化（平均0、標準偏差1）
 3. 正規化パラメータ（mean, std_dev）を `artifacts/norm_params.txt` に保存
-4. エポックごとに Fisher-Yates シャッフル → ミニバッチ学習
+4. エポックごとに xorshift128+ RNG でシャッフル → ミニバッチ学習
 5. 損失関数: MSE
 6. 最適化: Adam
 7. 学習済みモデルを `CompactRecorder` で保存
 
 ## Phase 3: 自己対戦強化学習 (`self-play`)
 
-学習済みモデルを評価関数として探索に使用し、TD(0) で逐次更新する。
+学習済みモデルを評価関数として探索に使用し、Monte Carlo 法で更新する。
 
 ### パラメータ
 
@@ -109,25 +109,59 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
 | `NUM_GAMES` | 5,000 | 対戦回数 |
 | `GAMMA` | 0.99 | 割引率 |
 | `LEARNING_RATE` | 1e-4 | 学習率 |
-| `EPSILON_START` | 0.1 | ε-greedy 初期値 |
-| `EPSILON_END` | 0.01 | ε-greedy 最終値 |
-| `TARGET_UPDATE_INTERVAL` | 500 | ターゲットネットワーク更新間隔（ゲーム数） |
+| `EPSILON_HIGH` | 0.3 | 連鎖平均 < 10 時の固定探索率 |
+| `EPSILON_START` | 0.1 | 連鎖平均 ≥ 10 到達後の初期探索率 |
+| `EPSILON_END` | 0.01 | 最終探索率 |
+| `CHAIN_WINDOW` | 20 | 連鎖数移動平均のウィンドウサイズ（ゲーム数） |
+| `TARGET_UPDATE_INTERVAL` | 20 | ターゲットネットワーク更新間隔（ゲーム数） |
+| `MAX_MOVES_PER_GAME` | 50 | 1ゲームあたりの最大手数 |
+| `GAME_OVER_PENALTY` | -100.0 | ゲームオーバー時の終端ペナルティ |
+
+### ε-greedy 戦略
+
+探索率 ε は直近 `CHAIN_WINDOW` ゲームの連鎖数移動平均 `avg_chain` によって動的に決定する。
+
+```
+if avg_chain < 10.0:
+    ε = EPSILON_HIGH (0.3)          # 探索重視
+else:
+    # 初めて avg_chain ≥ 10 を超えたゲームを decay_start とする
+    progress = (game_idx - decay_start) / (NUM_GAMES - decay_start)
+    ε = EPSILON_START + (EPSILON_END - EPSILON_START) × progress  # 線形減衰 0.1→0.01
+```
+
+### 報酬関数
+
+各ステップの即時報酬は連鎖数の二乗とする。
+
+```
+reward = chain_count²
+```
 
 ### 手順
 
-1. Phase 2 で学習したモデルと正規化パラメータをロード
+1. Phase 2 で学習したモデル（`artifacts/puyo_model`）と正規化パラメータをロード
 2. ターゲットネットワーク（凍結コピー）を用意
 3. 各ゲームで ε-greedy 方策を使用:
    - 確率 ε: ランダム配置
-   - 確率 1-ε: NN 評価 + 2手先読み探索で最善手を選択
-4. ε はゲーム進行に伴い線形にアニーリング（0.1 → 0.01）
-5. ゲーム終了後、軌跡の各遷移に対して TD(0) 更新:
+   - 確率 1-ε: ターゲットネットワーク評価 + 2手先読み探索で最善手を選択
+4. ゲームが `MAX_MOVES_PER_GAME` 手に達するか、ゲームオーバーになるまで繰り返す
+5. ゲーム終了後、Monte Carlo 法で割引リターンを計算（逆方向）:
    ```
-   target = reward + γ × V_target(next_state)
-   loss = MSE(V(state), target)
+   terminal_bonus = GAME_OVER_PENALTY  (ゲームオーバー時) or 0.0
+   running_return = terminal_bonus
+   for t in (T-1)..0:
+       running_return = reward[t] + γ × running_return
+       returns[t] = running_return
    ```
-6. `TARGET_UPDATE_INTERVAL` ゲームごとにターゲットネットワークを現在のモデルで更新
-7. 最終モデルを `artifacts/puyo_model_selfplay` に保存
+6. 学習フィルタリング: 当該ゲームの最大連鎖数が前ゲームの最大連鎖数 `prev_max_chain` 以上の場合のみパラメータ更新を実施
+7. 各ステップで目標値を正規化し MSE 損失を計算、Adam で勾配更新:
+   ```
+   mc_target = (returns[t] - mean) / std_dev  # 正規化
+   loss = MSE(V(state_t), mc_target)
+   ```
+8. `TARGET_UPDATE_INTERVAL` ゲームごとにターゲットネットワークを現在のモデルで更新（一時ファイル経由）
+9. 最終モデルを `artifacts/puyo_model_selfplay` に保存
 
 ### NN 評価関数
 

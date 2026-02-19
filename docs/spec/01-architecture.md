@@ -39,3 +39,22 @@ puyo-trainer (バイナリ)
 3. AI操作の場合、`search::find_best_move` が2手先読みで全配置を評価し最善手を返す（全配置がゲームオーバーとなる場合は1手先読みにフォールバックする）
 4. ピース設置後、連鎖処理（`resolve_chains`）が自動実行される
 5. フロントエンドが盤面・ネクスト・スコアを Canvas に描画する
+
+## 学習パイプラインと成果物
+
+`puyo-trainer` の3つのバイナリを順番に実行して NN モデルを生成する。
+
+```bash
+cargo run --bin generate-data   # Phase 1: ヒューリスティック AI でデータ生成
+cargo run --bin train            # Phase 2: 教師あり学習
+cargo run --bin self-play        # Phase 3: 自己対戦強化学習
+```
+
+| 成果物 | 説明 |
+|-------|------|
+| `data/training_data.bin` | Phase 1 の訓練データ（bincode） |
+| `artifacts/norm_params.txt` | 正規化パラメータ（mean, std_dev の2行） |
+| `artifacts/puyo_model` | Phase 2 の教師あり学習済みモデル |
+| `artifacts/puyo_model_selfplay` | Phase 3 の自己対戦強化学習済みモデル |
+
+ブラウザで NN AI を使用する場合は `artifacts/puyo_model_selfplay` と `artifacts/norm_params.txt` を `web/public/models/` にコピーして配置する。
