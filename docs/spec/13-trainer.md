@@ -109,26 +109,32 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
 | `NUM_GAMES` | 5,000 | 対戦回数 |
 | `GAMMA` | 0.99 | 割引率 |
 | `LEARNING_RATE` | 1e-4 | 学習率 |
-| `EPSILON_HIGH` | 0.3 | 連鎖平均 < 10 時の固定探索率 |
-| `EPSILON_START` | 0.1 | 連鎖平均 ≥ 10 到達後の初期探索率 |
+| `EPSILON_HIGH` | 0.3 | カリキュラム序盤（フェーズ0）の探索率 |
+| `EPSILON_START` | 0.1 | フェーズ1以降の初期探索率 |
 | `EPSILON_END` | 0.01 | 最終探索率 |
 | `CHAIN_WINDOW` | 20 | 連鎖数移動平均のウィンドウサイズ（ゲーム数） |
 | `TARGET_UPDATE_INTERVAL` | 20 | ターゲットネットワーク更新間隔（ゲーム数） |
 | `MAX_MOVES_PER_GAME` | 50 | 1ゲームあたりの最大手数 |
 | `GAME_OVER_PENALTY` | -100.0 | ゲームオーバー時の終端ペナルティ |
 
-### ε-greedy 戦略
+### カリキュラム学習
 
-探索率 ε は直近 `CHAIN_WINDOW` ゲームの連鎖数移動平均 `avg_chain` によって動的に決定する。
+直近 `CHAIN_WINDOW` ゲームの連鎖数移動平均 `avg_chain` に基づき、学習に使うゲームの品質閾値を段階的に引き上げる。
 
-```
-if avg_chain < 10.0:
-    ε = EPSILON_HIGH (0.3)          # 探索重視
-else:
-    # 初めて avg_chain ≥ 10 を超えたゲームを decay_start とする
-    progress = (game_idx - decay_start) / (NUM_GAMES - decay_start)
-    ε = EPSILON_START + (EPSILON_END - EPSILON_START) × progress  # 線形減衰 0.1→0.01
-```
+| フェーズ | 昇格条件（avg_chain ≥） | 学習する最小連鎖数 |
+|---------|----------------------|------------------|
+| 0 | 2.0 | 1 |
+| 1 | 3.0 | 2 |
+| 2 | 4.0 | 3 |
+| 3 | 5.0 | 4 |
+| 4 | 6.0 | 5 |
+| 5 | 7.0 | 6 |
+| 6 | 8.0 | 7 |
+| 7 | 9.0 | 8 |
+| 8（最終） | - | 9 |
+
+- フェーズ0: `ε = EPSILON_HIGH (0.3)`（探索重視）
+- フェーズ1以降: 初回昇格ゲームを起点に `ε` を線形減衰（0.1 → 0.01）
 
 ### 報酬関数
 
@@ -154,7 +160,7 @@ reward = chain_count²
        running_return = reward[t] + γ × running_return
        returns[t] = running_return
    ```
-6. 学習フィルタリング: 当該ゲームの最大連鎖数が前ゲームの最大連鎖数 `prev_max_chain` 以上の場合のみパラメータ更新を実施
+6. 学習フィルタリング: `game.max_chain < CURRICULUM[phase].min_chain` のゲームはスキップ
 7. 各ステップで目標値を正規化し MSE 損失を計算、Adam で勾配更新:
    ```
    mc_target = (returns[t] - mean) / std_dev  # 正規化

@@ -31,13 +31,27 @@ const OUTPUT_PATH: &str = "artifacts/puyo_model_selfplay";
 const NUM_GAMES: u64 = 5000;
 const GAMMA: f32 = 0.99;
 const LEARNING_RATE: f64 = 1e-4;
-const EPSILON_HIGH: f32 = 0.3;   // 10連鎖未達成時の探索率
-const EPSILON_START: f32 = 0.1;  // 10連鎖達成後の開始値
+const EPSILON_HIGH: f32 = 0.3;   // カリキュラム序盤の探索率
+const EPSILON_START: f32 = 0.1;  // 閾値達成後の開始値
 const EPSILON_END: f32 = 0.01;   // 最終的な探索率
 const CHAIN_WINDOW: usize = 20;  // 移動平均のウィンドウサイズ
 const TARGET_UPDATE_INTERVAL: u64 = 20;
 const MAX_MOVES_PER_GAME: u32 = 50;
 const GAME_OVER_PENALTY: f32 = -100.0;
+
+/// カリキュラム学習フェーズ: (昇格に必要な移動平均連鎖数, 学習に使う最小連鎖数)
+/// avg_chain >= promote_at になったら次のフェーズへ昇格
+const CURRICULUM: &[(f32, u32)] = &[
+    (2.0,  1),  // フェーズ0: 平均2連鎖で昇格、1連鎖以上を学習
+    (3.0,  2),  // フェーズ1: 平均3連鎖で昇格、2連鎖以上を学習
+    (4.0,  3),  // フェーズ2: 平均4連鎖で昇格、3連鎖以上を学習
+    (5.0,  4),  // フェーズ3: 平均5連鎖で昇格、4連鎖以上を学習
+    (6.0,  5),  // フェーズ4: 平均6連鎖で昇格、5連鎖以上を学習
+    (7.0,  6),  // フェーズ5: 平均7連鎖で昇格、6連鎖以上を学習
+    (8.0,  7),  // フェーズ6: 平均8連鎖で昇格、7連鎖以上を学習
+    (9.0,  8),  // フェーズ7: 平均9連鎖で昇格、8連鎖以上を学習
+    (f32::MAX, 9), // フェーズ8(最終): 9連鎖以上を学習
+];
 
 /// NN-based evaluator for self-play search.
 struct SelfPlayEvaluator<'a> {
@@ -95,8 +109,8 @@ fn main() {
     let mut optim = AdamConfig::new().init();
 
     let mut recent_chains: std::collections::VecDeque<u32> = std::collections::VecDeque::new();
-    let mut decay_start_game: Option<u64> = None;
-    let mut prev_max_chain: u32 = 0;
+    let mut curriculum_phase: usize = 0;
+    let mut phase_start_game: Option<u64> = None;
     let mut total_update_steps: u64 = 0;
 
     for game_idx in 0..NUM_GAMES {
@@ -105,16 +119,29 @@ fn main() {
         } else {
             recent_chains.iter().sum::<u32>() as f32 / recent_chains.len() as f32
         };
-        if decay_start_game.is_none() && avg_chain >= 10.0 {
-            decay_start_game = Some(game_idx);
-            println!("[EPSILON DECAY START] game={}, avg_chain={:.1}", game_idx, avg_chain);
+
+        // カリキュラム昇格チェック
+        let promote_at = CURRICULUM[curriculum_phase].0;
+        if curriculum_phase + 1 < CURRICULUM.len() && avg_chain >= promote_at {
+            curriculum_phase += 1;
+            println!(
+                "[CURRICULUM ADVANCE] phase={}, avg_chain={:.1}, min_chain>={}",
+                curriculum_phase,
+                avg_chain,
+                CURRICULUM[curriculum_phase].1
+            );
         }
-        let epsilon = match decay_start_game {
-            None => EPSILON_HIGH,
-            Some(start) => {
-                let progress = (game_idx - start) as f32 / (NUM_GAMES - start) as f32;
-                EPSILON_START + (EPSILON_END - EPSILON_START) * progress
+
+        // フェーズ0は探索率高め、昇格後はdecay
+        let epsilon = if curriculum_phase == 0 {
+            EPSILON_HIGH
+        } else {
+            if phase_start_game.is_none() {
+                phase_start_game = Some(game_idx);
             }
+            let start = phase_start_game.unwrap();
+            let progress = (game_idx - start) as f32 / (NUM_GAMES - start).max(1) as f32;
+            EPSILON_START + (EPSILON_END - EPSILON_START) * progress
         };
 
         let seed = 100_000 + game_idx;
@@ -176,22 +203,23 @@ fn main() {
             continue;
         }
 
-        // これまでの最大連鎖未満ならスキップ
-        if game.max_chain < prev_max_chain {
+        // カリキュラム閾値未満の連鎖ゲームはスキップ
+        let min_chain = CURRICULUM[curriculum_phase].1;
+        if game.max_chain < min_chain {
             println!(
-                "Game {:4}/{}: max_chain={:2}, moves={:2}, eps={:.3}, steps={}, {} [SKIP best={}]",
+                "Game {:4}/{}: max_chain={:2}, moves={:2}, eps={:.3}, phase={}, steps={}, {} [SKIP min={}]",
                 game_idx + 1,
                 NUM_GAMES,
                 game.max_chain,
                 move_count,
                 epsilon,
+                curriculum_phase,
                 total_update_steps,
                 if is_game_over { "GAMEOVER" } else { "ok" },
-                prev_max_chain,
+                min_chain,
             );
             continue;
         }
-        prev_max_chain = game.max_chain;
 
         // Monte Carlo: compute discounted returns from the end of the episode
         let num_steps = trajectory.len();
@@ -231,12 +259,13 @@ fn main() {
         }
 
         println!(
-            "Game {:4}/{}: max_chain={:2}, moves={:2}, eps={:.3}, steps={}, {}",
+            "Game {:4}/{}: max_chain={:2}, moves={:2}, eps={:.3}, phase={}, steps={}, {}",
             game_idx + 1,
             NUM_GAMES,
             game.max_chain,
             move_count,
             epsilon,
+            curriculum_phase,
             total_update_steps,
             if is_game_over { "GAMEOVER" } else { "ok" },
         );
