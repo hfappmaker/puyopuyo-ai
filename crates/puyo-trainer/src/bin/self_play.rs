@@ -37,7 +37,7 @@ const EPSILON_END: f32 = 0.01;   // 最終的な探索率
 const CHAIN_WINDOW: usize = 20;  // 移動平均のウィンドウサイズ
 const TARGET_UPDATE_INTERVAL: u64 = 20;
 const MAX_MOVES_PER_GAME: u32 = 50;
-const GAME_OVER_PENALTY: f32 = -100.0;
+const GAME_OVER_PENALTY: f32 = -500.0;
 
 /// カリキュラム学習フェーズごとの最小連鎖数
 /// 昇格条件: avg_chain >= min_chain + 1.0/min_chain
@@ -180,7 +180,7 @@ fn main() {
             };
 
             move_count += 1;
-            let chain_reward = (chain_result.chain_count as f32).powi(2);
+            let chain_reward = (chain_result.chain_count as f32).powi(3);
             trajectory.push((board_data, chain_reward));
         }
 
