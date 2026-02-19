@@ -39,19 +39,9 @@ const TARGET_UPDATE_INTERVAL: u64 = 20;
 const MAX_MOVES_PER_GAME: u32 = 50;
 const GAME_OVER_PENALTY: f32 = -100.0;
 
-/// カリキュラム学習フェーズ: (昇格に必要な移動平均連鎖数, 学習に使う最小連鎖数)
-/// avg_chain >= promote_at になったら次のフェーズへ昇格
-const CURRICULUM: &[(f32, u32)] = &[
-    (2.0,  1),  // フェーズ0: 平均2連鎖で昇格、1連鎖以上を学習
-    (3.0,  2),  // フェーズ1: 平均3連鎖で昇格、2連鎖以上を学習
-    (4.0,  3),  // フェーズ2: 平均4連鎖で昇格、3連鎖以上を学習
-    (5.0,  4),  // フェーズ3: 平均5連鎖で昇格、4連鎖以上を学習
-    (6.0,  5),  // フェーズ4: 平均6連鎖で昇格、5連鎖以上を学習
-    (7.0,  6),  // フェーズ5: 平均7連鎖で昇格、6連鎖以上を学習
-    (8.0,  7),  // フェーズ6: 平均8連鎖で昇格、7連鎖以上を学習
-    (9.0,  8),  // フェーズ7: 平均9連鎖で昇格、8連鎖以上を学習
-    (f32::MAX, 9), // フェーズ8(最終): 9連鎖以上を学習
-];
+/// カリキュラム学習フェーズごとの最小連鎖数
+/// 昇格条件: avg_chain >= min_chain + 1.0/min_chain
+const CURRICULUM_MIN_CHAINS: &[u32] = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 /// NN-based evaluator for self-play search.
 struct SelfPlayEvaluator<'a> {
@@ -122,14 +112,15 @@ fn main() {
         };
 
         // カリキュラム昇格チェック
-        let promote_at = CURRICULUM[curriculum_phase].0;
-        if curriculum_phase + 1 < CURRICULUM.len() && avg_chain >= promote_at {
+        let min_chain_cur = CURRICULUM_MIN_CHAINS[curriculum_phase];
+        let promote_at = min_chain_cur as f32 + 1.0 / min_chain_cur as f32;
+        if curriculum_phase + 1 < CURRICULUM_MIN_CHAINS.len() && avg_chain >= promote_at {
             curriculum_phase += 1;
             println!(
                 "[CURRICULUM ADVANCE] phase={}, avg_chain={:.1}, min_chain>={}",
                 curriculum_phase,
                 avg_chain,
-                CURRICULUM[curriculum_phase].1
+                CURRICULUM_MIN_CHAINS[curriculum_phase]
             );
         }
 
@@ -205,7 +196,7 @@ fn main() {
         }
 
         // カリキュラム閾値未満の連鎖ゲームはスキップ
-        let min_chain = CURRICULUM[curriculum_phase].1;
+        let min_chain = CURRICULUM_MIN_CHAINS[curriculum_phase];
         if game.max_chain < min_chain {
             println!(
                 "Game {:4}/{}: max_chain={:2}, moves={:2}, eps={:.3}, phase={}, steps={}, {} [SKIP min={}]",
