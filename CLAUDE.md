@@ -74,6 +74,25 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 - `artifacts/puyo_model.bin` (~500KB): 学習済みモデル（`BinFileRecorder`形式）
 - `web/public/models/`: ブラウザ用デプロイ先
 
+## ドキュメント更新ルール
+
+**ソースファイルを変更したら、必ず対応する `docs/spec/` のドキュメントも更新すること。**
+
+| 変更したファイル | 更新すべきドキュメント |
+|----------------|----------------------|
+| `crates/puyo-core/src/board.rs` | `docs/spec/02-board.md`, `docs/spec/01-architecture.md` |
+| `crates/puyo-core/src/piece.rs` | `docs/spec/03-piece.md`, `docs/spec/01-architecture.md` |
+| `crates/puyo-core/src/chain.rs` | `docs/spec/04-chain.md`, `docs/spec/01-architecture.md` |
+| `crates/puyo-core/src/score.rs` | `docs/spec/05-score.md`, `docs/spec/01-architecture.md` |
+| `crates/puyo-core/src/game.rs` | `docs/spec/06-game.md`, `docs/spec/01-architecture.md` |
+| `crates/puyo-core/src/rng.rs` | `docs/spec/07-rng.md`, `docs/spec/01-architecture.md` |
+| `crates/puyo-ai/src/eval.rs`, `crates/puyo-ai/src/nn_eval.rs` | `docs/spec/08-ai-eval.md` |
+| `crates/puyo-ai/src/search.rs`, `crates/puyo-ai/src/placement.rs` | `docs/spec/09-ai-search.md` |
+| `crates/puyo-wasm/src/lib.rs` | `docs/spec/10-wasm-bridge.md` |
+| `web/src/*.ts` | `docs/spec/11-frontend.md` |
+| `crates/puyo-nn/src/*.rs` | `docs/spec/12-nn.md` |
+| `crates/puyo-trainer/src/**/*.rs` | `docs/spec/13-trainer.md` |
+
 ## 仕様書
 
 詳細な仕様は `docs/spec/` 配下（00〜13の各ドキュメント）を参照。

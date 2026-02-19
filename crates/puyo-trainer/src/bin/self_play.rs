@@ -97,6 +97,7 @@ fn main() {
     let mut recent_chains: std::collections::VecDeque<u32> = std::collections::VecDeque::new();
     let mut decay_start_game: Option<u64> = None;
     let mut prev_max_chain: u32 = 0;
+    let mut total_update_steps: u64 = 0;
 
     for game_idx in 0..NUM_GAMES {
         let avg_chain = if recent_chains.is_empty() {
@@ -178,12 +179,13 @@ fn main() {
         // これまでの最大連鎖未満ならスキップ
         if game.max_chain < prev_max_chain {
             println!(
-                "Game {:4}/{}: max_chain={:2}, moves={:2}, eps={:.3}, {} [SKIP best={}]",
+                "Game {:4}/{}: max_chain={:2}, moves={:2}, eps={:.3}, steps={}, {} [SKIP best={}]",
                 game_idx + 1,
                 NUM_GAMES,
                 game.max_chain,
                 move_count,
                 epsilon,
+                total_update_steps,
                 if is_game_over { "GAMEOVER" } else { "ok" },
                 prev_max_chain,
             );
@@ -225,15 +227,17 @@ fn main() {
             let grads = loss.backward();
             let grads = GradientsParams::from_grads(grads, &model);
             model = optim.step(LEARNING_RATE, model, grads);
+            total_update_steps += 1;
         }
 
         println!(
-            "Game {:4}/{}: max_chain={:2}, moves={:2}, eps={:.3}, {}",
+            "Game {:4}/{}: max_chain={:2}, moves={:2}, eps={:.3}, steps={}, {}",
             game_idx + 1,
             NUM_GAMES,
             game.max_chain,
             move_count,
             epsilon,
+            total_update_steps,
             if is_game_over { "GAMEOVER" } else { "ok" },
         );
 
@@ -247,7 +251,7 @@ fn main() {
                 .init(&infer_device)
                 .load_file("/tmp/puyo_temp_model", &BinFileRecorder::<FullPrecisionSettings>::new(), &infer_device)
                 .expect("Failed to load target model");
-            println!("[TARGET UPDATE] game={}", game_idx + 1);
+            println!("[TARGET UPDATE] game={}, steps={}", game_idx + 1, total_update_steps);
         }
     }
 
