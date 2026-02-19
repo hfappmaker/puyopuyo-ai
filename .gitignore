@@ -10,6 +10,9 @@ web/wasm-pkg/
 # Vite build output
 web/dist/
 
+# 学習中間出力（self_playの一時ファイル）
+artifacts/puyo_model_selfplay.bin
+
 # IDE
 .vscode/
 *.swp
