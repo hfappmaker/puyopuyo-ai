@@ -8,7 +8,7 @@ use burn::optim::{AdamConfig, GradientsParams, Optimizer};
 use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 
-use puyo_ai::eval::{count_connectivity, count_potential_chains, Evaluator};
+use puyo_ai::eval::Evaluator;
 use puyo_ai::search;
 use puyo_core::board::Board;
 use puyo_core::game::{GamePhase, GameState};
@@ -28,16 +28,16 @@ type InferBackend = NdArray;
 
 const MODEL_PATH: &str = "artifacts/puyo_model";
 const OUTPUT_PATH: &str = "artifacts/puyo_model_selfplay";
-const NUM_GAMES: u64 = 500;
+const NUM_GAMES: u64 = 5000;
 const GAMMA: f32 = 0.99;
 const LEARNING_RATE: f64 = 1e-4;
-const EPSILON_START: f32 = 0.1;
-const EPSILON_END: f32 = 0.01;
-const TARGET_UPDATE_INTERVAL: u64 = 50;
+const EPSILON_HIGH: f32 = 0.3;   // 10連鎖未達成時の探索率
+const EPSILON_START: f32 = 0.1;  // 10連鎖達成後の開始値
+const EPSILON_END: f32 = 0.01;   // 最終的な探索率
+const CHAIN_WINDOW: usize = 20;  // 移動平均のウィンドウサイズ
+const TARGET_UPDATE_INTERVAL: u64 = 20;
 const MAX_MOVES_PER_GAME: u32 = 50;
 const GAME_OVER_PENALTY: f32 = -100.0;
-const CONNECTIVITY_WEIGHT: f32 = 0.1;
-const POTENTIAL_CHAIN_WEIGHT: f32 = 0.5;
 
 /// NN-based evaluator for self-play search.
 struct SelfPlayEvaluator<'a> {
@@ -60,13 +60,6 @@ impl<'a> Evaluator for SelfPlayEvaluator<'a> {
         // Denormalize
         (normalized * self.std_dev + self.mean) as f64
     }
-}
-
-/// Compute shaping reward for a board state (encourages connectivity and potential chains).
-fn compute_shaping_reward(board: &Board) -> f32 {
-    let connectivity = count_connectivity(board) as f32;
-    let potential = count_potential_chains(board) as f32;
-    CONNECTIVITY_WEIGHT * connectivity + POTENTIAL_CHAIN_WEIGHT * potential
 }
 
 fn main() {
@@ -101,14 +94,30 @@ fn main() {
 
     let mut optim = AdamConfig::new().init();
 
+    let mut recent_chains: std::collections::VecDeque<u32> = std::collections::VecDeque::new();
+    let mut decay_start_game: Option<u64> = None;
+    let mut prev_max_chain: u32 = 0;
+
     for game_idx in 0..NUM_GAMES {
-        let epsilon = EPSILON_START
-            + (EPSILON_END - EPSILON_START) * (game_idx as f32 / NUM_GAMES as f32);
+        let avg_chain = if recent_chains.is_empty() {
+            0.0
+        } else {
+            recent_chains.iter().sum::<u32>() as f32 / recent_chains.len() as f32
+        };
+        if decay_start_game.is_none() && avg_chain >= 10.0 {
+            decay_start_game = Some(game_idx);
+            println!("[EPSILON DECAY START] game={}, avg_chain={:.1}", game_idx, avg_chain);
+        }
+        let epsilon = match decay_start_game {
+            None => EPSILON_HIGH,
+            Some(start) => {
+                let progress = (game_idx - start) as f32 / (NUM_GAMES - start) as f32;
+                EPSILON_START + (EPSILON_END - EPSILON_START) * progress
+            }
+        };
 
         let seed = 100_000 + game_idx;
         let mut game = GameState::new(seed);
-
-        // Collect trajectory: (board_data, reward)
         let mut trajectory: Vec<([f32; TENSOR_SIZE], f32)> = Vec::new();
         let mut move_count = 0u32;
 
@@ -120,12 +129,10 @@ fn main() {
 
             let board_data = board_to_tensor_data(&game.board);
 
-            // Epsilon-greedy: with probability epsilon, use random placement
             let rng_val = simple_rng(seed + game.total_pieces as u64);
             let use_random = (rng_val as f32 / u64::MAX as f32) < epsilon;
 
             let chain_result = if use_random {
-                // Random placement
                 let placements =
                     puyo_ai::placement::enumerate_placements(&game.board, &current_piece);
                 if placements.is_empty() {
@@ -134,7 +141,6 @@ fn main() {
                 let idx = (rng_val as usize) % placements.len();
                 game.apply_placement(&placements[idx])
             } else {
-                // NN-guided placement
                 let evaluator = SelfPlayEvaluator {
                     model: &target_model,
                     device: infer_device.clone(),
@@ -155,15 +161,35 @@ fn main() {
 
             move_count += 1;
             let chain_reward = (chain_result.chain_count as f32).powi(2);
-            let shaping_reward = compute_shaping_reward(&game.board);
-            trajectory.push((board_data, chain_reward + shaping_reward));
+            trajectory.push((board_data, chain_reward));
         }
 
         let is_game_over = game.board.is_game_over();
 
+        recent_chains.push_back(game.max_chain);
+        if recent_chains.len() > CHAIN_WINDOW {
+            recent_chains.pop_front();
+        }
+
         if trajectory.is_empty() {
             continue;
         }
+
+        // これまでの最大連鎖未満ならスキップ
+        if game.max_chain < prev_max_chain {
+            println!(
+                "Game {:4}/{}: max_chain={:2}, moves={:2}, eps={:.3}, {} [SKIP best={}]",
+                game_idx + 1,
+                NUM_GAMES,
+                game.max_chain,
+                move_count,
+                epsilon,
+                if is_game_over { "GAMEOVER" } else { "ok" },
+                prev_max_chain,
+            );
+            continue;
+        }
+        prev_max_chain = game.max_chain;
 
         // Monte Carlo: compute discounted returns from the end of the episode
         let num_steps = trajectory.len();
@@ -176,7 +202,6 @@ fn main() {
             returns[t] = running_return;
         }
 
-        // Update model for each step using Monte Carlo return as target
         for t in 0..num_steps {
             let (board_data, _) = &trajectory[t];
             let mc_target = (returns[t] - mean) / std_dev;
@@ -194,7 +219,6 @@ fn main() {
             )
             .reshape([1, 1]);
 
-            // MSE loss
             let diff = prediction - target;
             let loss = diff.clone().mul(diff).mean();
 
