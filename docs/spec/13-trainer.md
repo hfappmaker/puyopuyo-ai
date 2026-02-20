@@ -112,7 +112,24 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
 | `EPSILON_START` | 0.3 | 初期探索率 |
 | `EPSILON_END` | 0.01 | 最終探索率 |
 | `TARGET_UPDATE_INTERVAL` | 1,000 | ターゲットネットワーク更新間隔（ステップ数） |
-| `LOG_INTERVAL` | 1,000 | 進捗ログ出力間隔（ステップ数） |
+| `LOG_INTERVAL` | 100 | 進捗ログ出力間隔（ステップ数） |
+
+### コード構造
+
+`self_play.rs` は以下の構造体・関数で構成される。
+
+| 名前 | 種別 | 役割 |
+|------|------|------|
+| `NormParams` | 構造体 | z-score 正規化パラメータ。`normalize()`, `eval_target()` を提供 |
+| `RewardStats` | 構造体 | 報酬カウンタ。`record()`, `log_and_reset()` でログ管理 |
+| `GameSession` | 構造体 | ゲーム状態（`GameState`, seed, カウンタ）。`reset()`, `log_game_over_and_reset()` |
+| `SelfPlayEvaluator` | 構造体 | `Evaluator` トレイト実装。ターゲットモデルで盤面を評価 |
+| `td_update()` | 関数 | TD(0) の1ステップ更新。model を値渡し→値返し |
+| `sync_target_network()` | 関数 | ターゲットネットワークをオンラインモデルから同期 |
+| `step_bookkeeping()` | 関数 | ステップ管理（カウンタ更新、ログ、ターゲット同期） |
+| `select_placement()` | 関数 | ε-greedy 配置選択。`Option<Placement>` を返す |
+| `compute_epsilon()` | 関数 | εの線形減衰計算 |
+| `run_training_loop()` | 関数 | メインの学習ループ |
 
 ### 探索率（ε）
 
@@ -177,14 +194,13 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
 
 ### NN 評価関数
 
-`SelfPlayEvaluator` は `puyo-ai` の `Evaluator` トレイトを実装し、探索エンジンに組み込まれる。
+`SelfPlayEvaluator` は `puyo-ai` の `Evaluator` トレイトを実装し、探索エンジンに組み込まれる。`NormParams` への参照を保持し、非正規化を委譲する。
 
 ```rust
-impl Evaluator for SelfPlayEvaluator {
-    fn evaluate(&self, board: &Board) -> f64 {
-        // ゲームオーバー → -100000.0
-        // それ以外: NN の出力を非正規化して返す
-    }
+struct SelfPlayEvaluator<'a> {
+    model: &'a PuyoValueNet<InferBackend>,
+    device: <InferBackend as Backend>::Device,
+    norm: &'a NormParams,
 }
 ```
 
