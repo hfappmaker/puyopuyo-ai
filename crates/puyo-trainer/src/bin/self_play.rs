@@ -133,6 +133,15 @@ impl GameSession {
         self.move_count = 0;
     }
 
+    fn log_if_new_max_chain(&self, prev_max_chain: u32, step: u64) {
+        if self.game.max_chain > prev_max_chain {
+            println!(
+                "[NEW MAX CHAIN] game={}, chain={}, step={}",
+                self.game_count + 1, self.game.max_chain, step,
+            );
+        }
+    }
+
     fn log_game_over_and_reset(&mut self, epsilon: f32, step: u64) {
         println!(
             "Game {:4}: max_chain={:2}, moves={:2}, eps={:.3}, step={}",
@@ -380,7 +389,9 @@ fn run_training_loop(
             }
 
             // finalize + ゲームオーバー判定
+            let prev_max = session.game.max_chain;
             session.game.finalize_after_chains(total_score, chain_count);
+            session.log_if_new_max_chain(prev_max, step);
 
             if session.game.board.is_game_over() {
                 session.log_game_over_and_reset(epsilon, step);
