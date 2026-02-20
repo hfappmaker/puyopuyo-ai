@@ -186,6 +186,34 @@ impl GameState {
         result
     }
 
+    /// Place a piece on the board without resolving chains or advancing to next piece.
+    /// Used by the training loop to control chain resolution step by step.
+    /// Returns true if a piece was placed, false if no current piece.
+    pub fn place_piece_only(&mut self, placement: &Placement) -> bool {
+        if let Some(fp) = self.current_piece.take() {
+            self.place_piece(&fp.piece, placement);
+            self.phase = GamePhase::Resolving;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Finalize game state after manual chain resolution.
+    /// Updates score/max_chain, checks game over, advances to next piece.
+    pub fn finalize_after_chains(&mut self, total_score: u32, max_chain: u32) {
+        self.score += total_score;
+        if max_chain > self.max_chain {
+            self.max_chain = max_chain;
+        }
+        if self.board.is_game_over() {
+            self.phase = GamePhase::GameOver;
+        } else {
+            self.phase = GamePhase::Falling;
+            self.advance_piece();
+        }
+    }
+
     /// Apply a placement directly (used by AI). Returns chain result.
     pub fn apply_placement(&mut self, placement: &Placement) -> ChainResult {
         if let Some(fp) = self.current_piece.take() {

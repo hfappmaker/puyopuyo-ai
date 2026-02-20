@@ -100,76 +100,80 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
 
 ## Phase 3: 自己対戦強化学習 (`self-play`)
 
-学習済みモデルを評価関数として探索に使用し、Monte Carlo 法で更新する。
+学習済みモデルを評価関数として探索に使用し、TD(0) で毎ステップ更新する。エピソードの概念はなく、ゲームオーバー後は盤面をリセットして即座に続行する。
 
 ### パラメータ
 
 | 名前 | 値 | 説明 |
 |------|-----|------|
-| `NUM_GAMES` | 5,000 | 対戦回数 |
+| `TOTAL_STEPS` | 200,000 | 全体のステップ数（TD更新回数ベース） |
 | `GAMMA` | 0.99 | 割引率 |
 | `LEARNING_RATE` | 1e-4 | 学習率 |
-| `EPSILON_HIGH` | 0.3 | カリキュラム序盤（フェーズ0）の探索率 |
-| `EPSILON_START` | 0.1 | フェーズ1以降の初期探索率 |
+| `EPSILON_START` | 0.3 | 初期探索率 |
 | `EPSILON_END` | 0.01 | 最終探索率 |
-| `CHAIN_WINDOW` | 20 | 連鎖数移動平均のウィンドウサイズ（ゲーム数） |
-| `TARGET_UPDATE_INTERVAL` | 20 | ターゲットネットワーク更新間隔（ゲーム数） |
-| `MAX_MOVES_PER_GAME` | 50 | 1ゲームあたりの最大手数 |
-| `GAME_OVER_PENALTY` | -100.0 | ゲームオーバー時の終端ペナルティ |
+| `TARGET_UPDATE_INTERVAL` | 1,000 | ターゲットネットワーク更新間隔（ステップ数） |
+| `LOG_INTERVAL` | 1,000 | 進捗ログ出力間隔（ステップ数） |
 
-### カリキュラム学習
+### 探索率（ε）
 
-直近 `CHAIN_WINDOW` ゲームの連鎖数移動平均 `avg_chain` に基づき、学習に使うゲームの品質閾値を段階的に引き上げる。
+ステップ数に基づく線形減衰。`EPSILON_START (0.3)` から `EPSILON_END (0.01)` へ全ステップにわたって線形に減少する。
 
-昇格条件は `promote_at = min_chain + 1.0 / min_chain` で動的に計算する。フェーズが上がるほど閾値が `min_chain` に近づき、緩やかな昇格設計になる。
-
-| フェーズ | 学習する最小連鎖数 | 昇格条件（avg_chain ≥） |
-|---------|------------------|----------------------|
-| 0 | 1 | 2.0 (1 + 1/1) |
-| 1 | 2 | 2.5 (2 + 1/2) |
-| 2 | 3 | 3.33 (3 + 1/3) |
-| 3 | 4 | 4.25 (4 + 1/4) |
-| 4 | 5 | 5.2 (5 + 1/5) |
-| 5 | 6 | 6.17 (6 + 1/6) |
-| 6 | 7 | 7.14 (7 + 1/7) |
-| 7 | 8 | 8.125 (8 + 1/8) |
-| 8（最終） | 9 | - |
-
-- フェーズ0: `ε = EPSILON_HIGH (0.3)`（探索重視）
-- フェーズ1以降: 初回昇格ゲームを起点に `ε` を線形減衰（0.1 → 0.01）
+```
+ε = EPSILON_START + (EPSILON_END - EPSILON_START) × (step / TOTAL_STEPS)
+```
 
 ### 報酬関数
 
-各ステップの即時報酬は連鎖数の二乗とする。
+配置と連鎖解決を分離し、連鎖の各ステップに報酬を与える。
 
-```
-reward = chain_count²
-```
+| 条件 | 報酬 |
+|------|------|
+| 配置して連鎖が発生（配置ステップ） | 0 |
+| 連鎖の各ステップ（ぷよが消えるたび） | +1 |
+| 配置して連鎖なし（生存） | +1 |
+| ゲームオーバー | -1 |
+
+#### 連鎖時のステップ分解
+
+連鎖が発生した場合、`chain::resolve_one_step()` で1連鎖ずつ盤面を進め、各ステップでTD更新を行う。
+
+例: 3連鎖の場合 → 4回のTD更新
+
+| # | state | reward | next_state |
+|---|-------|--------|------------|
+| 1 | 配置前盤面 | 0 | 配置後盤面（消去前） |
+| 2 | 配置後盤面（消去前） | +1 | 1連鎖消去後盤面 |
+| 3 | 1連鎖消去後盤面 | +1 | 2連鎖消去後盤面 |
+| 4 | 2連鎖消去後盤面 | +1 | 3連鎖消去後盤面 |
+
+連鎖なしの場合 → 1回のTD更新: state=配置前盤面, reward=+1, next_state=配置後盤面。
+ゲームオーバーの場合 → 1回のTD更新: state=配置前盤面, reward=-1, next_state=リセット後盤面（生存報酬は与えない）。
+
+`TOTAL_STEPS` は配置回数ではなくTD更新回数を数える。連鎖が多いほど1配置で複数ステップを消費する。
+
+### エピソードレス設計
+
+ゲームオーバーはゲーム終了ではなく、-1 の報酬が発生するイベントとして扱う。ゲームオーバー後は新しいシードで `GameState::new()` を呼び、盤面をリセットして即座にプレイを続行する。`V(next_state)` はリセット後の新しい盤面で計算する。
 
 ### 手順
 
 1. Phase 2 で学習したモデル（`artifacts/puyo_model`）と正規化パラメータをロード
 2. ターゲットネットワーク（凍結コピー）を用意
-3. 各ゲームで ε-greedy 方策を使用:
+3. 各ステップで ε-greedy 方策を使用:
    - 確率 ε: ランダム配置
    - 確率 1-ε: ターゲットネットワーク評価 + 2手先読み探索で最善手を選択
-4. ゲームが `MAX_MOVES_PER_GAME` 手に達するか、ゲームオーバーになるまで繰り返す
-5. ゲーム終了後、Monte Carlo 法で割引リターンを計算（逆方向）:
+4. `game.place_piece_only()` でピースを配置（連鎖は解決しない）
+5. 連鎖の有無を `chain::find_groups()` で判定:
+   - **連鎖あり**: 配置前→配置後で reward=0 のTD更新、`chain::resolve_one_step()` で1連鎖ずつ解決しながら reward=+1 のTD更新。連鎖完了後に `finalize_after_chains()` でゲームオーバー判定し、ゲームオーバーなら追加の reward=-1 TD更新
+   - **連鎖なし**: `finalize_after_chains()` で先にゲームオーバー判定。ゲームオーバーなら reward=-1 のTD更新のみ、そうでなければ reward=+1（生存報酬）のTD更新
+6. TD(0) 更新式:
    ```
-   terminal_bonus = GAME_OVER_PENALTY  (ゲームオーバー時) or 0.0
-   running_return = terminal_bonus
-   for t in (T-1)..0:
-       running_return = reward[t] + γ × running_return
-       returns[t] = running_return
+   V(next_state) = target_model(next_board) * std_dev + mean  # 非正規化
+   td_target = (reward + γ × V(next_state) - mean) / std_dev  # 正規化
+   loss = MSE(V(state), td_target)
    ```
-6. 学習フィルタリング: `game.max_chain < CURRICULUM[phase].min_chain` のゲームはスキップ
-7. 各ステップで目標値を正規化し MSE 損失を計算、Adam で勾配更新:
-   ```
-   mc_target = (returns[t] - mean) / std_dev  # 正規化
-   loss = MSE(V(state_t), mc_target)
-   ```
-8. `TARGET_UPDATE_INTERVAL` ゲームごとにターゲットネットワークを現在のモデルで更新（一時ファイル経由）
-9. 最終モデルを `artifacts/puyo_model_selfplay` に保存
+7. `TARGET_UPDATE_INTERVAL` ステップごとにターゲットネットワークを現在のモデルで更新（一時ファイル経由）
+8. 最終モデルを `artifacts/puyo_model_selfplay` に保存
 
 ### NN 評価関数
 

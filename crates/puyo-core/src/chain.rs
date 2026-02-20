@@ -72,6 +72,36 @@ pub fn find_groups(board: &Board) -> Vec<Group> {
     groups
 }
 
+/// Resolve one chain step on the board. Modifies board in-place.
+/// Returns Some(ChainStep) if groups were found and cleared, None if no groups exist.
+/// After returning Some, gravity has been applied and the board is ready for the next step.
+/// The caller is responsible for tracking chain_num (1-indexed).
+pub fn resolve_one_step(board: &mut Board, chain_num: u32) -> Option<ChainStep> {
+    let groups = find_groups(board);
+    if groups.is_empty() {
+        return None;
+    }
+
+    // Remove groups from board
+    for group in &groups {
+        for &(col, row) in &group.cells {
+            board.set(col, row, PuyoColor::Empty);
+        }
+    }
+
+    // Calculate score for this step
+    let step_score = crate::score::calculate_step_score(chain_num, &groups);
+
+    // Apply gravity
+    board.apply_gravity();
+
+    Some(ChainStep {
+        chain_num,
+        groups,
+        score: step_score,
+    })
+}
+
 /// Resolve all chains on the board. Modifies board in-place.
 /// Returns the chain result with score details.
 pub fn resolve_chains(board: &mut Board) -> ChainResult {
@@ -240,6 +270,48 @@ mod tests {
         assert_eq!(board.get(0, 0), PuyoColor::Green);
         assert_eq!(board.get(0, 1), PuyoColor::Green);
         assert_eq!(board.column_height(0), 2);
+    }
+
+    #[test]
+    fn test_resolve_one_step_two_chain() {
+        // Same 2-chain setup as test_two_chain
+        let mut board = Board::new();
+        for _ in 0..3 {
+            board.drop_puyo(0, PuyoColor::Blue);
+        }
+        for _ in 0..4 {
+            board.drop_puyo(1, PuyoColor::Red);
+        }
+        board.drop_puyo(1, PuyoColor::Blue);
+
+        // Step 1: should clear 4 reds
+        let step1 = resolve_one_step(&mut board, 1);
+        assert!(step1.is_some());
+        let step1 = step1.unwrap();
+        assert_eq!(step1.chain_num, 1);
+
+        // Step 2: after gravity, blues connect → clear
+        let step2 = resolve_one_step(&mut board, 2);
+        assert!(step2.is_some());
+        let step2 = step2.unwrap();
+        assert_eq!(step2.chain_num, 2);
+
+        // Step 3: no more groups
+        let step3 = resolve_one_step(&mut board, 3);
+        assert!(step3.is_none());
+
+        // Board should be empty
+        assert_eq!(board.column_height(0), 0);
+        assert_eq!(board.column_height(1), 0);
+    }
+
+    #[test]
+    fn test_resolve_one_step_no_chain() {
+        let mut board = Board::new();
+        board.drop_puyo(0, PuyoColor::Red);
+        board.drop_puyo(1, PuyoColor::Blue);
+        let result = resolve_one_step(&mut board, 1);
+        assert!(result.is_none());
     }
 
     #[test]
