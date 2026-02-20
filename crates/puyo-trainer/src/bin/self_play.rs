@@ -140,6 +140,7 @@ fn main() {
         let mut game = GameState::new(seed);
         let mut trajectory: Vec<([f32; TENSOR_SIZE], f32)> = Vec::new();
         let mut move_count = 0u32;
+        let mut max_chain_step: Option<usize> = None;
 
         while game.phase == GamePhase::Falling && move_count < MAX_MOVES_PER_GAME {
             let current_piece = match &game.current_piece {
@@ -182,6 +183,9 @@ fn main() {
             move_count += 1;
             let chain_reward = (chain_result.chain_count as f32).powi(3);
             trajectory.push((board_data, chain_reward));
+            if chain_result.chain_count == game.max_chain && chain_result.chain_count > 0 {
+                max_chain_step = Some(trajectory.len() - 1);
+            }
         }
 
         let is_game_over = game.board.is_game_over();
@@ -213,8 +217,11 @@ fn main() {
             continue;
         }
 
-        // Monte Carlo: compute discounted returns from the end of the episode
-        let num_steps = trajectory.len();
+        // Monte Carlo: compute discounted returns up to the step where max_chain was achieved
+        let num_steps = match max_chain_step {
+            Some(idx) => idx + 1,
+            None => trajectory.len(),
+        };
         let mut returns = vec![0.0f32; num_steps];
         let terminal_bonus = if is_game_over { GAME_OVER_PENALTY } else { 0.0 };
         let mut running_return = terminal_bonus;
