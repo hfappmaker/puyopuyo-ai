@@ -76,12 +76,15 @@ fn eval_target(
 }
 
 /// TD(0) 更新を実行するマクロ
-/// model の所有権を消費して新しい model を返すため、マクロで展開する
+/// model の所有権を消費して新しい model を返すため、マクロで展開する。
+/// step更新、報酬カウンタ、ログ出力、ターゲットネットワーク更新も一括で行う。
 macro_rules! td_update {
     ($model:expr, $optim:expr, $target_model:expr,
      $state_data:expr, $reward:expr, $next_data:expr,
-     $device:expr, $infer_device:expr, $mean:expr, $std_dev:expr) => {{
-        let v_next = eval_target($target_model, $next_data, $infer_device, $mean, $std_dev);
+     $device:expr, $infer_device:expr, $mean:expr, $std_dev:expr,
+     $step:expr, $reward_neg:expr, $reward_zero:expr, $reward_pos:expr,
+     $game_count:expr, $epsilon:expr, $config:expr) => {{
+        let v_next = eval_target(&$target_model, $next_data, $infer_device, $mean, $std_dev);
         let td_target_raw = $reward + GAMMA * v_next;
         let td_target = (td_target_raw - $mean) / $std_dev;
 
@@ -95,6 +98,39 @@ macro_rules! td_update {
         let grads = loss.backward();
         let grads = GradientsParams::from_grads(grads, &$model);
         $model = $optim.step(LEARNING_RATE, $model, grads);
+
+        // step更新
+        $step += 1;
+
+        // 報酬カウンタ更新
+        if $reward < 0.0_f32 { $reward_neg += 1; }
+        else if $reward > 0.0_f32 { $reward_pos += 1; }
+        else { $reward_zero += 1; }
+
+        // 進捗ログ
+        if $step % LOG_INTERVAL == 0 {
+            println!(
+                "[PROGRESS] step={}/{}, games={}, eps={:.3}, rewards(-1/0/+1)={}/{}/{}",
+                $step, TOTAL_STEPS, $game_count, $epsilon,
+                $reward_neg, $reward_zero, $reward_pos,
+            );
+            $reward_neg = 0;
+            $reward_zero = 0;
+            $reward_pos = 0;
+        }
+
+        // ターゲットネットワーク更新
+        if $step % TARGET_UPDATE_INTERVAL == 0 {
+            let valid_model = $model.valid();
+            valid_model
+                .save_file("/tmp/puyo_temp_model", &BinFileRecorder::<FullPrecisionSettings>::new())
+                .expect("Failed to save temp model");
+            $target_model = $config
+                .init($infer_device)
+                .load_file("/tmp/puyo_temp_model", &BinFileRecorder::<FullPrecisionSettings>::new(), $infer_device)
+                .expect("Failed to load target model");
+            println!("[TARGET UPDATE] step={}", $step);
+        }
     }};
 }
 
@@ -214,11 +250,11 @@ fn main() {
 
         if has_chain {
             // 配置ステップ: reward=0, next=配置後盤面（消去前）
-            td_update!(model, optim, &target_model,
+            td_update!(model, optim, target_model,
                 &board_data, 0.0_f32, &placed_data,
-                &device, &infer_device, mean, std_dev);
-            step += 1;
-            reward_zero += 1;
+                &device, &infer_device, mean, std_dev,
+                step, reward_neg, reward_zero, reward_pos,
+                game_count, epsilon, &config);
 
             let mut prev_data = placed_data;
 
@@ -233,11 +269,11 @@ fn main() {
                         total_score += chain_step.score;
                         let next_data = board_to_tensor_data(&game.board);
 
-                        td_update!(model, optim, &target_model,
+                        td_update!(model, optim, target_model,
                             &prev_data, 1.0_f32, &next_data,
-                            &device, &infer_device, mean, std_dev);
-                        step += 1;
-                        reward_pos += 1;
+                            &device, &infer_device, mean, std_dev,
+                            step, reward_neg, reward_zero, reward_pos,
+                            game_count, epsilon, &config);
                         prev_data = next_data;
                     }
                     None => {
@@ -263,11 +299,11 @@ fn main() {
 
                 if step < TOTAL_STEPS {
                     let next_data = board_to_tensor_data(&game.board);
-                    td_update!(model, optim, &target_model,
+                    td_update!(model, optim, target_model,
                         &prev_data, -1.0_f32, &next_data,
-                        &device, &infer_device, mean, std_dev);
-                    step += 1;
-                    reward_neg += 1;
+                        &device, &infer_device, mean, std_dev,
+                        step, reward_neg, reward_zero, reward_pos,
+                        game_count, epsilon, &config);
                 }
             }
         } else {
@@ -287,44 +323,19 @@ fn main() {
                 move_count = 0;
 
                 let next_data = board_to_tensor_data(&game.board);
-                td_update!(model, optim, &target_model,
+                td_update!(model, optim, target_model,
                     &board_data, -1.0_f32, &next_data,
-                    &device, &infer_device, mean, std_dev);
-                step += 1;
-                reward_neg += 1;
+                    &device, &infer_device, mean, std_dev,
+                    step, reward_neg, reward_zero, reward_pos,
+                    game_count, epsilon, &config);
             } else {
                 // 生存報酬: reward=+1
-                td_update!(model, optim, &target_model,
+                td_update!(model, optim, target_model,
                     &board_data, 1.0_f32, &placed_data,
-                    &device, &infer_device, mean, std_dev);
-                step += 1;
-                reward_pos += 1;
+                    &device, &infer_device, mean, std_dev,
+                    step, reward_neg, reward_zero, reward_pos,
+                    game_count, epsilon, &config);
             }
-        }
-
-        // 進捗ログ
-        if step > 0 && step % LOG_INTERVAL == 0 {
-            println!(
-                "[PROGRESS] step={}/{}, games={}, eps={:.3}, rewards(-1/0/+1)={}/{}/{}",
-                step, TOTAL_STEPS, game_count, epsilon,
-                reward_neg, reward_zero, reward_pos,
-            );
-            reward_neg = 0;
-            reward_zero = 0;
-            reward_pos = 0;
-        }
-
-        // ターゲットネットワーク更新
-        if step > 0 && step % TARGET_UPDATE_INTERVAL == 0 {
-            let valid_model = model.valid();
-            valid_model
-                .save_file("/tmp/puyo_temp_model", &BinFileRecorder::<FullPrecisionSettings>::new())
-                .expect("Failed to save temp model");
-            target_model = config
-                .init(&infer_device)
-                .load_file("/tmp/puyo_temp_model", &BinFileRecorder::<FullPrecisionSettings>::new(), &infer_device)
-                .expect("Failed to load target model");
-            println!("[TARGET UPDATE] step={}", step);
         }
     }
 
