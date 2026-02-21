@@ -76,19 +76,21 @@ impl NormParams {
     }
 }
 
-/// 報酬の統計カウンタ
+/// 報酬の統計カウンタ（損失の累積も含む）
 struct RewardStats {
     negative: u64,
     zero: u64,
     positive: u64,
+    loss_sum: f64,
+    loss_count: u64,
 }
 
 impl RewardStats {
     fn new() -> Self {
-        RewardStats { negative: 0, zero: 0, positive: 0 }
+        RewardStats { negative: 0, zero: 0, positive: 0, loss_sum: 0.0, loss_count: 0 }
     }
 
-    fn record(&mut self, reward: f32) {
+    fn record(&mut self, reward: f32, loss: f32) {
         if reward < 0.0 {
             self.negative += 1;
         } else if reward > 0.0 {
@@ -96,15 +98,47 @@ impl RewardStats {
         } else {
             self.zero += 1;
         }
+        self.loss_sum += loss as f64;
+        self.loss_count += 1;
     }
 
-    fn log_and_reset(&mut self, step: u64, game_count: u64, epsilon: f32) {
+    fn log_and_reset(&mut self, step: u64, game_count: u64, epsilon: f32, game_stats: &mut GameStats) {
+        let avg_loss = if self.loss_count > 0 { self.loss_sum / self.loss_count as f64 } else { 0.0 };
+        let (avg_chain, avg_moves) = game_stats.averages();
         println!(
-            "[PROGRESS] step={}/{}, games={}, eps={:.3}, rewards(-1/0/+1)={}/{}/{}",
+            "[PROGRESS] step={}/{}, games={}, eps={:.3}, rewards(-1/0/+1)={}/{}/{}, loss={:.4}, avg_chain={:.1}, avg_moves={:.1}",
             step, TOTAL_STEPS, game_count, epsilon,
             self.negative, self.zero, self.positive,
+            avg_loss, avg_chain, avg_moves,
         );
         *self = Self::new();
+        *game_stats = GameStats::new();
+    }
+}
+
+/// ゲームパフォーマンスの統計（収束確認用）
+struct GameStats {
+    chain_sum: u64,
+    moves_sum: u64,
+    count: u64,
+}
+
+impl GameStats {
+    fn new() -> Self {
+        GameStats { chain_sum: 0, moves_sum: 0, count: 0 }
+    }
+
+    fn record(&mut self, max_chain: u32, moves: u32) {
+        self.chain_sum += max_chain as u64;
+        self.moves_sum += moves as u64;
+        self.count += 1;
+    }
+
+    fn averages(&self) -> (f64, f64) {
+        if self.count == 0 {
+            return (0.0, 0.0);
+        }
+        (self.chain_sum as f64 / self.count as f64, self.moves_sum as f64 / self.count as f64)
     }
 }
 
@@ -223,7 +257,7 @@ fn select_placement(
 }
 
 /// TD(0) 更新を1ステップ実行する。
-/// model を消費して更新済み model を返す（Burn の所有権セマンティクス対応）。
+/// model を消費して更新済み model と損失値を返す（Burn の所有権セマンティクス対応）。
 fn td_update(
     model: PuyoValueNet<TrainBackend>,
     optim: &mut impl Optimizer<PuyoValueNet<TrainBackend>, TrainBackend>,
@@ -234,7 +268,7 @@ fn td_update(
     device: &<TrainBackend as Backend>::Device,
     norm: &NormParams,
     infer_device: &<InferBackend as Backend>::Device,
-) -> PuyoValueNet<TrainBackend> {
+) -> (PuyoValueNet<TrainBackend>, f32) {
     let v_next = norm.eval_target(target_model, next_data, infer_device);
     let td_target = norm.normalize(reward + GAMMA * v_next);
 
@@ -245,9 +279,10 @@ fn td_update(
         .reshape([1, 1]);
     let diff = prediction - target;
     let loss = diff.clone().mul(diff).mean();
+    let loss_val = loss.clone().into_data().to_vec::<f32>().unwrap()[0];
     let grads = loss.backward();
     let grads = GradientsParams::from_grads(grads, &model);
-    optim.step(LEARNING_RATE, model, grads)
+    (optim.step(LEARNING_RATE, model, grads), loss_val)
 }
 
 /// ターゲットネットワークをオンラインモデルから同期する
@@ -279,7 +314,9 @@ fn sync_target_network(
 fn step_bookkeeping(
     step: &mut u64,
     reward: f32,
+    loss: f32,
     stats: &mut RewardStats,
+    game_stats: &mut GameStats,
     session: &GameSession,
     epsilon: f32,
     model: &PuyoValueNet<TrainBackend>,
@@ -288,10 +325,10 @@ fn step_bookkeeping(
     infer_device: &<InferBackend as Backend>::Device,
 ) {
     *step += 1;
-    stats.record(reward);
+    stats.record(reward, loss);
 
     if *step % LOG_INTERVAL == 0 {
-        stats.log_and_reset(*step, session.game_count, epsilon);
+        stats.log_and_reset(*step, session.game_count, epsilon, game_stats);
     }
 
     if *step % TARGET_UPDATE_INTERVAL == 0 {
@@ -323,6 +360,7 @@ fn run_training_loop(
     let mut session = GameSession::new(100_000);
     let mut step: u64 = 0;
     let mut stats = RewardStats::new();
+    let mut game_stats = GameStats::new();
 
     while step < TOTAL_STEPS {
         let epsilon = compute_epsilon(step);
@@ -348,12 +386,13 @@ fn run_training_loop(
 
         if has_chain {
             // 配置ステップ: reward=0, next=配置後盤面（消去前）
-            model = td_update(
+            let (m, loss) = td_update(
                 model, &mut optim, &target_model,
                 &board_data, 0.0, &placed_data, device, norm, infer_device,
             );
+            model = m;
             step_bookkeeping(
-                &mut step, 0.0, &mut stats, &session, epsilon,
+                &mut step, 0.0, loss, &mut stats, &mut game_stats, &session, epsilon,
                 &model, &mut target_model, config, infer_device,
             );
 
@@ -371,12 +410,13 @@ fn run_training_loop(
                     Some(chain_step) => {
                         total_score += chain_step.score;
                         let next_data = board_to_tensor_data(&session.game.board);
-                        model = td_update(
+                        let (m, loss) = td_update(
                             model, &mut optim, &target_model,
                             &prev_data, 1.0, &next_data, device, norm, infer_device,
                         );
+                        model = m;
                         step_bookkeeping(
-                            &mut step, 1.0, &mut stats, &session, epsilon,
+                            &mut step, 1.0, loss, &mut stats, &mut game_stats, &session, epsilon,
                             &model, &mut target_model, config, infer_device,
                         );
                         prev_data = next_data;
@@ -394,16 +434,18 @@ fn run_training_loop(
             session.log_if_new_max_chain(prev_max, step);
 
             if session.game.board.is_game_over() {
+                game_stats.record(session.game.max_chain, session.move_count);
                 session.log_game_over_and_reset(epsilon, step);
 
                 if step < TOTAL_STEPS {
                     let next_data = board_to_tensor_data(&session.game.board);
-                    model = td_update(
+                    let (m, loss) = td_update(
                         model, &mut optim, &target_model,
                         &prev_data, -1.0, &next_data, device, norm, infer_device,
                     );
+                    model = m;
                     step_bookkeeping(
-                        &mut step, -1.0, &mut stats, &session, epsilon,
+                        &mut step, -1.0, loss, &mut stats, &mut game_stats, &session, epsilon,
                         &model, &mut target_model, config, infer_device,
                     );
                 }
@@ -413,25 +455,28 @@ fn run_training_loop(
             session.game.finalize_after_chains(0, 0);
 
             if session.game.board.is_game_over() {
+                game_stats.record(session.game.max_chain, session.move_count);
                 session.log_game_over_and_reset(epsilon, step);
 
                 let next_data = board_to_tensor_data(&session.game.board);
-                model = td_update(
+                let (m, loss) = td_update(
                     model, &mut optim, &target_model,
                     &board_data, -1.0, &next_data, device, norm, infer_device,
                 );
+                model = m;
                 step_bookkeeping(
-                    &mut step, -1.0, &mut stats, &session, epsilon,
+                    &mut step, -1.0, loss, &mut stats, &mut game_stats, &session, epsilon,
                     &model, &mut target_model, config, infer_device,
                 );
             } else {
                 // 生存: reward=1
-                model = td_update(
+                let (m, loss) = td_update(
                     model, &mut optim, &target_model,
                     &board_data, 1.0, &placed_data, device, norm, infer_device,
                 );
+                model = m;
                 step_bookkeeping(
-                    &mut step, 1.0, &mut stats, &session, epsilon,
+                    &mut step, 1.0, loss, &mut stats, &mut game_stats, &session, epsilon,
                     &model, &mut target_model, config, infer_device,
                 );
             }

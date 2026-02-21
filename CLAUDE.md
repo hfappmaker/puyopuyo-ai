@@ -48,7 +48,7 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 ### ボード表現とCNN
 - ボード: 6列×13行、`PuyoColor` enum（Empty, Red, Green, Blue, Yellow）
 - One-hot encoding: 5チャンネル × 13行 × 6列 = 390 floats → `[batch, 5, 13, 6]` テンソル
-- PuyoValueNet: Conv2d(5→32)→Conv2d(32→32)→Conv2d(32→64)→AdaptiveAvgPool2d([4,3])→Linear(768→128)→Linear(128→1)
+- PuyoValueNet: Conv2d(5→32)→ResidualBlock(32)×2→Conv2d(32→64,1×1)→AdaptiveAvgPool2d([4,3])→Linear(768→128)→Linear(128→1)
 - Burn 0.16、NdArrayバックエンド（CPU/WASM対応）
 
 ### WASMブリッジ

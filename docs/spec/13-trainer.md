@@ -121,10 +121,11 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
 | 名前 | 種別 | 役割 |
 |------|------|------|
 | `NormParams` | 構造体 | z-score 正規化パラメータ。`normalize()`, `eval_target()` を提供 |
-| `RewardStats` | 構造体 | 報酬カウンタ。`record()`, `log_and_reset()` でログ管理 |
+| `RewardStats` | 構造体 | 報酬カウンタと損失累積。`record(reward, loss)`, `log_and_reset()` でログ管理 |
+| `GameStats` | 構造体 | ゲームパフォーマンス統計（連鎖数・手数の移動平均）。収束確認用 |
 | `GameSession` | 構造体 | ゲーム状態（`GameState`, seed, カウンタ）。`reset()`, `log_game_over_and_reset()` |
 | `SelfPlayEvaluator` | 構造体 | `Evaluator` トレイト実装。ターゲットモデルで盤面を評価 |
-| `td_update()` | 関数 | TD(0) の1ステップ更新。model を値渡し→値返し |
+| `td_update()` | 関数 | TD(0) の1ステップ更新。`(model, loss_val)` のタプルを返す |
 | `sync_target_network()` | 関数 | ターゲットネットワークをオンラインモデルから同期 |
 | `step_bookkeeping()` | 関数 | ステップ管理（カウンタ更新、ログ、ターゲット同期） |
 | `select_placement()` | 関数 | ε-greedy 配置選択。`Option<Placement>` を返す |
@@ -191,6 +192,23 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
    ```
 7. `TARGET_UPDATE_INTERVAL` ステップごとにターゲットネットワークを現在のモデルで更新（一時ファイル経由）
 8. 最終モデルを `artifacts/puyo_model_selfplay` に保存
+
+### ログ出力と収束指標
+
+`LOG_INTERVAL`（100ステップ）ごとに以下の収束指標をログ出力する。
+
+```
+[PROGRESS] step=100/200000, games=5, eps=0.299, rewards(-1/0/+1)=10/20/70, loss=0.0342, avg_chain=4.2, avg_moves=18.5
+```
+
+| フィールド | 説明 | 収束時の傾向 |
+|-----------|------|------------|
+| `loss` | TD誤差のMSE（`LOG_INTERVAL`ステップ平均） | 減少または安定 |
+| `avg_chain` | 直近ゲームの最大連鎖数の平均 | 増加 |
+| `avg_moves` | 直近ゲームの手数の平均 | 増加 |
+| `rewards(-1/0/+1)` | 報酬分布（ゲームオーバー/連鎖配置/生存+連鎖） | +1 が増加 |
+
+`td_update()` が `(model, loss_val)` のタプルを返し、`step_bookkeeping()` が `loss_val` を `RewardStats` に累積する。`GameStats` はゲーム終了ごとに連鎖数と手数を記録し、ログ時に平均を計算してリセットする。
 
 ### NN 評価関数
 
