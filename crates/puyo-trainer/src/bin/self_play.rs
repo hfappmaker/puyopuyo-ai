@@ -29,12 +29,10 @@ type InferBackend = NdArray;
 
 const MODEL_PATH: &str = "artifacts/puyo_model";
 const OUTPUT_PATH: &str = "artifacts/puyo_model_selfplay";
-const TOTAL_STEPS: u64 = 200_000;
 const GAMMA: f32 = 0.99;
 const LEARNING_RATE: f64 = 1e-4;
 const EPSILON_START: f32 = 0.3;
 const EPSILON_END: f32 = 0.01;
-const TARGET_UPDATE_INTERVAL: u64 = 1000;
 const LOG_INTERVAL: u64 = 100;
 
 // ---------------------------------------------------------------------------
@@ -102,12 +100,12 @@ impl RewardStats {
         self.loss_count += 1;
     }
 
-    fn log_and_reset(&mut self, step: u64, game_count: u64, epsilon: f32, game_stats: &mut GameStats) {
+    fn log_and_reset(&mut self, step: u64, total_steps: u64, game_count: u64, epsilon: f32, game_stats: &mut GameStats) {
         let avg_loss = if self.loss_count > 0 { self.loss_sum / self.loss_count as f64 } else { 0.0 };
         let (avg_chain, avg_moves) = game_stats.averages();
         println!(
             "[PROGRESS] step={}/{}, games={}, eps={:.3}, rewards(-1/0/+1)={}/{}/{}, loss={:.4}, avg_chain={:.1}, avg_moves={:.1}",
-            step, TOTAL_STEPS, game_count, epsilon,
+            step, total_steps, game_count, epsilon,
             self.negative, self.zero, self.positive,
             avg_loss, avg_chain, avg_moves,
         );
@@ -214,8 +212,8 @@ impl<'a> Evaluator for SelfPlayEvaluator<'a> {
 // ---------------------------------------------------------------------------
 
 /// εの線形減衰を計算
-fn compute_epsilon(step: u64) -> f32 {
-    let progress = step as f32 / TOTAL_STEPS.max(1) as f32;
+fn compute_epsilon(step: u64, total_steps: u64) -> f32 {
+    let progress = step as f32 / total_steps.max(1) as f32;
     EPSILON_START + (EPSILON_END - EPSILON_START) * progress
 }
 
@@ -313,6 +311,8 @@ fn sync_target_network(
 /// TD更新後のステップ管理（カウンタ更新、ログ、ターゲット同期）
 fn step_bookkeeping(
     step: &mut u64,
+    total_steps: u64,
+    target_update_interval: u64,
     reward: f32,
     loss: f32,
     stats: &mut RewardStats,
@@ -328,10 +328,10 @@ fn step_bookkeeping(
     stats.record(reward, loss);
 
     if *step % LOG_INTERVAL == 0 {
-        stats.log_and_reset(*step, session.game_count, epsilon, game_stats);
+        stats.log_and_reset(*step, total_steps, session.game_count, epsilon, game_stats);
     }
 
-    if *step % TARGET_UPDATE_INTERVAL == 0 {
+    if *step % target_update_interval == 0 {
         *target_model = sync_target_network(model, config, infer_device);
     }
 }
@@ -356,14 +356,16 @@ fn run_training_loop(
     device: &<TrainBackend as Backend>::Device,
     infer_device: &<InferBackend as Backend>::Device,
     norm: &NormParams,
+    total_steps: u64,
+    target_update_interval: u64,
 ) -> PuyoValueNet<InferBackend> {
     let mut session = GameSession::new(100_000);
     let mut step: u64 = 0;
     let mut stats = RewardStats::new();
     let mut game_stats = GameStats::new();
 
-    while step < TOTAL_STEPS {
-        let epsilon = compute_epsilon(step);
+    while step < total_steps {
+        let epsilon = compute_epsilon(step, total_steps);
         let board_data = board_to_tensor_data(&session.game.board);
 
         // 配置を選択
@@ -392,7 +394,7 @@ fn run_training_loop(
             );
             model = m;
             step_bookkeeping(
-                &mut step, 0.0, loss, &mut stats, &mut game_stats, &session, epsilon,
+                &mut step, total_steps, target_update_interval, 0.0, loss, &mut stats, &mut game_stats, &session, epsilon,
                 &model, &mut target_model, config, infer_device,
             );
 
@@ -402,7 +404,7 @@ fn run_training_loop(
             let mut total_score: u32 = 0;
 
             loop {
-                if step >= TOTAL_STEPS {
+                if step >= total_steps {
                     break;
                 }
                 chain_count += 1;
@@ -416,7 +418,7 @@ fn run_training_loop(
                         );
                         model = m;
                         step_bookkeeping(
-                            &mut step, 1.0, loss, &mut stats, &mut game_stats, &session, epsilon,
+                            &mut step, total_steps, target_update_interval, 1.0, loss, &mut stats, &mut game_stats, &session, epsilon,
                             &model, &mut target_model, config, infer_device,
                         );
                         prev_data = next_data;
@@ -437,7 +439,7 @@ fn run_training_loop(
                 game_stats.record(session.game.max_chain, session.move_count);
                 session.log_game_over_and_reset(epsilon, step);
 
-                if step < TOTAL_STEPS {
+                if step < total_steps {
                     let next_data = board_to_tensor_data(&session.game.board);
                     let (m, loss) = td_update(
                         model, &mut optim, &target_model,
@@ -445,7 +447,7 @@ fn run_training_loop(
                     );
                     model = m;
                     step_bookkeeping(
-                        &mut step, -1.0, loss, &mut stats, &mut game_stats, &session, epsilon,
+                        &mut step, total_steps, target_update_interval, -1.0, loss, &mut stats, &mut game_stats, &session, epsilon,
                         &model, &mut target_model, config, infer_device,
                     );
                 }
@@ -465,7 +467,7 @@ fn run_training_loop(
                 );
                 model = m;
                 step_bookkeeping(
-                    &mut step, -1.0, loss, &mut stats, &mut game_stats, &session, epsilon,
+                    &mut step, total_steps, target_update_interval, -1.0, loss, &mut stats, &mut game_stats, &session, epsilon,
                     &model, &mut target_model, config, infer_device,
                 );
             } else {
@@ -476,7 +478,7 @@ fn run_training_loop(
                 );
                 model = m;
                 step_bookkeeping(
-                    &mut step, 1.0, loss, &mut stats, &mut game_stats, &session, epsilon,
+                    &mut step, total_steps, target_update_interval, 1.0, loss, &mut stats, &mut game_stats, &session, epsilon,
                     &model, &mut target_model, config, infer_device,
                 );
             }
@@ -490,11 +492,36 @@ fn run_training_loop(
 // エントリポイント
 // ---------------------------------------------------------------------------
 
+fn parse_args() -> (u64, u64) {
+    let args: Vec<String> = std::env::args().collect();
+    let mut total_steps: u64 = 200_000;
+    let mut target_update_interval: u64 = 1_000;
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--steps" => {
+                i += 1;
+                total_steps = args[i].parse().expect("--steps には整数を指定してください");
+            }
+            "--target-update" => {
+                i += 1;
+                target_update_interval = args[i].parse().expect("--target-update には整数を指定してください");
+            }
+            other => eprintln!("不明なオプション: {}（無視します）", other),
+        }
+        i += 1;
+    }
+    (total_steps, target_update_interval)
+}
+
 fn main() {
     #[cfg(feature = "gpu")]
     println!("Backend: CUDA (GPU)");
     #[cfg(not(feature = "gpu"))]
     println!("Backend: NdArray (CPU)");
+
+    let (total_steps, target_update_interval) = parse_args();
+    println!("total_steps={}, target_update_interval={}", total_steps, target_update_interval);
 
     let device: <TrainBackend as Backend>::Device = Default::default();
     let infer_device: <InferBackend as Backend>::Device = Default::default();
@@ -519,6 +546,7 @@ fn main() {
 
     let final_model = run_training_loop(
         model, target_model, optim, &config, &device, &infer_device, &norm,
+        total_steps, target_update_interval,
     );
 
     final_model
