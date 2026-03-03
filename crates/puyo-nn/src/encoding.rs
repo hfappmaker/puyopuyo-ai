@@ -59,6 +59,7 @@ mod tests {
 
     #[test]
     fn test_tensor_size() {
-        assert_eq!(TENSOR_SIZE, 390);
+        // 5 channels * 14 rows * 6 cols = 420
+        assert_eq!(TENSOR_SIZE, 420);
     }
 }

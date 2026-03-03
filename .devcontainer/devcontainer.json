@@ -22,7 +22,8 @@
         "esbenp.prettier-vscode",
         "Anthropic.claude-code",
         "bierner.markdown-mermaid",
-        "ms-toolsai.jupyter"
+        "ms-toolsai.jupyter",
+        "ms-python.python"
       ]
     }
   },

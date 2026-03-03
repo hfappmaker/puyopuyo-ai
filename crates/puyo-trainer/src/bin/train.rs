@@ -3,6 +3,7 @@ use burn::backend::CudaJit;
 #[cfg(not(feature = "gpu"))]
 use burn::backend::ndarray::NdArray;
 use burn::backend::Autodiff;
+use burn::tensor::backend::AutodiffBackend;
 use burn::module::AutodiffModule;
 use burn::optim::{AdamConfig, GradientsParams, Optimizer};
 use burn::prelude::*;
@@ -20,9 +21,16 @@ type TrainBackend = Autodiff<NdArray>;
 
 const DATA_PATH: &str = "data/training_data.bin";
 const MODEL_PATH: &str = "artifacts/puyo_model";
+#[cfg(feature = "gpu")]
+const BATCH_SIZE: usize = 8;
+#[cfg(not(feature = "gpu"))]
 const BATCH_SIZE: usize = 512;
+#[cfg(feature = "gpu")]
+const VAL_BATCH_SIZE: usize = 512;
+#[cfg(not(feature = "gpu"))]
+const VAL_BATCH_SIZE: usize = 8;
 const NUM_EPOCHS: usize = 20;
-const LEARNING_RATE: f64 = 1e-3;
+const LEARNING_RATE: f64 = 5e-4;
 
 fn main() {
     std::fs::create_dir_all("artifacts").expect("Failed to create artifacts directory");
@@ -133,8 +141,10 @@ fn main() {
         }
         eprintln!();
 
-        // Validation
-        let val_loss = compute_val_loss(&model, val_samples, mean, std_dev, &device);
+        // Validation (model.valid()で勾配グラフなしの推論モード)
+        let val_model = model.valid();
+        let val_device: <InnerBackend as Backend>::Device = Default::default();
+        let val_loss = compute_val_loss(&val_model, val_samples, mean, std_dev, &val_device);
 
         println!(
             "Epoch {}/{}: train_loss={:.6}, val_loss={:.6}",
@@ -153,18 +163,20 @@ fn main() {
     println!("Model saved to {}", MODEL_PATH);
 }
 
+type InnerBackend = <TrainBackend as AutodiffBackend>::InnerBackend;
+
 fn compute_val_loss(
-    model: &puyo_nn::model::PuyoValueNet<TrainBackend>,
+    model: &puyo_nn::model::PuyoValueNet<InnerBackend>,
     val_samples: &[puyo_trainer::data::Sample],
     mean: f32,
     std_dev: f32,
-    device: &<TrainBackend as Backend>::Device,
+    device: &<InnerBackend as Backend>::Device,
 ) -> f32 {
     let mut total_loss = 0.0f32;
     let mut num_batches = 0;
 
-    for batch_start in (0..val_samples.len()).step_by(BATCH_SIZE) {
-        let batch_end = (batch_start + BATCH_SIZE).min(val_samples.len());
+    for batch_start in (0..val_samples.len()).step_by(VAL_BATCH_SIZE) {
+        let batch_end = (batch_start + VAL_BATCH_SIZE).min(val_samples.len());
         let batch_size = batch_end - batch_start;
         if batch_size == 0 {
             break;
@@ -178,13 +190,13 @@ fn compute_val_loss(
             target_data.push((sample.target - mean) / std_dev);
         }
 
-        let inputs = Tensor::<TrainBackend, 1>::from_floats(
+        let inputs = Tensor::<InnerBackend, 1>::from_floats(
             input_data.as_slice(),
             device,
         )
         .reshape([batch_size, NUM_CHANNELS, ROWS, COLS]);
 
-        let targets = Tensor::<TrainBackend, 1>::from_floats(
+        let targets = Tensor::<InnerBackend, 1>::from_floats(
             target_data.as_slice(),
             device,
         )

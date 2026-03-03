@@ -26,11 +26,11 @@ impl PuyoColor {
 }
 
 pub const COLS: usize = 6;
-pub const ROWS: usize = 13; // 12 visible + 1 hidden top row
+pub const ROWS: usize = 14; // 12 visible + 2 hidden top rows
 pub const VISIBLE_ROWS: usize = 12;
 
 /// Board stored in column-major order: columns[col][row].
-/// Row 0 is the bottom, row 12 is the top.
+/// Row 0 is the bottom, row 13 is the top (hidden).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
     pub columns: [[PuyoColor; ROWS]; COLS],
@@ -74,10 +74,11 @@ impl Board {
     }
 
     /// Apply gravity: make all puyos fall down to fill gaps.
+    /// Row 13 (top hidden row) is excluded — puyos there stay until game over.
     pub fn apply_gravity(&mut self) {
         for col in 0..COLS {
             let mut write = 0;
-            for read in 0..ROWS {
+            for read in 0..(ROWS - 1) {
                 if self.columns[col][read].is_color() {
                     self.columns[col][write] = self.columns[col][read];
                     if write != read {
@@ -86,12 +87,13 @@ impl Board {
                     write += 1;
                 }
             }
+            // Row 13 (top hidden row) is not touched by gravity
         }
     }
 
-    /// Check if game is over (column 2, the 3rd column, has puyo at row 11, filling all visible rows).
+    /// Check if game is over (column 2 has puyo at row 12, the 13th row / 1st hidden row).
     pub fn is_game_over(&self) -> bool {
-        self.column_height(2) >= VISIBLE_ROWS
+        self.column_height(2) >= VISIBLE_ROWS + 1
     }
 
     /// Flatten board to a Vec<u8> for WASM transfer. Column-major, bottom to top.
@@ -164,14 +166,25 @@ mod tests {
     fn test_game_over() {
         let mut board = Board::new();
         assert!(!board.is_game_over());
-        // Fill column 2 to height 11 (not yet game over)
-        for _ in 0..VISIBLE_ROWS - 1 {
+        // Fill column 2 to height 12 (visible rows full, not yet game over)
+        for _ in 0..VISIBLE_ROWS {
             board.drop_puyo(2, PuyoColor::Red);
         }
         assert!(!board.is_game_over());
-        // One more puyo fills to height 12 -> game over
+        // One more puyo reaches row 12 (13th row, 1st hidden row) -> game over
         board.drop_puyo(2, PuyoColor::Red);
         assert!(board.is_game_over());
+    }
+
+    #[test]
+    fn test_top_hidden_row_not_affected_by_gravity() {
+        let mut board = Board::new();
+        // Place a puyo directly at row 13 (top hidden row)
+        board.set(0, ROWS - 1, PuyoColor::Red);
+        board.apply_gravity();
+        // The puyo in row 13 must remain there (does not fall)
+        assert_eq!(board.get(0, ROWS - 1), PuyoColor::Red);
+        assert_eq!(board.get(0, 0), PuyoColor::Empty);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use puyo_core::board::{Board, COLS, ROWS};
+use puyo_core::board::{Board, COLS, ROWS, VISIBLE_ROWS};
 use puyo_core::chain;
 
 /// Trait for board evaluation strategies.
@@ -31,53 +31,31 @@ pub fn evaluate(board: &Board) -> f64 {
         return W_GAME_OVER;
     }
 
-    let mut score = 0.0;
-
-    // 1. Simulate chains to get chain score and length
     let mut sim_board = board.clone();
     let chain_result = chain::resolve_chains(&mut sim_board);
-    score += chain_result.score as f64 * W_CHAIN_SCORE;
-    score += chain_result.chain_count as f64 * W_CHAIN_LENGTH;
 
-    // Use the board after chain resolution for remaining evaluation
-    let eval_board = &sim_board;
+    chain_result.score as f64 * W_CHAIN_SCORE
+        + chain_result.chain_count as f64 * W_CHAIN_LENGTH
+        + height_penalty(&sim_board)
+        + height_variance(&sim_board) * W_HEIGHT_VARIANCE
+        + count_connectivity(&sim_board) as f64 * W_CONNECTIVITY
+        + count_potential_chains(&sim_board) as f64 * W_POTENTIAL_CHAIN
+        + count_center_weight(&sim_board) * W_CENTER_WEIGHT
+}
 
-    // 2. Height penalty - penalize tall columns
-    let heights: Vec<usize> = (0..COLS).map(|c| eval_board.column_height(c)).collect();
-    let max_height = *heights.iter().max().unwrap_or(&0);
-    if max_height > 8 {
-        score += (max_height as f64 - 8.0) * W_HEIGHT_PENALTY * 2.0;
-    }
-    // Extra penalty for heights near death zone
-    if max_height > 10 {
-        score += (max_height as f64 - 10.0) * W_HEIGHT_PENALTY * 10.0;
-    }
+/// Penalize tall columns, with extra penalty near the death zone.
+fn height_penalty(board: &Board) -> f64 {
+    let max_height = (0..COLS).map(|c| board.column_height(c)).max().unwrap_or(0);
+    let base = if max_height > 8 { (max_height as f64 - 8.0) * W_HEIGHT_PENALTY * 2.0 } else { 0.0 };
+    let extra = if max_height > 10 { (max_height as f64 - 10.0) * W_HEIGHT_PENALTY * 10.0 } else { 0.0 };
+    base + extra
+}
 
-    // 3. Height variance - prefer even columns
-    let avg_height: f64 = heights.iter().sum::<usize>() as f64 / COLS as f64;
-    let variance: f64 = heights
-        .iter()
-        .map(|&h| {
-            let diff = h as f64 - avg_height;
-            diff * diff
-        })
-        .sum::<f64>()
-        / COLS as f64;
-    score += variance * W_HEIGHT_VARIANCE;
-
-    // 4. Connectivity - count same-color adjacent pairs
-    let connectivity = count_connectivity(eval_board);
-    score += connectivity as f64 * W_CONNECTIVITY;
-
-    // 5. Potential chains - groups of 3 (one more to clear)
-    let potential = count_potential_chains(eval_board);
-    score += potential as f64 * W_POTENTIAL_CHAIN;
-
-    // 6. Center weight - prefer puyos in center columns
-    let center = count_center_weight(eval_board);
-    score += center * W_CENTER_WEIGHT;
-
-    score
+/// Variance of column heights. Lower variance = more even columns.
+fn height_variance(board: &Board) -> f64 {
+    let heights: Vec<f64> = (0..COLS).map(|c| board.column_height(c) as f64).collect();
+    let avg = heights.iter().sum::<f64>() / COLS as f64;
+    heights.iter().map(|&h| (h - avg) * (h - avg)).sum::<f64>() / COLS as f64
 }
 
 /// Evaluate board after placing a piece (does not modify the input board).
@@ -88,24 +66,16 @@ pub fn evaluate_placement(board: &Board) -> f64 {
 
 /// Count same-color adjacent pairs (horizontal and vertical).
 pub fn count_connectivity(board: &Board) -> u32 {
-    let mut count = 0;
-    for col in 0..COLS {
-        for row in 0..ROWS {
+    (0..COLS)
+        .flat_map(|col| (0..VISIBLE_ROWS).map(move |row| (col, row)))
+        .filter(|&(col, row)| board.get(col, row).is_color())
+        .map(|(col, row)| {
             let color = board.get(col, row);
-            if !color.is_color() {
-                continue;
-            }
-            // Check right neighbor
-            if col + 1 < COLS && board.get(col + 1, row) == color {
-                count += 1;
-            }
-            // Check upper neighbor
-            if row + 1 < ROWS && board.get(col, row + 1) == color {
-                count += 1;
-            }
-        }
-    }
-    count
+            let right = (col + 1 < COLS && board.get(col + 1, row) == color) as u32;
+            let upper = (row + 1 < VISIBLE_ROWS && board.get(col, row + 1) == color) as u32;
+            right + upper
+        })
+        .sum()
 }
 
 /// Count groups of exactly 3 same-color connected puyos (potential chains).
@@ -114,7 +84,7 @@ pub fn count_potential_chains(board: &Board) -> u32 {
     let mut count = 0;
 
     for col in 0..COLS {
-        for row in 0..ROWS {
+        for row in 0..VISIBLE_ROWS {
             let color = board.get(col, row);
             if !color.is_color() || visited[col][row] {
                 continue;
@@ -131,7 +101,7 @@ pub fn count_potential_chains(board: &Board) -> u32 {
                 for (dc, dr) in neighbors {
                     let nc = c as i32 + dc;
                     let nr = r as i32 + dr;
-                    if nc < 0 || nc >= COLS as i32 || nr < 0 || nr >= ROWS as i32 {
+                    if nc < 0 || nc >= COLS as i32 || nr < 0 || nr >= VISIBLE_ROWS as i32 {
                         continue;
                     }
                     let nc = nc as usize;
