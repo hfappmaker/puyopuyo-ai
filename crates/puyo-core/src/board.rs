@@ -28,6 +28,7 @@ impl PuyoColor {
 pub const COLS: usize = 6;
 pub const ROWS: usize = 14; // 12 visible + 2 hidden top rows
 pub const VISIBLE_ROWS: usize = 12;
+pub const SPAWN_COL: usize = 2;
 
 /// Board stored in column-major order: columns[col][row].
 /// Row 0 is the bottom, row 13 is the top (hidden).
@@ -91,20 +92,17 @@ impl Board {
         }
     }
 
-    /// Check if game is over (column 2 has puyo at row 12, the 13th row / 1st hidden row).
+    /// Check if game is over (spawn column has puyo above visible area).
     pub fn is_game_over(&self) -> bool {
-        self.column_height(2) >= VISIBLE_ROWS + 1
+        self.column_height(SPAWN_COL) > VISIBLE_ROWS
     }
 
     /// Flatten board to a Vec<u8> for WASM transfer. Column-major, bottom to top.
     pub fn to_flat(&self) -> Vec<u8> {
-        let mut data = Vec::with_capacity(COLS * ROWS);
-        for col in 0..COLS {
-            for row in 0..ROWS {
-                data.push(self.columns[col][row] as u8);
-            }
-        }
-        data
+        self.columns
+            .iter()
+            .flat_map(|col| col.iter().map(|&c| c as u8))
+            .collect()
     }
 }
 

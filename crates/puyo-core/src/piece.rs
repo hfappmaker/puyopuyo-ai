@@ -1,4 +1,4 @@
-use crate::board::PuyoColor;
+use crate::board::{PuyoColor, COLS, SPAWN_COL, VISIBLE_ROWS};
 
 /// Orientation of the satellite puyo relative to the axis puyo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +39,16 @@ impl Orientation {
             Orientation::West => (-1, 0),
         }
     }
+
+    /// Convert to integer representation (0=North, 1=East, 2=South, 3=West).
+    pub fn as_u8(self) -> u8 {
+        match self {
+            Orientation::North => 0,
+            Orientation::East => 1,
+            Orientation::South => 2,
+            Orientation::West => 3,
+        }
+    }
 }
 
 /// A two-puyo piece (tsumo). axis_color is the pivot, satellite_color orbits.
@@ -60,7 +70,7 @@ impl Piece {
 /// A specific placement: which column the axis lands in and the orientation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Placement {
-    pub col: usize,        // axis column (0-5)
+    pub col: usize, // axis column (0-5)
     pub orientation: Orientation,
 }
 
@@ -74,7 +84,7 @@ impl Placement {
     pub fn satellite_col(&self) -> Option<usize> {
         let (dc, _) = self.orientation.offset();
         let sc = self.col as i32 + dc;
-        if sc < 0 || sc >= 6 {
+        if !(0..COLS as i32).contains(&sc) {
             None
         } else {
             Some(sc as usize)
@@ -86,8 +96,8 @@ impl Placement {
 #[derive(Debug, Clone)]
 pub struct FallingPiece {
     pub piece: Piece,
-    pub col: usize,          // axis column
-    pub row: f32,            // axis row (fractional for smooth fall)
+    pub col: usize, // axis column
+    pub row: f32,   // axis row (fractional for smooth fall)
     pub orientation: Orientation,
 }
 
@@ -95,8 +105,8 @@ impl FallingPiece {
     pub fn spawn(piece: Piece) -> Self {
         FallingPiece {
             piece,
-            col: 2,       // spawn at column 2 (3rd from left)
-            row: 12.0,    // spawn above visible area
+            col: SPAWN_COL,
+            row: VISIBLE_ROWS as f32,
             orientation: Orientation::North,
         }
     }
@@ -108,7 +118,7 @@ impl FallingPiece {
     }
 
     /// Try to move left. Returns true if successful.
-    pub fn try_move_left(&mut self, col_heights: &[usize; 6]) -> bool {
+    pub fn try_move_left(&mut self, col_heights: &[usize; COLS]) -> bool {
         let new_col = self.col as i32 - 1;
         if self.can_occupy(new_col, self.row as i32, self.orientation, col_heights) {
             self.col = new_col as usize;
@@ -119,7 +129,7 @@ impl FallingPiece {
     }
 
     /// Try to move right. Returns true if successful.
-    pub fn try_move_right(&mut self, col_heights: &[usize; 6]) -> bool {
+    pub fn try_move_right(&mut self, col_heights: &[usize; COLS]) -> bool {
         let new_col = self.col as i32 + 1;
         if self.can_occupy(new_col, self.row as i32, self.orientation, col_heights) {
             self.col = new_col as usize;
@@ -130,7 +140,7 @@ impl FallingPiece {
     }
 
     /// Try to rotate clockwise with wall kick.
-    pub fn try_rotate_cw(&mut self, col_heights: &[usize; 6]) -> bool {
+    pub fn try_rotate_cw(&mut self, col_heights: &[usize; COLS]) -> bool {
         let new_ori = self.orientation.rotate_cw();
         // Try normal rotation
         if self.can_occupy(self.col as i32, self.row as i32, new_ori, col_heights) {
@@ -149,7 +159,7 @@ impl FallingPiece {
     }
 
     /// Try to rotate counter-clockwise with wall kick.
-    pub fn try_rotate_ccw(&mut self, col_heights: &[usize; 6]) -> bool {
+    pub fn try_rotate_ccw(&mut self, col_heights: &[usize; COLS]) -> bool {
         let new_ori = self.orientation.rotate_ccw();
         if self.can_occupy(self.col as i32, self.row as i32, new_ori, col_heights) {
             self.orientation = new_ori;
@@ -166,13 +176,19 @@ impl FallingPiece {
     }
 
     /// Check if a piece can occupy the given position.
-    fn can_occupy(&self, col: i32, row: i32, ori: Orientation, col_heights: &[usize; 6]) -> bool {
+    fn can_occupy(
+        &self,
+        col: i32,
+        row: i32,
+        ori: Orientation,
+        col_heights: &[usize; COLS],
+    ) -> bool {
         let (dc, dr) = ori.offset();
         let sc = col + dc;
         let sr = row + dr;
 
         // Bounds check
-        if col < 0 || col >= 6 || sc < 0 || sc >= 6 {
+        if !(0..COLS as i32).contains(&col) || !(0..COLS as i32).contains(&sc) {
             return false;
         }
         if row < 0 || sr < 0 {
@@ -248,8 +264,8 @@ mod tests {
         assert!(fp.try_move_right(&heights));
         assert_eq!(fp.col, 5);
         assert!(!fp.try_move_right(&heights)); // at right edge with North, satellite is same col, should be ok
-        // Actually with North orientation, satellite is above, so col 5 should still allow right... let me check
-        // col=5, orientation=North: axis at 5, satellite at 5. Move right would put axis at 6 = out of bounds
+                                               // Actually with North orientation, satellite is above, so col 5 should still allow right... let me check
+                                               // col=5, orientation=North: axis at 5, satellite at 5. Move right would put axis at 6 = out of bounds
     }
 
     #[test]

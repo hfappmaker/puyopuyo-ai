@@ -91,8 +91,7 @@ pub fn search_depth2(
 
         let mut best_next_score = f64::NEG_INFINITY;
         for next_placement in &next_placements {
-            let board_after_next =
-                simulate_placement(&board_after_current, next, next_placement);
+            let board_after_next = simulate_placement(&board_after_current, next, next_placement);
             let score = evaluator.evaluate(&board_after_next);
             if score > best_next_score {
                 best_next_score = score;

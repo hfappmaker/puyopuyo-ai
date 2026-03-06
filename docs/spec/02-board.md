@@ -28,6 +28,15 @@ pub struct Board {
 | Blue | 青 | 3 |
 | Yellow | 黄 | 4 |
 
+## 定数
+
+| 定数 | 値 | 説明 |
+|------|-----|------|
+| `COLS` | 6 | 列数 |
+| `ROWS` | 14 | 行数（可視12 + 非可視2） |
+| `VISIBLE_ROWS` | 12 | 可視行数 |
+| `SPAWN_COL` | 2 | スポーン列（3列目） |
+
 ## 主な操作
 
 | 操作 | 説明 |
@@ -35,12 +44,12 @@ pub struct Board {
 | `drop_puyo(col, color)` | 指定列にぷよを落とし、積まれた行を返す。列が満杯なら `None` |
 | `apply_gravity()` | 行0〜12のぷよを落下させて空隙を埋める。行13（最上非可視行）は対象外 |
 | `column_height(col)` | 指定列の高さ（底からの非空セル数）を返す |
-| `is_game_over()` | 3列目（列2）の高さが13以上なら `true` |
-| `to_flat()` | WASM転送用に列優先・下から上の `Vec<u8>` に変換する（長さ84） |
+| `is_game_over()` | `SPAWN_COL`（列2）の高さが `VISIBLE_ROWS` を超えたら `true` |
+| `to_flat()` | WASM転送用に列優先・下から上の `Vec<u8>` に変換する（長さ84）。イテレータチェイン(`flat_map`)で実装 |
 
 ## ゲームオーバー判定
 
-3列目（列2）の `column_height` が `VISIBLE_ROWS + 1`（13）以上になるとゲームオーバーとなる。
+`SPAWN_COL`（列2）の `column_height` が `VISIBLE_ROWS`（12）を超えるとゲームオーバーとなる。
 つまり行12（13段目・非可視行1段目）にぷよが到達した時点でゲームオーバー。
 
 ## 非可視行の挙動

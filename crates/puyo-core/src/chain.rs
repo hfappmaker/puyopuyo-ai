@@ -13,9 +13,9 @@ pub struct ChainResult {
 /// A single chain step (one round of simultaneous clears).
 #[derive(Debug, Clone)]
 pub struct ChainStep {
-    pub chain_num: u32,       // 1-indexed chain number
-    pub groups: Vec<Group>,   // groups cleared in this step
-    pub score: u32,           // score for this step
+    pub chain_num: u32,     // 1-indexed chain number
+    pub groups: Vec<Group>, // groups cleared in this step
+    pub score: u32,         // score for this step
 }
 
 /// A connected group of same-color puyos.
@@ -25,6 +25,37 @@ pub struct Group {
     pub cells: Vec<(usize, usize)>, // (col, row)
 }
 
+/// BFS flood-fill from a starting cell. Returns all connected cells of the same color.
+pub fn flood_fill(
+    board: &Board,
+    start_col: usize,
+    start_row: usize,
+    visited: &mut [[bool; ROWS]; COLS],
+) -> Vec<(usize, usize)> {
+    let color = board.get(start_col, start_row);
+    let mut queue = VecDeque::new();
+    let mut cells = Vec::new();
+    queue.push_back((start_col, start_row));
+    visited[start_col][start_row] = true;
+
+    while let Some((c, r)) = queue.pop_front() {
+        cells.push((c, r));
+        for (dc, dr) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1)] {
+            let nc = c as i32 + dc;
+            let nr = r as i32 + dr;
+            if nc < 0 || nc >= COLS as i32 || nr < 0 || nr >= VISIBLE_ROWS as i32 {
+                continue;
+            }
+            let (nc, nr) = (nc as usize, nr as usize);
+            if !visited[nc][nr] && board.get(nc, nr) == color {
+                visited[nc][nr] = true;
+                queue.push_back((nc, nr));
+            }
+        }
+    }
+    cells
+}
+
 /// Find all connected groups of 4+ same-color puyos using BFS flood-fill.
 pub fn find_groups(board: &Board) -> Vec<Group> {
     let mut visited = [[false; ROWS]; COLS];
@@ -32,37 +63,11 @@ pub fn find_groups(board: &Board) -> Vec<Group> {
 
     for col in 0..COLS {
         for row in 0..VISIBLE_ROWS {
-            let color = board.get(col, row);
-            if !color.is_color() || visited[col][row] {
+            if !board.get(col, row).is_color() || visited[col][row] {
                 continue;
             }
-
-            // BFS flood-fill
-            let mut queue = VecDeque::new();
-            let mut cells = Vec::new();
-            queue.push_back((col, row));
-            visited[col][row] = true;
-
-            while let Some((c, r)) = queue.pop_front() {
-                cells.push((c, r));
-
-                // Check 4 neighbors
-                let neighbors: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
-                for (dc, dr) in neighbors {
-                    let nc = c as i32 + dc;
-                    let nr = r as i32 + dr;
-                    if nc < 0 || nc >= COLS as i32 || nr < 0 || nr >= VISIBLE_ROWS as i32 {
-                        continue;
-                    }
-                    let nc = nc as usize;
-                    let nr = nr as usize;
-                    if !visited[nc][nr] && board.get(nc, nr) == color {
-                        visited[nc][nr] = true;
-                        queue.push_back((nc, nr));
-                    }
-                }
-            }
-
+            let color = board.get(col, row);
+            let cells = flood_fill(board, col, row, &mut visited);
             if cells.len() >= 4 {
                 groups.push(Group { color, cells });
             }
@@ -105,41 +110,12 @@ pub fn resolve_one_step(board: &mut Board, chain_num: u32) -> Option<ChainStep> 
 /// Resolve all chains on the board. Modifies board in-place.
 /// Returns the chain result with score details.
 pub fn resolve_chains(board: &mut Board) -> ChainResult {
-    let mut chain_count = 0u32;
-    let mut total_score = 0u32;
-    let mut steps = Vec::new();
-
-    loop {
-        let groups = find_groups(board);
-        if groups.is_empty() {
-            break;
-        }
-
-        chain_count += 1;
-
-        // Remove groups from board
-        for group in &groups {
-            for &(col, row) in &group.cells {
-                board.set(col, row, PuyoColor::Empty);
-            }
-        }
-
-        // Calculate score for this step
-        let step_score = crate::score::calculate_step_score(chain_count, &groups);
-        total_score += step_score;
-
-        steps.push(ChainStep {
-            chain_num: chain_count,
-            groups: groups,
-            score: step_score,
-        });
-
-        // Apply gravity
-        board.apply_gravity();
-    }
-
+    let steps: Vec<ChainStep> = (1..)
+        .map_while(|chain_num| resolve_one_step(board, chain_num))
+        .collect();
+    let total_score = steps.iter().map(|s| s.score).sum();
     ChainResult {
-        chain_count,
+        chain_count: steps.len() as u32,
         score: total_score,
         steps,
     }
@@ -325,7 +301,10 @@ mod tests {
             board.set(col, VISIBLE_ROWS, PuyoColor::Red);
         }
         let groups = find_groups(&board);
-        assert!(groups.is_empty(), "Hidden-row-only puyos should not form clearable groups");
+        assert!(
+            groups.is_empty(),
+            "Hidden-row-only puyos should not form clearable groups"
+        );
         let result = resolve_chains(&mut board);
         assert_eq!(result.chain_count, 0);
     }

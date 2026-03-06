@@ -1,30 +1,21 @@
-use puyo_core::board::{Board, COLS, ROWS};
+use puyo_core::board::{Board, COLS, ROWS, SPAWN_COL};
 use puyo_core::piece::{Orientation, Piece, Placement};
 
-/// Compute which columns are reachable from the spawn column (col 2).
+/// Compute which columns are reachable from the spawn column.
 /// A column with height >= ROWS - 1 blocks entry and further traversal.
 fn compute_reachable_columns(board: &Board) -> [bool; COLS] {
-    const SPAWN_COL: usize = 2;
     let mut reachable = [false; COLS];
 
     if board.column_height(SPAWN_COL) >= ROWS - 1 {
         return reachable;
     }
-    reachable[SPAWN_COL] = true;
 
-    // Expand left from spawn
-    for col in (0..SPAWN_COL).rev() {
-        if board.column_height(col) >= ROWS - 1 {
-            break;
-        }
-        reachable[col] = true;
-    }
+    let is_passable = |col: &usize| board.column_height(*col) < ROWS - 1;
 
-    // Expand right from spawn
-    for col in (SPAWN_COL + 1)..COLS {
-        if board.column_height(col) >= ROWS - 1 {
-            break;
-        }
+    for col in std::iter::once(SPAWN_COL)
+        .chain((0..SPAWN_COL).rev().take_while(is_passable))
+        .chain((SPAWN_COL + 1..COLS).take_while(is_passable))
+    {
         reachable[col] = true;
     }
 
@@ -39,57 +30,47 @@ fn compute_reachable_columns(board: &Board) -> [bool; COLS] {
 /// 2. Each column involved must be reachable from the spawn column (col 2).
 ///    A column with height >= ROWS-1 blocks traversal.
 pub fn enumerate_placements(board: &Board, piece: &Piece) -> Vec<Placement> {
-    let mut placements = Vec::with_capacity(22);
     let reachable = compute_reachable_columns(board);
 
-    // North: axis on bottom (row h), satellite above (row h+1). Axis in cols 0-5.
-    // h + 2 <= ROWS ensures both fit; this also guarantees axis row h <= ROWS-2.
-    for col in 0..COLS {
-        if reachable[col] && board.column_height(col) + 2 <= ROWS {
-            placements.push(Placement::new(col, Orientation::North));
-        }
-    }
+    // North: axis on bottom, satellite above. h + 2 <= ROWS ensures both fit.
+    let north = (0..COLS)
+        .filter(|&col| reachable[col] && board.column_height(col) + 2 <= ROWS)
+        .map(|col| Placement::new(col, Orientation::North));
 
-    // South: satellite on bottom (row h), axis above (row h+1). Axis in cols 0-5.
-    // Axis at row h+1 must be < ROWS-1, so h + 2 <= ROWS - 1.
-    for col in 0..COLS {
-        if reachable[col] && board.column_height(col) + 2 <= ROWS - 1 {
-            placements.push(Placement::new(col, Orientation::South));
-        }
-    }
+    // South: satellite on bottom, axis above. Axis at h+1 must be < ROWS-1.
+    let south = (0..COLS)
+        .filter(|&col| reachable[col] && board.column_height(col) + 2 <= ROWS - 1)
+        .map(|col| Placement::new(col, Orientation::South));
 
-    // East: axis at col, satellite at col+1. Axis in cols 0-4.
-    // Axis at row h1 must be < ROWS-1 (not on topmost hidden row).
-    for col in 0..(COLS - 1) {
-        let h1 = board.column_height(col);
-        let h2 = board.column_height(col + 1);
-        if reachable[col] && reachable[col + 1] && h1 < ROWS - 1 && h2 < ROWS {
-            placements.push(Placement::new(col, Orientation::East));
-        }
-    }
+    // East: axis at col, satellite at col+1. Axis must be < ROWS-1.
+    let east = (0..COLS - 1)
+        .filter(|&col| {
+            reachable[col]
+                && reachable[col + 1]
+                && board.column_height(col) < ROWS - 1
+                && board.column_height(col + 1) < ROWS
+        })
+        .map(|col| Placement::new(col, Orientation::East));
 
-    // West: axis at col, satellite at col-1. Axis in cols 1-5.
-    // Axis at row h1 must be < ROWS-1 (not on topmost hidden row).
-    for col in 1..COLS {
-        let h1 = board.column_height(col);
-        let h2 = board.column_height(col - 1);
-        if reachable[col] && reachable[col - 1] && h1 < ROWS - 1 && h2 < ROWS {
-            placements.push(Placement::new(col, Orientation::West));
-        }
-    }
+    // West: axis at col, satellite at col-1. Axis must be < ROWS-1.
+    let west = (1..COLS)
+        .filter(|&col| {
+            reachable[col]
+                && reachable[col - 1]
+                && board.column_height(col) < ROWS - 1
+                && board.column_height(col - 1) < ROWS
+        })
+        .map(|col| Placement::new(col, Orientation::West));
+
+    let placements: Vec<Placement> = north.chain(south).chain(east).chain(west).collect();
 
     // Deduplicate: if both colors are the same, North==South and East(col)==West(col+1).
     if piece.axis_color == piece.satellite_color {
-        let mut deduped = Vec::new();
         let mut seen = std::collections::HashSet::new();
-
-        for p in &placements {
-            let key = normalize_placement(p, true);
-            if seen.insert(key) {
-                deduped.push(*p);
-            }
-        }
-        return deduped;
+        return placements
+            .into_iter()
+            .filter(|p| seen.insert(normalize_placement(p)))
+            .collect();
     }
 
     placements
@@ -97,7 +78,7 @@ pub fn enumerate_placements(board: &Board, piece: &Piece) -> Vec<Placement> {
 
 /// Normalize a placement for deduplication when both colors are the same.
 /// Returns (min_col, max_col, is_vertical).
-fn normalize_placement(p: &Placement, _same_color: bool) -> (usize, usize, bool) {
+fn normalize_placement(p: &Placement) -> (usize, usize, bool) {
     let (dc, _dr) = p.orientation.offset();
     let sat_col = (p.col as i32 + dc) as usize;
     let is_vertical = matches!(p.orientation, Orientation::North | Orientation::South);
@@ -200,8 +181,9 @@ mod tests {
         assert!(!placements.iter().any(|p| p.col == 0));
 
         // Column 1 is also unreachable (height >= 13)
-        assert!(!placements.iter().any(|p| p.col == 1
-            && matches!(p.orientation, Orientation::North | Orientation::South)));
+        assert!(!placements.iter().any(
+            |p| p.col == 1 && matches!(p.orientation, Orientation::North | Orientation::South)
+        ));
 
         // Columns 2-5 are reachable
         assert!(placements
@@ -226,8 +208,9 @@ mod tests {
         assert!(!placements.iter().any(|p| p.col == 5));
 
         // Column 4 is also unreachable (height >= 13)
-        assert!(!placements.iter().any(|p| p.col == 4
-            && matches!(p.orientation, Orientation::North | Orientation::South)));
+        assert!(!placements.iter().any(
+            |p| p.col == 4 && matches!(p.orientation, Orientation::North | Orientation::South)
+        ));
 
         // Columns 0-3 are reachable
         assert!(placements

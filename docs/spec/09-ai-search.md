@@ -28,6 +28,8 @@ pub struct SearchResult {
 - 異色の場合: 最大22パターン（North 6 + South 6 + East 5 + West 5）
 - 同色の場合: North/South が重複、East(col)/West(col+1) が重複 → 最大11パターン
 
+4方向の配置をイテレータチェイン（`filter().map()` + `chain().collect()`）で列挙。同色の重複排除は `normalize_placement` で正規化キーを生成し `HashSet` でフィルタ。
+
 ### 配置制限ルール
 
 #### ルール1: 軸ぷよの14段目制限
@@ -42,9 +44,9 @@ pub struct SearchResult {
 
 ピースはスポーン列（列2）の上部から出現し、左右移動で他の列に到達する。高さが ROWS - 1（13）以上の列は上部が塞がれているため、通過できない。
 
-`compute_reachable_columns` 関数がスポーン列から左右に展開し、到達可能な列を計算する:
-- 列2から左方向（列1, 0）: 高さ ≧ 13 の列で遮断
-- 列2から右方向（列3, 4, 5）: 同上
+`compute_reachable_columns` 関数が `SPAWN_COL` から左右に展開し、到達可能な列を計算する。イテレータチェイン（`once().chain().chain()` + `take_while`）で実装:
+- `SPAWN_COL` から左方向: 高さ ≧ 13 の列で遮断（`take_while`）
+- `SPAWN_COL` から右方向: 同上
 - 高さ ≧ 13 の列自体も到達不可
 
 East/West 配置では軸列・衛星列の両方が到達可能でなければならない。

@@ -32,12 +32,8 @@ fn main() {
             let board_data = board_to_tensor_data(&game.board).to_vec();
 
             // Find and apply best move
-            let result = search::find_best_move(
-                &game.board,
-                &current_piece,
-                &game.next_piece,
-                &evaluator,
-            );
+            let result =
+                search::find_best_move(&game.board, &current_piece, &game.next_piece, &evaluator);
 
             match result {
                 Some(r) => {

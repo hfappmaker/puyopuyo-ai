@@ -51,9 +51,13 @@ pub struct FallingPiece {
 }
 ```
 
+## 方向のシリアライズ
+
+`Orientation::as_u8()` メソッドで整数に変換できる（0=North, 1=East, 2=South, 3=West）。WASM境界やレンダリング情報の受け渡しで使用。
+
 ## 出現位置
 
-- 列2（3列目）の行12.0（非可視行の上端）に出現
+- `SPAWN_COL`（列2）の `VISIBLE_ROWS as f32`（12.0）に出現
 - 初期方向は North（衛星が上）
 
 ## ウォールキック

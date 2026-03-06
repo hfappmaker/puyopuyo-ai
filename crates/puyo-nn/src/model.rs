@@ -86,11 +86,9 @@ impl PuyoValueNetConfig {
                 .with_padding(PaddingConfig2d::Same)
                 .init(device),
             res_blocks,
-            head_conv: Conv2dConfig::new([RESIDUAL_CHANNELS, HEAD_CHANNELS], [1, 1])
-                .init(device),
+            head_conv: Conv2dConfig::new([RESIDUAL_CHANNELS, HEAD_CHANNELS], [1, 1]).init(device),
             pool: AdaptiveAvgPool2dConfig::new([POOL_H, POOL_W]).init(),
-            linear1: LinearConfig::new(HEAD_CHANNELS * POOL_H * POOL_W, HIDDEN_SIZE)
-                .init(device),
+            linear1: LinearConfig::new(HEAD_CHANNELS * POOL_H * POOL_W, HIDDEN_SIZE).init(device),
             linear2: LinearConfig::new(HIDDEN_SIZE, 1).init(device),
             activation: Relu::new(),
         }

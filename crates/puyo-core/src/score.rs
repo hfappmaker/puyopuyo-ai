@@ -24,7 +24,9 @@ pub fn calculate_step_score(chain_num: u32, groups: &[Group]) -> u32 {
     let total_cleared: u32 = groups.iter().map(|g| g.cells.len() as u32).sum();
 
     // Chain power
-    let cp_idx = (chain_num as usize).saturating_sub(1).min(CHAIN_POWER.len() - 1);
+    let cp_idx = (chain_num as usize)
+        .saturating_sub(1)
+        .min(CHAIN_POWER.len() - 1);
     let chain_power = CHAIN_POWER[cp_idx];
 
     // Color bonus: count distinct colors

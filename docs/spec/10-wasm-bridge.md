@@ -27,7 +27,7 @@ Rust で実装したゲームロジックとAIを、`wasm-bindgen` を使って�
 | `get_next_next_piece()` | `Vec<u8>` (長さ2) | `[axis_color, sat_color]` |
 | `get_score()` | `u32` | 現在のスコア |
 | `get_max_chain()` | `u32` | 最大連鎖数 |
-| `get_phase()` | `u8` | ゲームフェーズ（0=Falling, 1=Resolving, 2=GameOver） |
+| `get_phase()` | `u8` | ゲームフェーズ。`GamePhase::as_u8()` で変換（0=Falling, 1=Resolving, 2=GameOver） |
 | `get_total_pieces()` | `u32` | 設置済みぷよ組数 |
 
 ### 操作
@@ -46,5 +46,5 @@ Rust で実装したゲームロジックとAIを、`wasm-bindgen` を使って�
 
 | メソッド | 戻り値 | 説明 |
 |---------|--------|------|
-| `ai_best_move()` | `Vec<u8>` (長さ2 or 0) | `[col, orientation]` 形式で最善手を返す。orientation: 0=North, 1=East, 2=South, 3=West |
+| `ai_best_move()` | `Vec<u8>` (長さ2 or 0) | `[col, orientation]` 形式で最善手を返す。orientation は `Orientation::as_u8()` で変換 |
 | `ai_play_move()` | `u32` | 最善手を計算し即座に適用。発生した連鎖数を返す |

@@ -1,18 +1,18 @@
-#[cfg(feature = "gpu")]
-use burn::backend::CudaJit;
 #[cfg(not(feature = "gpu"))]
 use burn::backend::ndarray::NdArray;
 use burn::backend::Autodiff;
-use burn::tensor::backend::AutodiffBackend;
+#[cfg(feature = "gpu")]
+use burn::backend::CudaJit;
 use burn::module::AutodiffModule;
 use burn::optim::{AdamConfig, GradientsParams, Optimizer};
 use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
+use burn::tensor::backend::AutodiffBackend;
 
+use puyo_core::board::{COLS, ROWS};
 use puyo_nn::encoding::{NUM_CHANNELS, TENSOR_SIZE};
 use puyo_nn::model::PuyoValueNetConfig;
 use puyo_trainer::data::Dataset;
-use puyo_core::board::{COLS, ROWS};
 
 #[cfg(feature = "gpu")]
 type TrainBackend = Autodiff<CudaJit<f32>>;
@@ -102,17 +102,11 @@ fn main() {
                 target_data.push((sample.target - mean) / std_dev);
             }
 
-            let inputs = Tensor::<TrainBackend, 1>::from_floats(
-                input_data.as_slice(),
-                &device,
-            )
-            .reshape([batch_size, NUM_CHANNELS, ROWS, COLS]);
+            let inputs = Tensor::<TrainBackend, 1>::from_floats(input_data.as_slice(), &device)
+                .reshape([batch_size, NUM_CHANNELS, ROWS, COLS]);
 
-            let targets = Tensor::<TrainBackend, 1>::from_floats(
-                target_data.as_slice(),
-                &device,
-            )
-            .reshape([batch_size, 1]);
+            let targets = Tensor::<TrainBackend, 1>::from_floats(target_data.as_slice(), &device)
+                .reshape([batch_size, 1]);
 
             // Forward pass
             let predictions = model.forward(inputs);
@@ -134,7 +128,8 @@ fn main() {
                 let total_batches = (train_samples.len() + BATCH_SIZE - 1) / BATCH_SIZE;
                 eprint!(
                     "\r  batch {}/{} loss={:.6}",
-                    num_batches, total_batches,
+                    num_batches,
+                    total_batches,
                     epoch_loss / num_batches as f32
                 );
             }
@@ -190,17 +185,11 @@ fn compute_val_loss(
             target_data.push((sample.target - mean) / std_dev);
         }
 
-        let inputs = Tensor::<InnerBackend, 1>::from_floats(
-            input_data.as_slice(),
-            device,
-        )
-        .reshape([batch_size, NUM_CHANNELS, ROWS, COLS]);
+        let inputs = Tensor::<InnerBackend, 1>::from_floats(input_data.as_slice(), device)
+            .reshape([batch_size, NUM_CHANNELS, ROWS, COLS]);
 
-        let targets = Tensor::<InnerBackend, 1>::from_floats(
-            target_data.as_slice(),
-            device,
-        )
-        .reshape([batch_size, 1]);
+        let targets = Tensor::<InnerBackend, 1>::from_floats(target_data.as_slice(), device)
+            .reshape([batch_size, 1]);
 
         let predictions = model.forward(inputs);
         let diff = predictions - targets;

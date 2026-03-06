@@ -23,7 +23,7 @@ const W_HEIGHT_VARIANCE: f64 = -3.0;
 const W_CONNECTIVITY: f64 = 2.0;
 const W_POTENTIAL_CHAIN: f64 = 15.0;
 const W_CENTER_WEIGHT: f64 = 1.0;
-const W_GAME_OVER: f64 = -100000.0;
+pub const W_GAME_OVER: f64 = -100000.0;
 
 /// Evaluate a board state. Higher is better.
 pub fn evaluate(board: &Board) -> f64 {
@@ -43,11 +43,28 @@ pub fn evaluate(board: &Board) -> f64 {
         + count_center_weight(&sim_board) * W_CENTER_WEIGHT
 }
 
+const HEIGHT_WARNING_THRESHOLD: usize = 8;
+const HEIGHT_DANGER_THRESHOLD: usize = 10;
+const HEIGHT_WARNING_MULTIPLIER: f64 = 2.0;
+const HEIGHT_DANGER_MULTIPLIER: f64 = 10.0;
+
 /// Penalize tall columns, with extra penalty near the death zone.
 fn height_penalty(board: &Board) -> f64 {
     let max_height = (0..COLS).map(|c| board.column_height(c)).max().unwrap_or(0);
-    let base = if max_height > 8 { (max_height as f64 - 8.0) * W_HEIGHT_PENALTY * 2.0 } else { 0.0 };
-    let extra = if max_height > 10 { (max_height as f64 - 10.0) * W_HEIGHT_PENALTY * 10.0 } else { 0.0 };
+    let base = if max_height > HEIGHT_WARNING_THRESHOLD {
+        (max_height as f64 - HEIGHT_WARNING_THRESHOLD as f64)
+            * W_HEIGHT_PENALTY
+            * HEIGHT_WARNING_MULTIPLIER
+    } else {
+        0.0
+    };
+    let extra = if max_height > HEIGHT_DANGER_THRESHOLD {
+        (max_height as f64 - HEIGHT_DANGER_THRESHOLD as f64)
+            * W_HEIGHT_PENALTY
+            * HEIGHT_DANGER_MULTIPLIER
+    } else {
+        0.0
+    };
     base + extra
 }
 
@@ -78,47 +95,19 @@ pub fn count_connectivity(board: &Board) -> u32 {
         .sum()
 }
 
-/// Count groups of exactly 3 same-color connected puyos (potential chains).
+/// Count groups of 2-3 same-color connected puyos (potential chains).
 pub fn count_potential_chains(board: &Board) -> u32 {
     let mut visited = [[false; ROWS]; COLS];
     let mut count = 0;
 
     for col in 0..COLS {
         for row in 0..VISIBLE_ROWS {
-            let color = board.get(col, row);
-            if !color.is_color() || visited[col][row] {
+            if !board.get(col, row).is_color() || visited[col][row] {
                 continue;
             }
-
-            // BFS to find group size
-            let mut stack = vec![(col, row)];
-            let mut group_size = 0;
-            visited[col][row] = true;
-
-            while let Some((c, r)) = stack.pop() {
-                group_size += 1;
-                let neighbors = [(0i32, 1i32), (0, -1), (1, 0), (-1, 0)];
-                for (dc, dr) in neighbors {
-                    let nc = c as i32 + dc;
-                    let nr = r as i32 + dr;
-                    if nc < 0 || nc >= COLS as i32 || nr < 0 || nr >= VISIBLE_ROWS as i32 {
-                        continue;
-                    }
-                    let nc = nc as usize;
-                    let nr = nr as usize;
-                    if !visited[nc][nr] && board.get(nc, nr) == color {
-                        visited[nc][nr] = true;
-                        stack.push((nc, nr));
-                    }
-                }
-            }
-
-            if group_size == 3 {
+            let cells = chain::flood_fill(board, col, row, &mut visited);
+            if matches!(cells.len(), 2 | 3) {
                 count += 1;
-            }
-            // Groups of 2 are also somewhat valuable
-            if group_size == 2 {
-                count += 1; // half credit counted as same, but lower weight overall
             }
         }
     }
@@ -126,15 +115,15 @@ pub fn count_potential_chains(board: &Board) -> u32 {
     count
 }
 
+const CENTER_WEIGHTS: [f64; COLS] = [0.5, 0.8, 1.0, 1.0, 0.8, 0.5];
+
 /// Compute center-column weight. Center columns (2, 3) get higher weight.
 fn count_center_weight(board: &Board) -> f64 {
-    let weights = [0.5, 0.8, 1.0, 1.0, 0.8, 0.5];
-    let mut total = 0.0;
-    for col in 0..COLS {
-        let h = board.column_height(col);
-        total += h as f64 * weights[col];
-    }
-    total
+    CENTER_WEIGHTS
+        .iter()
+        .enumerate()
+        .map(|(col, &w)| board.column_height(col) as f64 * w)
+        .sum()
 }
 
 #[cfg(test)]

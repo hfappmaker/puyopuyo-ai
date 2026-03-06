@@ -24,7 +24,15 @@ pub struct Group {
 }
 ```
 
-4方向（上下左右）の隣接セルを探索し、4個以上のグループを返す。
+### flood_fill ヘルパー
+
+`flood_fill(board, col, row, visited)` は指定セルから同色の連結セルをBFSで探索し、全セルの座標を返す公開関数。`find_groups` と `puyo-ai` の `count_potential_chains` で共有して使用し、BFSロジックの重複を排除している。
+
+`find_groups` は `flood_fill` で検出したグループのうち4個以上のものを返す。
+
+### resolve_chains
+
+`resolve_chains` は `resolve_one_step` に委譲するイテレータチェイン（`(1..).map_while(...).collect()`）で実装されている。
 
 ## 連鎖結果
 

@@ -8,7 +8,6 @@ use puyo_ai::eval::{Evaluator, HeuristicEvaluator};
 use puyo_ai::nn_eval::NnEvaluator;
 use puyo_ai::search;
 use puyo_core::game::{GamePhase, GameState};
-use puyo_core::piece::Orientation;
 use puyo_nn::model::{PuyoValueNet, PuyoValueNetConfig};
 
 type InferBackend = NdArray;
@@ -62,7 +61,14 @@ impl WasmGame {
     pub fn get_current_piece(&self) -> Vec<u8> {
         match self.state.get_current_piece_info() {
             Some((axis, sat, col, row, ori)) => {
-                vec![axis, sat, col, row as u8, ((row.fract()) * 100.0) as u8, ori]
+                vec![
+                    axis,
+                    sat,
+                    col,
+                    row as u8,
+                    ((row.fract()) * 100.0) as u8,
+                    ori,
+                ]
             }
             None => vec![],
         }
@@ -97,11 +103,7 @@ impl WasmGame {
     /// Get game phase: 0=Falling, 1=Resolving, 2=GameOver
     #[wasm_bindgen]
     pub fn get_phase(&self) -> u8 {
-        match self.state.phase {
-            GamePhase::Falling => 0,
-            GamePhase::Resolving => 1,
-            GamePhase::GameOver => 2,
-        }
+        self.state.phase.as_u8()
     }
 
     /// Get total pieces placed.
@@ -180,13 +182,10 @@ impl WasmGame {
 
         match result {
             Some(r) => {
-                let ori = match r.best_placement.orientation {
-                    Orientation::North => 0u8,
-                    Orientation::East => 1,
-                    Orientation::South => 2,
-                    Orientation::West => 3,
-                };
-                vec![r.best_placement.col as u8, ori]
+                vec![
+                    r.best_placement.col as u8,
+                    r.best_placement.orientation.as_u8(),
+                ]
             }
             None => vec![],
         }

@@ -36,14 +36,17 @@ impl NnEvaluator {
 impl Evaluator for NnEvaluator {
     fn evaluate(&self, board: &Board) -> f64 {
         if board.is_game_over() {
-            return -100000.0;
+            return crate::eval::W_GAME_OVER;
         }
 
         let data = board_to_tensor_data(board);
         let tensor = Tensor::<InferBackend, 1>::from_floats(data.as_slice(), &self.device)
             .reshape([1, NUM_CHANNELS, ROWS, COLS]);
         let output = self.model.forward(tensor);
-        let normalized = output.into_data().to_vec::<f32>().unwrap()[0];
+        let normalized = output
+            .into_data()
+            .to_vec::<f32>()
+            .expect("NN output tensor conversion to f32 failed")[0];
         // Denormalize
         (normalized * self.std_dev + self.mean) as f64
     }

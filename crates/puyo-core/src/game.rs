@@ -16,6 +16,17 @@ pub enum GamePhase {
     GameOver,
 }
 
+impl GamePhase {
+    /// Convert to integer representation (0=Falling, 1=Resolving, 2=GameOver).
+    pub fn as_u8(&self) -> u8 {
+        match self {
+            GamePhase::Falling => 0,
+            GamePhase::Resolving => 1,
+            GamePhase::GameOver => 2,
+        }
+    }
+}
+
 /// Main game state.
 #[derive(Debug, Clone)]
 pub struct GameState {
@@ -243,8 +254,8 @@ impl GameState {
 
             // The piece can't go below the highest column it occupies
             let min_row = match fp.orientation {
-                Orientation::North => axis_height as f32,       // axis on bottom
-                Orientation::South => (axis_height + 1) as f32,  // satellite lands at column_height, axis one above
+                Orientation::North => axis_height as f32, // axis on bottom
+                Orientation::South => (axis_height + 1) as f32, // satellite lands at column_height, axis one above
                 _ => axis_height.max(sat_height) as f32,        // side by side
             };
 
@@ -266,39 +277,31 @@ impl GameState {
             return None;
         }
 
-        if let Some(ref mut fp) = self.current_piece.clone() {
-            let axis_col = fp.col;
-            let (dc, _) = fp.orientation.offset();
-            let sat_col = (axis_col as i32 + dc).max(0).min(5) as usize;
+        let fp = self.current_piece.as_ref()?;
+        let landing_row = self.landing_row_for(fp);
+        let new_row = fp.row - gravity;
 
-            let axis_height = self.board.column_height(axis_col);
-            let sat_height = self.board.column_height(sat_col);
-
-            let landing_row = match fp.orientation {
-                Orientation::North => axis_height as f32,
-                Orientation::South => {
-                    // satellite below axis, both in same column
-                    // satellite lands at column_height, axis one row above
-                    (sat_height + 1) as f32
-                }
-                Orientation::East | Orientation::West => {
-                    axis_height.max(sat_height) as f32
-                }
-            };
-
-            let new_row = fp.row - gravity;
-            if new_row <= landing_row {
-                // Piece has landed
-                return self.hard_drop();
-            } else {
-                // Update position
-                if let Some(ref mut real_fp) = self.current_piece {
-                    real_fp.row = new_row;
-                }
-                None
-            }
+        if new_row <= landing_row {
+            self.hard_drop()
         } else {
+            self.current_piece.as_mut()?.row = new_row;
             None
+        }
+    }
+
+    /// Compute the landing row for a falling piece based on current board state.
+    fn landing_row_for(&self, fp: &FallingPiece) -> f32 {
+        let axis_col = fp.col;
+        let (dc, _) = fp.orientation.offset();
+        let sat_col = (axis_col as i32 + dc).clamp(0, (COLS - 1) as i32) as usize;
+
+        let axis_height = self.board.column_height(axis_col);
+        let sat_height = self.board.column_height(sat_col);
+
+        match fp.orientation {
+            Orientation::North => axis_height as f32,
+            Orientation::South => (sat_height + 1) as f32,
+            Orientation::East | Orientation::West => axis_height.max(sat_height) as f32,
         }
     }
 
@@ -307,29 +310,19 @@ impl GameState {
         *self = GameState::new(seed);
     }
 
-    fn get_column_heights(&self) -> [usize; 6] {
-        let mut heights = [0usize; 6];
-        for col in 0..COLS {
-            heights[col] = self.board.column_height(col);
-        }
-        heights
+    fn get_column_heights(&self) -> [usize; COLS] {
+        std::array::from_fn(|col| self.board.column_height(col))
     }
 
     /// Get current piece info for rendering: (axis_color, sat_color, col, row, orientation_index)
     pub fn get_current_piece_info(&self) -> Option<(u8, u8, u8, f32, u8)> {
         self.current_piece.as_ref().map(|fp| {
-            let ori = match fp.orientation {
-                Orientation::North => 0u8,
-                Orientation::East => 1,
-                Orientation::South => 2,
-                Orientation::West => 3,
-            };
             (
                 fp.piece.axis_color as u8,
                 fp.piece.satellite_color as u8,
                 fp.col as u8,
                 fp.row,
-                ori,
+                fp.orientation.as_u8(),
             )
         })
     }
