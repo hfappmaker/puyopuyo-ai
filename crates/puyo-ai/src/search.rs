@@ -112,10 +112,12 @@ pub fn search_depth2(
 }
 
 /// Main AI entry point: try depth-2, fall back to depth-1.
+/// `next_next` is reserved for future use and currently ignored.
 pub fn find_best_move(
     board: &Board,
     current: &Piece,
     next: &Piece,
+    _next_next: Option<&Piece>,
     evaluator: &dyn Evaluator,
 ) -> Option<SearchResult> {
     // Try depth 2 first
@@ -170,7 +172,7 @@ mod tests {
         let current = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
         let evaluator = HeuristicEvaluator;
-        let result = find_best_move(&board, &current, &next, &evaluator);
+        let result = find_best_move(&board, &current, &next, None, &evaluator);
         assert!(result.is_some());
     }
 
@@ -185,7 +187,7 @@ mod tests {
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
         let evaluator = HeuristicEvaluator;
-        let result = find_best_move(&board, &piece, &next, &evaluator);
+        let result = find_best_move(&board, &piece, &next, None, &evaluator);
         assert!(result.is_some());
         // The AI should place the red at column 0 to complete the chain
         // With North orientation, axis at col 0 means red goes to col 0

@@ -1,4 +1,4 @@
-use puyo_core::board::{Board, COLS, ROWS, VISIBLE_ROWS};
+use puyo_core::board::{Board, PuyoColor, COLS, ROWS, VISIBLE_ROWS};
 use puyo_core::chain;
 
 /// Trait for board evaluation strategies.
@@ -13,6 +13,52 @@ impl Evaluator for HeuristicEvaluator {
     fn evaluate(&self, board: &Board) -> f64 {
         evaluate(board)
     }
+}
+
+/// Simulation-based evaluator: drops virtual puyos to estimate max chain potential.
+pub struct SimulationEvaluator;
+
+impl Evaluator for SimulationEvaluator {
+    fn evaluate(&self, board: &Board) -> f64 {
+        if board.is_game_over() {
+            return W_GAME_OVER;
+        }
+        simulate_max_chain(board) as f64
+    }
+}
+
+const VIRTUAL_PUYO_COUNT: usize = 3;
+const COLORS: [PuyoColor; 4] = [
+    PuyoColor::Red,
+    PuyoColor::Green,
+    PuyoColor::Blue,
+    PuyoColor::Yellow,
+];
+
+/// Simulate dropping virtual puyos (4 colors × 6 columns = 24 patterns) and return the max chain count.
+/// For each column, drop up to 3 same-color puyos (or fewer if space is limited).
+fn simulate_max_chain(board: &Board) -> u32 {
+    // Check current board for existing chains
+    let mut sim = board.clone();
+    let result = chain::resolve_chains(&mut sim);
+    let mut max_chain = result.chain_count;
+
+    for &color in &COLORS {
+        for col in 0..COLS {
+            let available = ROWS - board.column_height(col);
+            if available == 0 {
+                continue;
+            }
+            let count = VIRTUAL_PUYO_COUNT.min(available);
+            let mut sim = board.clone();
+            for _ in 0..count {
+                sim.drop_puyo(col, color);
+            }
+            let result = chain::resolve_chains(&mut sim);
+            max_chain = max_chain.max(result.chain_count);
+        }
+    }
+    max_chain
 }
 
 /// Evaluation weights.

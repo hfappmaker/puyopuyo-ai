@@ -177,6 +177,7 @@ impl WasmGame {
             &self.state.board,
             &current_piece,
             &self.state.next_piece,
+            Some(&self.state.next_next_piece),
             &*self.evaluator,
         );
 
@@ -208,6 +209,7 @@ impl WasmGame {
             &self.state.board,
             &current_piece,
             &self.state.next_piece,
+            Some(&self.state.next_next_piece),
             &*self.evaluator,
         );
 

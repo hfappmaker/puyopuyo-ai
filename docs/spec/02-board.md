@@ -41,7 +41,7 @@ pub struct Board {
 
 | 操作 | 説明 |
 |------|------|
-| `drop_puyo(col, color)` | 指定列にぷよを落とし、積まれた行を返す。列が満杯なら `None` |
+| `drop_puyo(col, color)` | 指定列にぷよを落とし、積まれた行を返す。列が満杯なら `assert` でパニック |
 | `apply_gravity()` | 行0〜12のぷよを落下させて空隙を埋める。行13（最上非可視行）は対象外 |
 | `column_height(col)` | 指定列の高さ（底からの非空セル数）を返す |
 | `is_game_over()` | `SPAWN_COL`（列2）の高さが `VISIBLE_ROWS` を超えたら `true` |

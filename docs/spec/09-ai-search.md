@@ -71,6 +71,20 @@ East/West 配置では軸列・衛星列の両方が到達可能でなければ�
 
 `find_best_move` はまず2手先読みを試行し、有効な結果（スコアが `-∞` でない）がなければ1手先読みに切り替える。
 
+### シグネチャ
+
+```rust
+pub fn find_best_move(
+    board: &Board,
+    current: &Piece,
+    next: &Piece,
+    next_next: Option<&Piece>,  // 将来の拡張用（現時点では未使用）
+    evaluator: &dyn Evaluator,
+) -> Option<SearchResult>
+```
+
+`next_next` は将来の3手先読み等に備えた予約引数。現時点では無視される。
+
 ## シミュレーション
 
 配置シミュレーションでは、一時的な `GameState` を作成し、`place_piece` でピースを設置後、`resolve_chains` で連鎖を解決する。元の盤面は変更されない。

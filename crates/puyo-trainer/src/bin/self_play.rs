@@ -11,7 +11,6 @@ use burn::record::{BinFileRecorder, FullPrecisionSettings};
 use puyo_ai::eval::Evaluator;
 use puyo_ai::search;
 use puyo_core::board::{Board, COLS, ROWS};
-use puyo_core::chain;
 use puyo_core::game::GameState;
 use puyo_core::piece::Placement;
 use puyo_nn::encoding::{board_to_tensor_data, NUM_CHANNELS, TENSOR_SIZE};
@@ -30,6 +29,8 @@ type InferBackend = NdArray;
 const MODEL_PATH: &str = "artifacts/puyo_model";
 const OUTPUT_PATH: &str = "artifacts/puyo_model_selfplay";
 const GAMMA: f32 = 0.99;
+const LAMBDA: f32 = 0.8;
+const BUFFER_SIZE: usize = 64;
 const LEARNING_RATE: f64 = 1e-4;
 const EPSILON_START: f32 = 0.3;
 const EPSILON_END: f32 = 0.01;
@@ -213,6 +214,49 @@ impl GameSession {
     }
 }
 
+/// TD(λ) バッファの1遷移
+struct Transition {
+    board_data: [f32; TENSOR_SIZE],
+    reward: f32,
+    terminal: bool,
+}
+
+/// 1エピソード（ゲーム）分の遷移バッファ
+struct TrajectoryBuffer {
+    transitions: Vec<Transition>,
+    /// バッファ最後の遷移の次状態（次の盤面）
+    last_next_board: Option<[f32; TENSOR_SIZE]>,
+    capacity: usize,
+}
+
+impl TrajectoryBuffer {
+    fn new(capacity: usize) -> Self {
+        TrajectoryBuffer {
+            transitions: Vec::with_capacity(capacity),
+            last_next_board: None,
+            capacity,
+        }
+    }
+
+    fn push(&mut self, transition: Transition, next_board: [f32; TENSOR_SIZE]) {
+        self.transitions.push(transition);
+        self.last_next_board = Some(next_board);
+    }
+
+    fn is_full(&self) -> bool {
+        self.transitions.len() >= self.capacity
+    }
+
+    fn clear(&mut self) {
+        self.transitions.clear();
+        self.last_next_board = None;
+    }
+
+    fn len(&self) -> usize {
+        self.transitions.len()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // NN ベースの Evaluator（探索用）
 // ---------------------------------------------------------------------------
@@ -278,38 +322,81 @@ fn select_placement(
             &session.game.board,
             &current_piece,
             &session.game.next_piece,
+            Some(&session.game.next_next_piece),
             &evaluator,
         )
         .map(|r| r.best_placement)
     }
 }
 
-/// TD(0) 更新を1ステップ実行する。
-/// model を消費して更新済み model と損失値を返す（Burn の所有権セマンティクス対応）。
-fn td_update(
-    model: PuyoValueNet<TrainBackend>,
-    optim: &mut impl Optimizer<PuyoValueNet<TrainBackend>, TrainBackend>,
+/// バッファ内の遷移に対してλ-returnを計算する。
+/// 返り値は各遷移に対する正規化済みターゲット値。
+fn compute_lambda_returns(
+    buffer: &TrajectoryBuffer,
     target_model: &PuyoValueNet<InferBackend>,
-    state_data: &[f32; TENSOR_SIZE],
-    reward: f32,
-    next_data: &[f32; TENSOR_SIZE],
-    device: &<TrainBackend as Backend>::Device,
     norm: &NormParams,
     infer_device: &<InferBackend as Backend>::Device,
-) -> (PuyoValueNet<TrainBackend>, f32) {
-    let v_next = norm.eval_target(target_model, next_data, infer_device);
-    let td_target = norm.normalize(reward + GAMMA * v_next);
+    gamma: f32,
+    lambda: f32,
+) -> Vec<f32> {
+    let n = buffer.len();
+    let mut targets = vec![0.0f32; n];
 
-    let input = Tensor::<TrainBackend, 1>::from_floats(state_data.as_slice(), device).reshape([
-        1,
-        NUM_CHANNELS,
-        ROWS,
-        COLS,
-    ]);
-    let prediction = model.forward(input);
-    let target =
-        Tensor::<TrainBackend, 1>::from_floats([td_target].as_slice(), device).reshape([1, 1]);
-    let diff = prediction - target;
+    // 末尾の次状態の価値（bootstrap）
+    let mut g = if buffer.transitions[n - 1].terminal {
+        0.0
+    } else {
+        match &buffer.last_next_board {
+            Some(board) => norm.eval_target(target_model, board, infer_device),
+            None => 0.0,
+        }
+    };
+
+    for t in (0..n).rev() {
+        let tr = &buffer.transitions[t];
+        if tr.terminal {
+            // ゲームオーバー: 伝搬を断ち切る
+            g = tr.reward;
+        } else {
+            let v_next = if t + 1 < n {
+                norm.eval_target(target_model, &buffer.transitions[t + 1].board_data, infer_device)
+            } else {
+                match &buffer.last_next_board {
+                    Some(board) => norm.eval_target(target_model, board, infer_device),
+                    None => 0.0,
+                }
+            };
+            g = tr.reward + gamma * ((1.0 - lambda) * v_next + lambda * g);
+        }
+        targets[t] = norm.normalize(g);
+    }
+
+    targets
+}
+
+/// バッファの全遷移をまとめて1回のforward + backwardで学習する。
+/// model を消費して更新済み model と平均損失を返す。
+fn batch_update(
+    model: PuyoValueNet<TrainBackend>,
+    optim: &mut impl Optimizer<PuyoValueNet<TrainBackend>, TrainBackend>,
+    buffer: &TrajectoryBuffer,
+    targets: &[f32],
+    device: &<TrainBackend as Backend>::Device,
+) -> (PuyoValueNet<TrainBackend>, f32) {
+    let n = buffer.len();
+
+    // 全盤面データを1つのテンソルにまとめる [n, 5, ROWS, COLS]
+    let mut all_data = Vec::with_capacity(n * TENSOR_SIZE);
+    for tr in &buffer.transitions {
+        all_data.extend_from_slice(&tr.board_data);
+    }
+    let input = Tensor::<TrainBackend, 1>::from_floats(all_data.as_slice(), device)
+        .reshape([n, NUM_CHANNELS, ROWS, COLS]);
+    let prediction = model.forward(input); // [n, 1]
+
+    let target_tensor =
+        Tensor::<TrainBackend, 1>::from_floats(targets, device).reshape([n, 1]);
+    let diff = prediction - target_tensor;
     let loss = diff.clone().mul(diff).mean();
     let loss_val = loss.clone().into_data().to_vec::<f32>().unwrap()[0];
     let grads = loss.backward();
@@ -342,32 +429,57 @@ fn sync_target_network(
     target
 }
 
-/// TD更新後のステップ管理（カウンタ更新、ログ、ターゲット同期）
-fn step_bookkeeping(
+/// バッファのλ-return計算 → バッチ学習 → 統計記録 → バッファクリアを一括実行。
+/// model を消費して更新済み model を返す。
+fn flush_buffer(
+    model: PuyoValueNet<TrainBackend>,
+    optim: &mut impl Optimizer<PuyoValueNet<TrainBackend>, TrainBackend>,
+    buffer: &mut TrajectoryBuffer,
+    target_model: &mut PuyoValueNet<InferBackend>,
+    device: &<TrainBackend as Backend>::Device,
+    norm: &NormParams,
+    infer_device: &<InferBackend as Backend>::Device,
     step: &mut u64,
     total_steps: u64,
     target_update_interval: u64,
-    reward: f32,
-    loss: f32,
     stats: &mut RewardStats,
     game_stats: &mut GameStats,
     session: &GameSession,
     epsilon: f32,
-    model: &PuyoValueNet<TrainBackend>,
-    target_model: &mut PuyoValueNet<InferBackend>,
     config: &PuyoValueNetConfig,
-    infer_device: &<InferBackend as Backend>::Device,
-) {
-    *step += 1;
-    stats.record(reward, loss);
+    gamma: f32,
+    lambda: f32,
+) -> PuyoValueNet<TrainBackend> {
+    if buffer.len() == 0 {
+        return model;
+    }
 
-    if *step % LOG_INTERVAL == 0 {
+    let targets = compute_lambda_returns(buffer, target_model, norm, infer_device, gamma, lambda);
+
+    // 統計記録（バッファ内の各遷移の報酬を記録）
+    for tr in &buffer.transitions {
+        stats.record(tr.reward, 0.0); // loss は batch 全体で後から記録
+    }
+
+    let (model, loss) = batch_update(model, optim, buffer, &targets, device);
+
+    // loss をバッファサイズ分の遷移に按分して記録（上で 0.0 で記録済みなので上書き）
+    // 簡易化: loss_sum に直接加算
+    stats.loss_sum += loss as f64;
+    // record() で loss_count を既に増やしているので調整不要（0.0 で n 回記録済み）
+
+    *step += buffer.len() as u64;
+
+    if *step % LOG_INTERVAL < buffer.len() as u64 {
         stats.log_and_reset(*step, total_steps, session.game_count, epsilon, game_stats);
     }
 
-    if *step % target_update_interval == 0 {
-        *target_model = sync_target_network(model, config, infer_device);
+    if *step % target_update_interval < buffer.len() as u64 {
+        *target_model = sync_target_network(&model, config, infer_device);
     }
+
+    buffer.clear();
+    model
 }
 
 /// 決定論的 RNG（ε-greedy 用）
@@ -392,11 +504,14 @@ fn run_training_loop(
     norm: &NormParams,
     total_steps: u64,
     target_update_interval: u64,
+    buffer_size: usize,
+    lambda: f32,
 ) -> PuyoValueNet<InferBackend> {
     let mut session = GameSession::new(100_000);
     let mut step: u64 = 0;
     let mut stats = RewardStats::new();
     let mut game_stats = GameStats::new();
+    let mut buffer = TrajectoryBuffer::new(buffer_size);
 
     while step < total_steps {
         let epsilon = compute_epsilon(step, total_steps);
@@ -412,201 +527,106 @@ fn run_training_loop(
             }
         };
 
-        // ピースを配置（連鎖解決・ピース送りはしない）
-        session.game.place_piece_only(&placement);
+        // 配置 + 連鎖解決を一括実行
+        let prev_max = session.game.max_chain;
+        let chain_result = session.game.apply_placement(&placement);
         session.move_count += 1;
-        let placed_data = board_to_tensor_data(&session.game.board);
+        session.log_if_new_max_chain(prev_max, step);
 
-        // 連鎖判定
-        let has_chain = !chain::find_groups(&session.game.board).is_empty();
+        if session.game.board.is_game_over() {
+            // ゲームオーバー: reward=-1, terminal=true
+            game_stats.record(session.game.max_chain, session.move_count);
+            session.log_game_over_and_reset(epsilon, step);
 
-        if has_chain {
-            // 配置ステップ: reward=0, next=配置後盤面（消去前）
-            let (m, loss) = td_update(
+            let next_board = board_to_tensor_data(&session.game.board);
+            buffer.push(
+                Transition {
+                    board_data,
+                    reward: -1.0,
+                    terminal: true,
+                },
+                next_board,
+            );
+
+            // ゲームオーバー時は即座にバッファを消化
+            model = flush_buffer(
                 model,
                 &mut optim,
-                &target_model,
-                &board_data,
-                0.0,
-                &placed_data,
+                &mut buffer,
+                &mut target_model,
                 device,
                 norm,
                 infer_device,
-            );
-            model = m;
-            step_bookkeeping(
                 &mut step,
                 total_steps,
                 target_update_interval,
-                0.0,
-                loss,
                 &mut stats,
                 &mut game_stats,
                 &session,
                 epsilon,
-                &model,
-                &mut target_model,
                 config,
-                infer_device,
+                GAMMA,
+                lambda,
+            );
+        } else {
+            // 生存: reward=連鎖数
+            let reward = chain_result.chain_count as f32;
+            let next_board = board_to_tensor_data(&session.game.board);
+            buffer.push(
+                Transition {
+                    board_data,
+                    reward,
+                    terminal: false,
+                },
+                next_board,
             );
 
-            // 各連鎖ステップを解決: reward=1
-            let mut prev_data = placed_data;
-            let mut chain_count: u32 = 0;
-            let mut total_score: u32 = 0;
-
-            loop {
-                if step >= total_steps {
-                    break;
-                }
-                chain_count += 1;
-                match chain::resolve_one_step(&mut session.game.board, chain_count) {
-                    Some(chain_step) => {
-                        total_score += chain_step.score;
-                        let next_data = board_to_tensor_data(&session.game.board);
-                        let (m, loss) = td_update(
-                            model,
-                            &mut optim,
-                            &target_model,
-                            &prev_data,
-                            1.0,
-                            &next_data,
-                            device,
-                            norm,
-                            infer_device,
-                        );
-                        model = m;
-                        step_bookkeeping(
-                            &mut step,
-                            total_steps,
-                            target_update_interval,
-                            1.0,
-                            loss,
-                            &mut stats,
-                            &mut game_stats,
-                            &session,
-                            epsilon,
-                            &model,
-                            &mut target_model,
-                            config,
-                            infer_device,
-                        );
-                        prev_data = next_data;
-                    }
-                    None => {
-                        chain_count -= 1;
-                        break;
-                    }
-                }
-            }
-
-            // finalize + ゲームオーバー判定
-            let prev_max = session.game.max_chain;
-            session.game.finalize_after_chains(total_score, chain_count);
-            session.log_if_new_max_chain(prev_max, step);
-
-            if session.game.board.is_game_over() {
-                game_stats.record(session.game.max_chain, session.move_count);
-                session.log_game_over_and_reset(epsilon, step);
-
-                if step < total_steps {
-                    let next_data = board_to_tensor_data(&session.game.board);
-                    let (m, loss) = td_update(
-                        model,
-                        &mut optim,
-                        &target_model,
-                        &prev_data,
-                        -1.0,
-                        &next_data,
-                        device,
-                        norm,
-                        infer_device,
-                    );
-                    model = m;
-                    step_bookkeeping(
-                        &mut step,
-                        total_steps,
-                        target_update_interval,
-                        -1.0,
-                        loss,
-                        &mut stats,
-                        &mut game_stats,
-                        &session,
-                        epsilon,
-                        &model,
-                        &mut target_model,
-                        config,
-                        infer_device,
-                    );
-                }
-            }
-        } else {
-            // 連鎖なし: finalize してゲームオーバー判定
-            session.game.finalize_after_chains(0, 0);
-
-            if session.game.board.is_game_over() {
-                game_stats.record(session.game.max_chain, session.move_count);
-                session.log_game_over_and_reset(epsilon, step);
-
-                let next_data = board_to_tensor_data(&session.game.board);
-                let (m, loss) = td_update(
+            if buffer.is_full() {
+                model = flush_buffer(
                     model,
                     &mut optim,
-                    &target_model,
-                    &board_data,
-                    -1.0,
-                    &next_data,
+                    &mut buffer,
+                    &mut target_model,
                     device,
                     norm,
                     infer_device,
-                );
-                model = m;
-                step_bookkeeping(
                     &mut step,
                     total_steps,
                     target_update_interval,
-                    -1.0,
-                    loss,
                     &mut stats,
                     &mut game_stats,
                     &session,
                     epsilon,
-                    &model,
-                    &mut target_model,
                     config,
-                    infer_device,
-                );
-            } else {
-                // 生存: reward=1
-                let (m, loss) = td_update(
-                    model,
-                    &mut optim,
-                    &target_model,
-                    &board_data,
-                    1.0,
-                    &placed_data,
-                    device,
-                    norm,
-                    infer_device,
-                );
-                model = m;
-                step_bookkeeping(
-                    &mut step,
-                    total_steps,
-                    target_update_interval,
-                    1.0,
-                    loss,
-                    &mut stats,
-                    &mut game_stats,
-                    &session,
-                    epsilon,
-                    &model,
-                    &mut target_model,
-                    config,
-                    infer_device,
+                    GAMMA,
+                    lambda,
                 );
             }
         }
+    }
+
+    // 残りのバッファを消化
+    if buffer.len() > 0 {
+        let epsilon = compute_epsilon(step, total_steps);
+        model = flush_buffer(
+            model,
+            &mut optim,
+            &mut buffer,
+            &mut target_model,
+            device,
+            norm,
+            infer_device,
+            &mut step,
+            total_steps,
+            target_update_interval,
+            &mut stats,
+            &mut game_stats,
+            &session,
+            epsilon,
+            config,
+            GAMMA,
+            lambda,
+        );
     }
 
     model.valid()
@@ -616,28 +636,51 @@ fn run_training_loop(
 // エントリポイント
 // ---------------------------------------------------------------------------
 
-fn parse_args() -> (u64, u64) {
+struct Args {
+    total_steps: u64,
+    target_update_interval: u64,
+    buffer_size: usize,
+    lambda: f32,
+}
+
+fn parse_args() -> Args {
     let args: Vec<String> = std::env::args().collect();
-    let mut total_steps: u64 = 200_000;
-    let mut target_update_interval: u64 = 1_000;
+    let mut result = Args {
+        total_steps: 200_000,
+        target_update_interval: 1_000,
+        buffer_size: BUFFER_SIZE,
+        lambda: LAMBDA,
+    };
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
             "--steps" => {
                 i += 1;
-                total_steps = args[i].parse().expect("--steps には整数を指定してください");
+                result.total_steps = args[i].parse().expect("--steps には整数を指定してください");
             }
             "--target-update" => {
                 i += 1;
-                target_update_interval = args[i]
+                result.target_update_interval = args[i]
                     .parse()
                     .expect("--target-update には整数を指定してください");
+            }
+            "--buffer-size" => {
+                i += 1;
+                result.buffer_size = args[i]
+                    .parse()
+                    .expect("--buffer-size には整数を指定してください");
+            }
+            "--lambda" => {
+                i += 1;
+                result.lambda = args[i]
+                    .parse()
+                    .expect("--lambda には浮動小数点数を指定してください");
             }
             other => eprintln!("不明なオプション: {}（無視します）", other),
         }
         i += 1;
     }
-    (total_steps, target_update_interval)
+    result
 }
 
 fn main() {
@@ -646,10 +689,10 @@ fn main() {
     #[cfg(not(feature = "gpu"))]
     println!("Backend: NdArray (CPU)");
 
-    let (total_steps, target_update_interval) = parse_args();
+    let args = parse_args();
     println!(
-        "total_steps={}, target_update_interval={}",
-        total_steps, target_update_interval
+        "total_steps={}, target_update_interval={}, buffer_size={}, lambda={}",
+        args.total_steps, args.target_update_interval, args.buffer_size, args.lambda
     );
 
     let device: <TrainBackend as Backend>::Device = Default::default();
@@ -688,8 +731,10 @@ fn main() {
         &device,
         &infer_device,
         &norm,
-        total_steps,
-        target_update_interval,
+        args.total_steps,
+        args.target_update_interval,
+        args.buffer_size,
+        args.lambda,
     );
 
     final_model

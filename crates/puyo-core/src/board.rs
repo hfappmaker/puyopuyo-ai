@@ -64,14 +64,16 @@ impl Board {
         self.columns[col][row] = color;
     }
 
-    /// Drop a puyo into a column. Returns the row it landed on, or None if full.
-    pub fn drop_puyo(&mut self, col: usize, color: PuyoColor) -> Option<usize> {
+    /// Drop a puyo into a column. Returns the row it landed on.
+    ///
+    /// # Panics
+    /// 列が満杯（高さ >= ROWS）の場合パニックする。
+    /// 呼び出し側が事前に空きを確認すること。
+    pub fn drop_puyo(&mut self, col: usize, color: PuyoColor) -> usize {
         let h = self.column_height(col);
-        if h >= ROWS {
-            return None;
-        }
+        assert!(h < ROWS, "drop_puyo: column {col} is full (height={h})");
         self.columns[col][h] = color;
-        Some(h)
+        h
     }
 
     /// Apply gravity: make all puyos fall down to fill gaps.
@@ -128,23 +130,24 @@ mod tests {
     fn test_drop_puyo() {
         let mut board = Board::new();
         let row = board.drop_puyo(0, PuyoColor::Red);
-        assert_eq!(row, Some(0));
+        assert_eq!(row, 0);
         assert_eq!(board.get(0, 0), PuyoColor::Red);
         assert_eq!(board.column_height(0), 1);
 
         let row = board.drop_puyo(0, PuyoColor::Blue);
-        assert_eq!(row, Some(1));
+        assert_eq!(row, 1);
         assert_eq!(board.get(0, 1), PuyoColor::Blue);
         assert_eq!(board.column_height(0), 2);
     }
 
     #[test]
+    #[should_panic(expected = "column 0 is full")]
     fn test_column_full() {
         let mut board = Board::new();
         for _ in 0..ROWS {
             board.drop_puyo(0, PuyoColor::Red);
         }
-        assert_eq!(board.drop_puyo(0, PuyoColor::Red), None);
+        board.drop_puyo(0, PuyoColor::Red);
     }
 
     #[test]

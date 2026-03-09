@@ -1,4 +1,4 @@
-use puyo_ai::eval::HeuristicEvaluator;
+use puyo_ai::eval::SimulationEvaluator;
 use puyo_ai::search;
 use puyo_core::game::{GamePhase, GameState};
 use puyo_nn::encoding::board_to_tensor_data;
@@ -10,7 +10,7 @@ const OUTPUT_PATH: &str = "data/training_data.bin";
 fn main() {
     std::fs::create_dir_all("data").expect("Failed to create data directory");
 
-    let evaluator = HeuristicEvaluator;
+    let evaluator = SimulationEvaluator;
     let mut dataset = Dataset::new();
     let mut total_max_chain = 0u32;
 
@@ -32,8 +32,13 @@ fn main() {
             let board_data = board_to_tensor_data(&game.board).to_vec();
 
             // Find and apply best move
-            let result =
-                search::find_best_move(&game.board, &current_piece, &game.next_piece, &evaluator);
+            let result = search::find_best_move(
+                &game.board,
+                &current_piece,
+                &game.next_piece,
+                Some(&game.next_next_piece),
+                &evaluator,
+            );
 
             match result {
                 Some(r) => {

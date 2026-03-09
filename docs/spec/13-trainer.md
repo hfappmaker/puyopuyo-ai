@@ -100,19 +100,30 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
 
 ## Phase 3: 自己対戦強化学習 (`self-play`)
 
-学習済みモデルを評価関数として探索に使用し、TD(0) で毎ステップ更新する。エピソードの概念はなく、ゲームオーバー後は盤面をリセットして即座に続行する。
+学習済みモデルを評価関数として探索に使用し、TD(λ) のバッファ方式で学習する。1配置 = 1遷移として扱い、連鎖解決は `apply_placement()` で一括実行する。ゲームオーバー後は盤面をリセットして即座に続行する。
 
 ### パラメータ
 
 | 名前 | 値 | 説明 |
 |------|-----|------|
-| `TOTAL_STEPS` | 200,000 | 全体のステップ数（TD更新回数ベース） |
+| `TOTAL_STEPS` | 200,000 | 全体のステップ数（遷移数ベース） |
 | `GAMMA` | 0.99 | 割引率 |
+| `LAMBDA` | 0.8 | TD(λ) の λ パラメータ |
+| `BUFFER_SIZE` | 64 | 軌跡バッファの容量 |
 | `LEARNING_RATE` | 1e-4 | 学習率 |
 | `EPSILON_START` | 0.3 | 初期探索率 |
 | `EPSILON_END` | 0.01 | 最終探索率 |
 | `TARGET_UPDATE_INTERVAL` | 1,000 | ターゲットネットワーク更新間隔（ステップ数） |
 | `LOG_INTERVAL` | 100 | 進捗ログ出力間隔（ステップ数） |
+
+### コマンドラインオプション
+
+| オプション | 型 | デフォルト | 説明 |
+|-----------|-----|----------|------|
+| `--steps` | u64 | 200,000 | 全体のステップ数 |
+| `--target-update` | u64 | 1,000 | ターゲット更新間隔 |
+| `--buffer-size` | usize | 64 | バッファ容量 |
+| `--lambda` | f32 | 0.8 | λ パラメータ |
 
 ### コード構造
 
@@ -124,10 +135,13 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
 | `RewardStats` | 構造体 | 報酬カウンタと損失累積。`record(reward, loss)`, `log_and_reset()` でログ管理 |
 | `GameStats` | 構造体 | ゲームパフォーマンス統計（連鎖数・手数の移動平均）。収束確認用 |
 | `GameSession` | 構造体 | ゲーム状態（`GameState`, seed, カウンタ）。`reset()`, `log_game_over_and_reset()` |
+| `Transition` | 構造体 | TD(λ) バッファの1遷移（`board_data`, `reward`, `terminal`） |
+| `TrajectoryBuffer` | 構造体 | 遷移バッファ。`push()`, `is_full()`, `clear()` を提供 |
 | `SelfPlayEvaluator` | 構造体 | `Evaluator` トレイト実装。ターゲットモデルで盤面を評価 |
-| `td_update()` | 関数 | TD(0) の1ステップ更新。`(model, loss_val)` のタプルを返す |
+| `compute_lambda_returns()` | 関数 | バッファを後ろから走査してλ-returnを計算 |
+| `batch_update()` | 関数 | バッファ全遷移を1回のforward + backwardで学習 |
+| `flush_buffer()` | 関数 | λ-return計算 → バッチ学習 → 統計記録 → バッファクリアを一括実行 |
 | `sync_target_network()` | 関数 | ターゲットネットワークをオンラインモデルから同期 |
-| `step_bookkeeping()` | 関数 | ステップ管理（カウンタ更新、ログ、ターゲット同期） |
 | `select_placement()` | 関数 | ε-greedy 配置選択。`Option<Placement>` を返す |
 | `compute_epsilon()` | 関数 | εの線形減衰計算 |
 | `run_training_loop()` | 関数 | メインの学習ループ |
@@ -142,36 +156,40 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
 
 ### 報酬関数
 
-配置と連鎖解決を分離し、連鎖の各ステップに報酬を与える。
+1配置 = 1遷移として、連鎖解決は `apply_placement()` で一括実行する。
 
 | 条件 | 報酬 |
 |------|------|
-| 配置して連鎖が発生（配置ステップ） | 0 |
-| 連鎖の各ステップ（ぷよが消えるたび） | +1 |
-| 配置して連鎖なし（生存） | +1 |
+| N連鎖が発生 | N（連鎖数） |
+| 連鎖なし（生存） | 0 |
 | ゲームオーバー | -1 |
 
-#### 連鎖時のステップ分解
+### 遷移バッファと TD(λ)
 
-連鎖が発生した場合、`chain::resolve_one_step()` で1連鎖ずつ盤面を進め、各ステップでTD更新を行う。
+各配置で1つの `Transition` をバッファに追加する。バッファが満杯（`BUFFER_SIZE` 遷移）またはゲームオーバー時に `flush_buffer()` を呼び、バッファ内の全遷移をまとめて学習する。
 
-例: 3連鎖の場合 → 4回のTD更新
+#### λ-return の計算（`compute_lambda_returns()`）
 
-| # | state | reward | next_state |
-|---|-------|--------|------------|
-| 1 | 配置前盤面 | 0 | 配置後盤面（消去前） |
-| 2 | 配置後盤面（消去前） | +1 | 1連鎖消去後盤面 |
-| 3 | 1連鎖消去後盤面 | +1 | 2連鎖消去後盤面 |
-| 4 | 2連鎖消去後盤面 | +1 | 3連鎖消去後盤面 |
+バッファを末尾から走査し、各遷移のλ-returnを計算する:
 
-連鎖なしの場合 → 1回のTD更新: state=配置前盤面, reward=+1, next_state=配置後盤面。
-ゲームオーバーの場合 → 1回のTD更新: state=配置前盤面, reward=-1, next_state=リセット後盤面（生存報酬は与えない）。
+```
+g = if 末尾がterminal { 0.0 } else { V(last_next_board) }
+for t in (0..n).rev():
+    if transitions[t].terminal:
+        g = transitions[t].reward  // -1、伝搬を断ち切る
+    else:
+        v_next = if t+1 < n { V(transitions[t+1].board_data) } else { V(last_next_board) }
+        g = reward[t] + γ × ((1-λ) × v_next + λ × g)
+    targets[t] = normalize(g)
+```
 
-`TOTAL_STEPS` は配置回数ではなくTD更新回数を数える。連鎖が多いほど1配置で複数ステップを消費する。
+#### バッチ学習（`batch_update()`）
+
+バッファの全盤面データを `[n, 5, ROWS, COLS]` テンソルにまとめ、1回の forward + backward で MSE 損失を計算・逆伝播する。
 
 ### エピソードレス設計
 
-ゲームオーバーはゲーム終了ではなく、-1 の報酬が発生するイベントとして扱う。ゲームオーバー後は新しいシードで `GameState::new()` を呼び、盤面をリセットして即座にプレイを続行する。`V(next_state)` はリセット後の新しい盤面で計算する。
+ゲームオーバーは terminal=true の遷移として扱い、λ-return の伝搬を断ち切る。ゲームオーバー後は新しいシードで `GameState::new()` を呼び、盤面をリセットして即座にプレイを続行する。ゲームオーバー時はバッファを即座に消化する。
 
 ### 手順
 
@@ -180,16 +198,13 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
 3. 各ステップで ε-greedy 方策を使用:
    - 確率 ε: ランダム配置
    - 確率 1-ε: ターゲットネットワーク評価 + 2手先読み探索で最善手を選択
-4. `game.place_piece_only()` でピースを配置（連鎖は解決しない）
-5. 連鎖の有無を `chain::find_groups()` で判定:
-   - **連鎖あり**: 配置前→配置後で reward=0 のTD更新、`chain::resolve_one_step()` で1連鎖ずつ解決しながら reward=+1 のTD更新。連鎖完了後に `finalize_after_chains()` でゲームオーバー判定し、ゲームオーバーなら追加の reward=-1 TD更新
-   - **連鎖なし**: `finalize_after_chains()` で先にゲームオーバー判定。ゲームオーバーなら reward=-1 のTD更新のみ、そうでなければ reward=+1（生存報酬）のTD更新
-6. TD(0) 更新式:
-   ```
-   V(next_state) = target_model(next_board) * std_dev + mean  # 非正規化
-   td_target = (reward + γ × V(next_state) - mean) / std_dev  # 正規化
-   loss = MSE(V(state), td_target)
-   ```
+4. `game.apply_placement()` でピース配置 + 連鎖解決を一括実行
+5. 遷移をバッファに追加:
+   - **ゲームオーバー**: `reward=-1, terminal=true` → バッファを即座に消化
+   - **生存**: `reward=連鎖数, terminal=false` → バッファが満杯なら消化
+6. `flush_buffer()` で TD(λ) 学習:
+   - `compute_lambda_returns()` でλ-returnを計算
+   - `batch_update()` でバッチ学習（MSE損失）
 7. `TARGET_UPDATE_INTERVAL` ステップごとにターゲットネットワークを現在のモデルで更新（一時ファイル経由）
 8. 最終モデルを `artifacts/puyo_model_selfplay` に保存
 
@@ -203,12 +218,12 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
 
 | フィールド | 説明 | 収束時の傾向 |
 |-----------|------|------------|
-| `loss` | TD誤差のMSE（`LOG_INTERVAL`ステップ平均） | 減少または安定 |
+| `loss` | バッチMSE損失（`LOG_INTERVAL`ステップ平均） | 減少または安定 |
 | `avg_chain` | 直近ゲームの最大連鎖数の平均 | 増加 |
 | `avg_moves` | 直近ゲームの手数の平均 | 増加 |
-| `rewards(-1/0/+1)` | 報酬分布（ゲームオーバー/連鎖配置/生存+連鎖） | +1 が増加 |
+| `rewards(-1/0/+1)` | 報酬分布（ゲームオーバー/連鎖なし/連鎖あり） | 正報酬が増加 |
 
-`td_update()` が `(model, loss_val)` のタプルを返し、`step_bookkeeping()` が `loss_val` を `RewardStats` に累積する。`GameStats` はゲーム終了ごとに連鎖数と手数を記録し、ログ時に平均を計算してリセットする。
+`flush_buffer()` 内で各遷移の報酬を `RewardStats` に記録し、`batch_update()` の損失値を累積する。`GameStats` はゲーム終了ごとに連鎖数と手数を記録し、ログ時に平均を計算してリセットする。
 
 ### NN 評価関数
 
