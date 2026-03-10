@@ -1,4 +1,5 @@
 use puyo_core::board::Board;
+use puyo_core::chain::ChainResult;
 use puyo_core::game::GameState;
 use puyo_core::piece::{Piece, Placement};
 
@@ -15,15 +16,15 @@ pub struct SearchResult {
     pub depth: u32,
 }
 
-/// Simulate placing a piece on a board clone. Returns the resulting board.
-fn simulate_placement(board: &Board, piece: &Piece, placement: &Placement) -> Board {
+/// Simulate placing a piece on a board clone. Returns the resulting board and chain result.
+fn simulate_placement(board: &Board, piece: &Piece, placement: &Placement) -> (Board, ChainResult) {
     let mut sim = GameState::new(0);
     sim.board = board.clone();
     // Manually place the piece
     sim.place_piece(piece, placement);
     // Resolve chains
-    puyo_core::chain::resolve_chains(&mut sim.board);
-    sim.board
+    let chain_result = puyo_core::chain::resolve_chains(&mut sim.board);
+    (sim.board, chain_result)
 }
 
 /// Depth-1 search: evaluate all placements for the current piece.
@@ -41,7 +42,17 @@ pub fn search_depth1(
     let mut best_placement = placements[0];
 
     for placement in &placements {
-        let result_board = simulate_placement(board, current, placement);
+        let (result_board, chain_result) = simulate_placement(board, current, placement);
+
+        // 10連鎖以上は即座に選択
+        if chain_result.chain_count >= 10 {
+            return Some(SearchResult {
+                best_placement: *placement,
+                score: f64::INFINITY,
+                depth: 1,
+            });
+        }
+
         let score = evaluator.evaluate(&result_board);
 
         if score > best_score {
@@ -75,7 +86,16 @@ pub fn search_depth2(
     let mut best_placement = placements[0];
 
     for placement in &placements {
-        let board_after_current = simulate_placement(board, current, placement);
+        let (board_after_current, chain_result) = simulate_placement(board, current, placement);
+
+        // 1手目で10連鎖以上なら即リターン
+        if chain_result.chain_count >= 10 {
+            return Some(SearchResult {
+                best_placement: *placement,
+                score: f64::INFINITY,
+                depth: 2,
+            });
+        }
 
         if board_after_current.is_game_over() {
             // Skip placements that cause game over
@@ -91,7 +111,18 @@ pub fn search_depth2(
 
         let mut best_next_score = f64::NEG_INFINITY;
         for next_placement in &next_placements {
-            let board_after_next = simulate_placement(&board_after_current, next, next_placement);
+            let (board_after_next, next_chain_result) =
+                simulate_placement(&board_after_current, next, next_placement);
+
+            // 2手目で10連鎖以上なら、この1手目を即選択
+            if next_chain_result.chain_count >= 10 {
+                return Some(SearchResult {
+                    best_placement: *placement,
+                    score: f64::INFINITY,
+                    depth: 2,
+                });
+            }
+
             let score = evaluator.evaluate(&board_after_next);
             if score > best_next_score {
                 best_next_score = score;
