@@ -96,7 +96,7 @@ impl Board {
 
     /// Check if game is over (spawn column has puyo above visible area).
     pub fn is_game_over(&self) -> bool {
-        self.column_height(SPAWN_COL) > VISIBLE_ROWS
+        self.column_height(SPAWN_COL) >= VISIBLE_ROWS
     }
 
     /// Flatten board to a Vec<u8> for WASM transfer. Column-major, bottom to top.
