@@ -61,9 +61,9 @@ fn main() {
 
         // Compute discounted future chain counts (backwards)
         let mut future_values = vec![0.0f32; num_moves];
-        future_values[num_moves - 1] = game_moves[num_moves - 1].1 as f32;
+        future_values[num_moves - 1] = 2.0f32.powi(game_moves[num_moves - 1].1 as i32) - 1.0;
         for i in (0..num_moves - 1).rev() {
-            let immediate = game_moves[i].1 as f32;
+            let immediate = 2.0f32.powi(game_moves[i].1 as i32) - 1.0;
             future_values[i] = immediate + gamma * future_values[i + 1];
         }
 

@@ -122,7 +122,7 @@ impl RewardStats {
         };
         let (avg_chain, avg_moves) = game_stats.averages();
         println!(
-            "[PROGRESS] step={}/{}, games={}, eps={:.3}, rewards(-1/0/+1)={}/{}/{}, loss={:.4}, avg_chain={:.1}, avg_moves={:.1}",
+            "[PROGRESS] step={}/{}, games={}, eps={:.3}, rewards(-/0/+)={}/{}/{}, loss={:.4}, avg_chain={:.1}, avg_moves={:.1}",
             step, total_steps, game_count, epsilon,
             self.negative, self.zero, self.positive,
             avg_loss, avg_chain, avg_moves,
@@ -570,7 +570,7 @@ fn run_training_loop(
             );
         } else {
             // 生存: reward=連鎖数
-            let reward = chain_result.chain_count as f32;
+            let reward = 2.0f32.powi(chain_result.chain_count as i32) - 1.0;
             let next_board = board_to_tensor_data(&session.game.board);
             buffer.push(
                 Transition {
