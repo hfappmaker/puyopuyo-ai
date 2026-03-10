@@ -41,16 +41,18 @@ pub fn search_depth1(
     let mut best_score = f64::NEG_INFINITY;
     let mut best_placement = placements[0];
 
+    // 全配置中の最大連鎖数とその配置を追跡
+    let mut best_chain_count: u32 = 0;
+    let mut best_chain_placement = placements[0];
+    // evaluator最善手の連鎖数
+    let mut eval_best_chain_count: u32 = 0;
+
     for placement in &placements {
         let (result_board, chain_result) = simulate_placement(board, current, placement);
 
-        // 10連鎖以上は即座に選択
-        if chain_result.chain_count >= 10 {
-            return Some(SearchResult {
-                best_placement: *placement,
-                score: f64::INFINITY,
-                depth: 1,
-            });
+        if chain_result.chain_count > best_chain_count {
+            best_chain_count = chain_result.chain_count;
+            best_chain_placement = *placement;
         }
 
         let score = evaluator.evaluate(&result_board);
@@ -58,7 +60,17 @@ pub fn search_depth1(
         if score > best_score {
             best_score = score;
             best_placement = *placement;
+            eval_best_chain_count = chain_result.chain_count;
         }
+    }
+
+    // 最大連鎖がevaluator最善手の連鎖数より大きければ、最大連鎖の配置を優先
+    if best_chain_count > eval_best_chain_count {
+        return Some(SearchResult {
+            best_placement: best_chain_placement,
+            score: f64::INFINITY,
+            depth: 1,
+        });
     }
 
     Some(SearchResult {
@@ -85,20 +97,25 @@ pub fn search_depth2(
     let mut best_score = f64::NEG_INFINITY;
     let mut best_placement = placements[0];
 
+    // 全配置中の最大連鎖数（1手目・2手目通じて）とその1手目配置を追跡
+    let mut best_chain_count: u32 = 0;
+    let mut best_chain_placement = placements[0];
+    // evaluator最善手の1手目に対応する最大連鎖数
+    let mut eval_best_chain_count: u32 = 0;
+
     for placement in &placements {
         let (board_after_current, chain_result) = simulate_placement(board, current, placement);
 
-        // 1手目で10連鎖以上なら即リターン
-        if chain_result.chain_count >= 10 {
-            return Some(SearchResult {
-                best_placement: *placement,
-                score: f64::INFINITY,
-                depth: 2,
-            });
-        }
+        // 1手目の連鎖数を追跡
+        let mut max_chain_for_this_placement = chain_result.chain_count;
 
         if board_after_current.is_game_over() {
             // Skip placements that cause game over
+            // ただし連鎖数の追跡は行う
+            if max_chain_for_this_placement > best_chain_count {
+                best_chain_count = max_chain_for_this_placement;
+                best_chain_placement = *placement;
+            }
             continue;
         }
 
@@ -106,6 +123,10 @@ pub fn search_depth2(
         let next_placements = enumerate_placements(&board_after_current, next);
         if next_placements.is_empty() {
             // Can't place next piece -> bad
+            if max_chain_for_this_placement > best_chain_count {
+                best_chain_count = max_chain_for_this_placement;
+                best_chain_placement = *placement;
+            }
             continue;
         }
 
@@ -114,13 +135,9 @@ pub fn search_depth2(
             let (board_after_next, next_chain_result) =
                 simulate_placement(&board_after_current, next, next_placement);
 
-            // 2手目で10連鎖以上なら、この1手目を即選択
-            if next_chain_result.chain_count >= 10 {
-                return Some(SearchResult {
-                    best_placement: *placement,
-                    score: f64::INFINITY,
-                    depth: 2,
-                });
+            // 2手目の連鎖数も追跡
+            if next_chain_result.chain_count > max_chain_for_this_placement {
+                max_chain_for_this_placement = next_chain_result.chain_count;
             }
 
             let score = evaluator.evaluate(&board_after_next);
@@ -129,10 +146,26 @@ pub fn search_depth2(
             }
         }
 
+        // この1手目配置の最大連鎖数を全体と比較
+        if max_chain_for_this_placement > best_chain_count {
+            best_chain_count = max_chain_for_this_placement;
+            best_chain_placement = *placement;
+        }
+
         if best_next_score > best_score {
             best_score = best_next_score;
             best_placement = *placement;
+            eval_best_chain_count = max_chain_for_this_placement;
         }
+    }
+
+    // 最大連鎖がevaluator最善手の連鎖数より大きければ、最大連鎖の配置を優先
+    if best_chain_count > eval_best_chain_count {
+        return Some(SearchResult {
+            best_placement: best_chain_placement,
+            score: f64::INFINITY,
+            depth: 2,
+        });
     }
 
     Some(SearchResult {
