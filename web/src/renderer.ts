@@ -36,10 +36,13 @@ export class Renderer {
   private drawBoard(game: WasmGame): void {
     const ctx = this.ctx;
     const board = game.get_board();
+    const hiddenRows = ROWS - VISIBLE_ROWS;
 
-    // Clear
+    // Clear: hidden area (darker) + visible area
+    ctx.fillStyle = "#080812";
+    ctx.fillRect(0, 0, COLS * CELL_SIZE, hiddenRows * CELL_SIZE);
     ctx.fillStyle = "#0f0f23";
-    ctx.fillRect(0, 0, COLS * CELL_SIZE, VISIBLE_ROWS * CELL_SIZE);
+    ctx.fillRect(0, hiddenRows * CELL_SIZE, COLS * CELL_SIZE, VISIBLE_ROWS * CELL_SIZE);
 
     // Grid lines
     ctx.strokeStyle = "#1a1a3e";
@@ -47,28 +50,39 @@ export class Renderer {
     for (let col = 0; col <= COLS; col++) {
       ctx.beginPath();
       ctx.moveTo(col * CELL_SIZE, 0);
-      ctx.lineTo(col * CELL_SIZE, VISIBLE_ROWS * CELL_SIZE);
+      ctx.lineTo(col * CELL_SIZE, ROWS * CELL_SIZE);
       ctx.stroke();
     }
-    for (let row = 0; row <= VISIBLE_ROWS; row++) {
+    for (let row = 0; row <= ROWS; row++) {
       ctx.beginPath();
       ctx.moveTo(0, row * CELL_SIZE);
       ctx.lineTo(COLS * CELL_SIZE, row * CELL_SIZE);
       ctx.stroke();
     }
 
+    // Boundary line between hidden and visible area
+    ctx.strokeStyle = "#e94560";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(0, hiddenRows * CELL_SIZE);
+    ctx.lineTo(COLS * CELL_SIZE, hiddenRows * CELL_SIZE);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
     // Draw puyos (board is column-major, bottom=row0)
     for (let col = 0; col < COLS; col++) {
-      for (let row = 0; row < VISIBLE_ROWS; row++) {
+      for (let row = 0; row < ROWS; row++) {
         const color = board[col * ROWS + row];
         if (color !== COLOR_EMPTY) {
-          this.drawPuyo(
-            ctx,
-            col * CELL_SIZE + CELL_SIZE / 2,
-            (VISIBLE_ROWS - 1 - row) * CELL_SIZE + CELL_SIZE / 2,
-            color,
-            1.0
-          );
+          const x = col * CELL_SIZE + CELL_SIZE / 2;
+          const y = (ROWS - 1 - row) * CELL_SIZE + CELL_SIZE / 2;
+          // Hidden area puyos are dimmed
+          if (row >= VISIBLE_ROWS) {
+            ctx.globalAlpha = 0.5;
+          }
+          this.drawPuyo(ctx, x, y, color, 1.0);
+          ctx.globalAlpha = 1.0;
         }
       }
     }
@@ -90,12 +104,12 @@ export class Renderer {
 
     // Draw axis puyo
     const axisX = col * CELL_SIZE + CELL_SIZE / 2;
-    const axisY = (VISIBLE_ROWS - 1 - row) * CELL_SIZE + CELL_SIZE / 2;
+    const axisY = (ROWS - 1 - row) * CELL_SIZE + CELL_SIZE / 2;
     this.drawPuyo(this.ctx, axisX, axisY, axisColor, 0.9);
 
     // Draw satellite puyo
     const satX = (col + dc) * CELL_SIZE + CELL_SIZE / 2;
-    const satY = (VISIBLE_ROWS - 1 - (row + dr)) * CELL_SIZE + CELL_SIZE / 2;
+    const satY = (ROWS - 1 - (row + dr)) * CELL_SIZE + CELL_SIZE / 2;
     this.drawPuyo(this.ctx, satX, satY, satColor, 0.9);
 
     // Draw ghost (hard drop preview)
@@ -149,14 +163,14 @@ export class Renderer {
     this.drawPuyo(
       ctx,
       col * CELL_SIZE + CELL_SIZE / 2,
-      (VISIBLE_ROWS - 1 - axisRow) * CELL_SIZE + CELL_SIZE / 2,
+      (ROWS - 1 - axisRow) * CELL_SIZE + CELL_SIZE / 2,
       axisColor,
       1.0
     );
     this.drawPuyo(
       ctx,
       satCol * CELL_SIZE + CELL_SIZE / 2,
-      (VISIBLE_ROWS - 1 - satRow) * CELL_SIZE + CELL_SIZE / 2,
+      (ROWS - 1 - satRow) * CELL_SIZE + CELL_SIZE / 2,
       satColor,
       1.0
     );

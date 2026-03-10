@@ -4,7 +4,7 @@ export const VISIBLE_ROWS = 12;
 
 export const CELL_SIZE = 40; // pixels per cell
 export const BOARD_WIDTH = COLS * CELL_SIZE;   // 240
-export const BOARD_HEIGHT = VISIBLE_ROWS * CELL_SIZE; // 480
+export const BOARD_HEIGHT = ROWS * CELL_SIZE;  // 560 (hidden rows included)
 
 // Puyo colors (matching Rust PuyoColor repr)
 export const COLOR_EMPTY = 0;
