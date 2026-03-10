@@ -167,8 +167,8 @@ mod tests {
     fn test_game_over() {
         let mut board = Board::new();
         assert!(!board.is_game_over());
-        // Fill column 2 to height 12 (visible rows full, not yet game over)
-        for _ in 0..VISIBLE_ROWS {
+        // Fill column 2 to height 11 (visible rows full, not yet game over)
+        for _ in 0..VISIBLE_ROWS-1 {
             board.drop_puyo(2, PuyoColor::Red);
         }
         assert!(!board.is_game_over());
