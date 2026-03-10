@@ -1,5 +1,5 @@
 export const COLS = 6;
-export const ROWS = 13;
+export const ROWS = 14; // 12 visible + 2 hidden (must match Rust ROWS)
 export const VISIBLE_ROWS = 12;
 
 export const CELL_SIZE = 40; // pixels per cell
