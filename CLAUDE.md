@@ -27,7 +27,7 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 | クレート | 役割 |
 |---------|------|
 | `puyo-core` | ゲームエンジン（Board, GameState, Piece, Chain, Score, RNG） |
-| `puyo-ai` | AI探索・評価（Evaluator trait, search_depth1/depth2, find_best_move） |
+| `puyo-ai` | AI探索・評価（Evaluator trait, search_depth1/depth2/depth3, find_best_move） |
 | `puyo-nn` | CNN評価ネットワーク（PuyoValueNet, one-hot encoding） |
 | `puyo-trainer` | 学習パイプライン（3つのバイナリ: generate-data, train, self-play） |
 | `puyo-wasm` | WASMブリッジ（wasm-bindgen, WasmGame struct） |
@@ -46,7 +46,7 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 `nn`無しでは`nn_eval`モジュールと`burn`依存がコンパイルから除外される。
 
 ### ボード表現とCNN
-- ボード: 6列×13行、`PuyoColor` enum（Empty, Red, Green, Blue, Yellow）
+- ボード: 6列×14行、`PuyoColor` enum（Empty, Red, Green, Blue, Yellow）
 - エンコーディング: one-hot 5ch + column heights 1ch = 6チャンネル × 14行 × 6列 = 504 floats → `[batch, 6, 14, 6]` テンソル
 - PuyoValueNet: Conv2d(6→32)→ResidualBlock(32)×2→Conv2d(32→64,1×1)→AdaptiveAvgPool2d([4,3])→Linear(768→128)→Linear(128→1)
 - Burn 0.16、NdArrayバックエンド（CPU/WASM対応）
@@ -58,7 +58,7 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 ### 学習パイプライン
 - `generate-data`: ヒューリスティックAIで~10Kゲーム → ~1Mサンプル（`data/training_data.bin`）
 - `train`: 教師あり学習、MSE損失、z-score正規化（連鎖数予測）
-- `self-play`: TD(0) + ターゲットネットワークで強化学習
+- `self-play`: TD(λ) + ターゲットネットワークで強化学習
 - 正規化パラメータ: `artifacts/norm_params.txt`
 - 評価値 = 連鎖数（スコアや生存ではない）
 

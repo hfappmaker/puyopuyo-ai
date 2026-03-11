@@ -10,10 +10,12 @@
 pub trait Evaluator {
     fn evaluate(&self, board: &Board) -> f64;
     fn preferred_depth(&self) -> u32 { 2 }  // デフォルト: 2手先読み
+    fn use_chain_override(&self) -> bool { true }  // デフォルト: 連鎖オーバーライド有効
 }
 ```
 
-`preferred_depth()` は探索エンジンに推奨する探索深度を返す。`NnEvaluator` は `3` を返し、3手先読み（current + next + next_next）を有効化する。その他の評価器はデフォルトの `2` を使用する。
+- `preferred_depth()` は探索エンジンに推奨する探索深度を返す。`NnEvaluator` は `3` を返し、3手先読み（current + next + next_next）を有効化する。その他の評価器はデフォルトの `2` を使用する。
+- `use_chain_override()` はシミュレーション中の最大連鎖数が evaluator 最善手を上回った場合にオーバーライドするかを返す。`HeuristicEvaluator` は `true`（デフォルト）、`NnEvaluator` は `false` を返す。
 
 ## 評価の流れ
 
