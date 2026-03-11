@@ -5,7 +5,10 @@
       "Bash(node:*)",
       "Bash(npx tsc:*)",
       "Bash(fuser:*)",
-      "Bash(ss:*)"
+      "Bash(ss:*)",
+      "Bash(cd /workspaces/puyopuyo-ai && cargo test -p puyo-nn 2>&1)",
+      "Bash(cd /workspaces/puyopuyo-ai && cargo test -p puyo-ai 2>&1)",
+      "Bash(cd /workspaces/puyopuyo-ai && cargo test --workspace 2>&1)"
     ]
   }
 }
