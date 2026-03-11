@@ -10,7 +10,7 @@
 pub struct SearchResult {
     pub best_placement: Placement,  // 最善の配置
     pub score: f64,                 // 評価スコア
-    pub depth: u32,                 // 探索深度（1 or 2）
+    pub depth: u32,                 // 探索深度（1, 2, or 3）
 }
 ```
 
@@ -67,9 +67,34 @@ East/West 配置では軸列・衛星列の両方が到達可能でなければ�
 2. 各配置の結果盤面を評価関数で採点する
 3. 最高評価の配置を返す
 
+## 3手先読み探索 (search_depth3)
+
+NN評価器使用時に自動的に選択される。見えている3つのツモ（current, next, next_next）すべてを使って最善手を探索する。
+
+1. 現在のぷよ組の全配置パターンを列挙する
+2. 各配置に対して盤面をシミュレーション（設置 + 連鎖解決）する
+3. ゲームオーバーになる配置はスキップする
+4. シミュレーション後の盤面に対して、次のぷよ組の全配置パターンを列挙する
+5. 各2手目配置の結果盤面に対して、次次のぷよ組の全配置パターンを列挙する
+6. 3手目配置の結果盤面を評価関数で採点する
+7. 3手目の最高評価を、その1手目配置の評価とする
+8. 全1手目配置の中で最高評価のものを「次の一手」として返す
+
+### 計算量
+
+最大 22 × 22 × 22 = 10,648 盤面の評価。NN評価器は単一のCNN forward passで高速なため、WASMでも実用的な速度で動作する。
+
 ## フォールバック
 
-`find_best_move` はまず2手先読みを試行し、有効な結果（スコアが `-∞` でない）がなければ1手先読みに切り替える。
+`find_best_move` は `evaluator.preferred_depth()` に基づいて探索深度を決定する:
+
+1. `preferred_depth() >= 3` かつ `next_next` が `Some` の場合: 3手先読みを試行
+2. 有効な結果がなければ2手先読みに切り替え
+3. それも有効でなければ1手先読みに切り替え
+
+### preferred_depth
+
+`Evaluator` トレイトのメソッド。デフォルトは `2`。`NnEvaluator` は `3` を返す。
 
 ### シグネチャ
 
@@ -78,12 +103,10 @@ pub fn find_best_move(
     board: &Board,
     current: &Piece,
     next: &Piece,
-    next_next: Option<&Piece>,  // 将来の拡張用（現時点では未使用）
+    next_next: Option<&Piece>,
     evaluator: &dyn Evaluator,
 ) -> Option<SearchResult>
 ```
-
-`next_next` は将来の3手先読み等に備えた予約引数。現時点では無視される。
 
 ## 実連鎖の最大値による配置選択オーバーライド
 
@@ -91,6 +114,7 @@ pub fn find_best_move(
 
 - **search_depth1**: 各配置の連鎖数を追跡し、ループ後に `best_chain_count > eval_best_chain_count` なら最大連鎖の配置を返す
 - **search_depth2**: 1手目・2手目で発生した最大連鎖数とその1手目配置を追跡。evaluator最善手の1手目に対応する最大連鎖数と比較し、オーバーライドする
+- **search_depth3**: 1手目・2手目・3手目で発生した最大連鎖数とその1手目配置を追跡。同様にオーバーライドする
 
 ## シミュレーション
 

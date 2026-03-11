@@ -4,6 +4,17 @@
 
 盤面の「良さ」をスコア（`f64`）として数値化する。AIが配置を比較・選択するための判断基準。
 
+## Evaluator トレイト
+
+```rust
+pub trait Evaluator {
+    fn evaluate(&self, board: &Board) -> f64;
+    fn preferred_depth(&self) -> u32 { 2 }  // デフォルト: 2手先読み
+}
+```
+
+`preferred_depth()` は探索エンジンに推奨する探索深度を返す。`NnEvaluator` は `3` を返し、3手先読み（current + next + next_next）を有効化する。その他の評価器はデフォルトの `2` を使用する。
+
 ## 評価の流れ
 
 1. ゲームオーバー判定 → ゲームオーバーなら即座に `W_GAME_OVER`（`-100000.0`）を返す。NN評価器もこの定数を共有

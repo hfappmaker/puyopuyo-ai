@@ -34,6 +34,14 @@ impl NnEvaluator {
 }
 
 impl Evaluator for NnEvaluator {
+    fn preferred_depth(&self) -> u32 {
+        3
+    }
+
+    fn use_chain_override(&self) -> bool {
+        false
+    }
+
     fn evaluate(&self, board: &Board) -> f64 {
         if board.is_game_over() {
             return crate::eval::W_GAME_OVER;

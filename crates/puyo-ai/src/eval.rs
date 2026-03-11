@@ -4,6 +4,18 @@ use puyo_core::chain;
 /// Trait for board evaluation strategies.
 pub trait Evaluator {
     fn evaluate(&self, board: &Board) -> f64;
+
+    /// Preferred search depth for this evaluator.
+    /// Default is 2 (current + next). NN evaluators may prefer 3 (+ next_next).
+    fn preferred_depth(&self) -> u32 {
+        2
+    }
+
+    /// シミュレーション中の最大連鎖数がevaluator最善手を上回った場合にオーバーライドするか。
+    /// HeuristicEvaluatorではtrue、NnEvaluatorではfalse。
+    fn use_chain_override(&self) -> bool {
+        true
+    }
 }
 
 /// The existing hand-tuned heuristic evaluator.

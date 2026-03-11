@@ -41,6 +41,7 @@ pub fn search_depth1(
     let mut best_score = f64::NEG_INFINITY;
     let mut best_placement = placements[0];
 
+    let use_chain_override = evaluator.use_chain_override();
     // 全配置中の最大連鎖数とその配置を追跡
     let mut best_chain_count: u32 = 0;
     let mut best_chain_placement = placements[0];
@@ -50,7 +51,7 @@ pub fn search_depth1(
     for placement in &placements {
         let (result_board, chain_result) = simulate_placement(board, current, placement);
 
-        if chain_result.chain_count > best_chain_count {
+        if use_chain_override && chain_result.chain_count > best_chain_count {
             best_chain_count = chain_result.chain_count;
             best_chain_placement = *placement;
         }
@@ -65,7 +66,7 @@ pub fn search_depth1(
     }
 
     // 最大連鎖がevaluator最善手の連鎖数より大きければ、最大連鎖の配置を優先
-    if best_chain_count > eval_best_chain_count {
+    if use_chain_override && best_chain_count > eval_best_chain_count {
         return Some(SearchResult {
             best_placement: best_chain_placement,
             score: f64::INFINITY,
@@ -97,6 +98,7 @@ pub fn search_depth2(
     let mut best_score = f64::NEG_INFINITY;
     let mut best_placement = placements[0];
 
+    let use_chain_override = evaluator.use_chain_override();
     // 全配置中の最大連鎖数（1手目・2手目通じて）とその1手目配置を追跡
     let mut best_chain_count: u32 = 0;
     let mut best_chain_placement = placements[0];
@@ -112,7 +114,7 @@ pub fn search_depth2(
         if board_after_current.is_game_over() {
             // Skip placements that cause game over
             // ただし連鎖数の追跡は行う
-            if max_chain_for_this_placement > best_chain_count {
+            if use_chain_override && max_chain_for_this_placement > best_chain_count {
                 best_chain_count = max_chain_for_this_placement;
                 best_chain_placement = *placement;
             }
@@ -123,7 +125,7 @@ pub fn search_depth2(
         let next_placements = enumerate_placements(&board_after_current, next);
         if next_placements.is_empty() {
             // Can't place next piece -> bad
-            if max_chain_for_this_placement > best_chain_count {
+            if use_chain_override && max_chain_for_this_placement > best_chain_count {
                 best_chain_count = max_chain_for_this_placement;
                 best_chain_placement = *placement;
             }
@@ -136,7 +138,7 @@ pub fn search_depth2(
                 simulate_placement(&board_after_current, next, next_placement);
 
             // 2手目の連鎖数も追跡
-            if next_chain_result.chain_count > max_chain_for_this_placement {
+            if use_chain_override && next_chain_result.chain_count > max_chain_for_this_placement {
                 max_chain_for_this_placement = next_chain_result.chain_count;
             }
 
@@ -147,7 +149,7 @@ pub fn search_depth2(
         }
 
         // この1手目配置の最大連鎖数を全体と比較
-        if max_chain_for_this_placement > best_chain_count {
+        if use_chain_override && max_chain_for_this_placement > best_chain_count {
             best_chain_count = max_chain_for_this_placement;
             best_chain_placement = *placement;
         }
@@ -160,7 +162,7 @@ pub fn search_depth2(
     }
 
     // 最大連鎖がevaluator最善手の連鎖数より大きければ、最大連鎖の配置を優先
-    if best_chain_count > eval_best_chain_count {
+    if use_chain_override && best_chain_count > eval_best_chain_count {
         return Some(SearchResult {
             best_placement: best_chain_placement,
             score: f64::INFINITY,
@@ -175,16 +177,129 @@ pub fn search_depth2(
     })
 }
 
-/// Main AI entry point: try depth-2, fall back to depth-1.
-/// `next_next` is reserved for future use and currently ignored.
+/// Depth-3 search: evaluate all placements for current + next + next_next piece.
+/// For each current placement, try all next placements, then all next_next placements.
+/// Pick the current placement that maximizes the best-case evaluation.
+pub fn search_depth3(
+    board: &Board,
+    current: &Piece,
+    next: &Piece,
+    next_next: &Piece,
+    evaluator: &dyn Evaluator,
+) -> Option<SearchResult> {
+    let placements = enumerate_placements(board, current);
+    if placements.is_empty() {
+        return None;
+    }
+
+    let mut best_score = f64::NEG_INFINITY;
+    let mut best_placement = placements[0];
+
+    let use_chain_override = evaluator.use_chain_override();
+    let mut best_chain_count: u32 = 0;
+    let mut best_chain_placement = placements[0];
+    let mut eval_best_chain_count: u32 = 0;
+
+    for placement in &placements {
+        let (board1, chain1) = simulate_placement(board, current, placement);
+        let mut max_chain_for_this = chain1.chain_count;
+
+        if board1.is_game_over() {
+            if use_chain_override && max_chain_for_this > best_chain_count {
+                best_chain_count = max_chain_for_this;
+                best_chain_placement = *placement;
+            }
+            continue;
+        }
+
+        let next_placements = enumerate_placements(&board1, next);
+        if next_placements.is_empty() {
+            if use_chain_override && max_chain_for_this > best_chain_count {
+                best_chain_count = max_chain_for_this;
+                best_chain_placement = *placement;
+            }
+            continue;
+        }
+
+        let mut best_next_score = f64::NEG_INFINITY;
+
+        for next_placement in &next_placements {
+            let (board2, chain2) = simulate_placement(&board1, next, next_placement);
+            if use_chain_override && chain2.chain_count > max_chain_for_this {
+                max_chain_for_this = chain2.chain_count;
+            }
+
+            if board2.is_game_over() {
+                continue;
+            }
+
+            let nn_placements = enumerate_placements(&board2, next_next);
+            if nn_placements.is_empty() {
+                continue;
+            }
+
+            for nn_placement in &nn_placements {
+                let (board3, chain3) = simulate_placement(&board2, next_next, nn_placement);
+                if use_chain_override && chain3.chain_count > max_chain_for_this {
+                    max_chain_for_this = chain3.chain_count;
+                }
+
+                let score = evaluator.evaluate(&board3);
+                if score > best_next_score {
+                    best_next_score = score;
+                }
+            }
+        }
+
+        if use_chain_override && max_chain_for_this > best_chain_count {
+            best_chain_count = max_chain_for_this;
+            best_chain_placement = *placement;
+        }
+
+        if best_next_score > best_score {
+            best_score = best_next_score;
+            best_placement = *placement;
+            eval_best_chain_count = max_chain_for_this;
+        }
+    }
+
+    if use_chain_override && best_chain_count > eval_best_chain_count {
+        return Some(SearchResult {
+            best_placement: best_chain_placement,
+            score: f64::INFINITY,
+            depth: 3,
+        });
+    }
+
+    Some(SearchResult {
+        best_placement,
+        score: best_score,
+        depth: 3,
+    })
+}
+
+/// Main AI entry point.
+/// Uses depth-3 when the evaluator prefers it and next_next is available,
+/// otherwise falls back to depth-2, then depth-1.
 pub fn find_best_move(
     board: &Board,
     current: &Piece,
     next: &Piece,
-    _next_next: Option<&Piece>,
+    next_next: Option<&Piece>,
     evaluator: &dyn Evaluator,
 ) -> Option<SearchResult> {
-    // Try depth 2 first
+    // Try depth 3 when evaluator prefers it (e.g. NN evaluator)
+    if evaluator.preferred_depth() >= 3 {
+        if let Some(nn) = next_next {
+            if let Some(result) = search_depth3(board, current, next, nn, evaluator) {
+                if result.score > f64::NEG_INFINITY {
+                    return Some(result);
+                }
+            }
+        }
+    }
+
+    // Try depth 2
     if let Some(result) = search_depth2(board, current, next, evaluator) {
         if result.score > f64::NEG_INFINITY {
             return Some(result);
