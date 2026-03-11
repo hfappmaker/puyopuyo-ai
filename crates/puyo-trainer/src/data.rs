@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// A single training sample: board state + target chain count.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Sample {
-    /// Encoded board state (8 channels × 14 rows × 6 cols = 672 floats).
+    /// Encoded board state (6 channels × 14 rows × 6 cols = 504 floats).
     pub board_data: Vec<f32>,
     /// Target value: chain count achieved from this board state.
     pub target: f32,

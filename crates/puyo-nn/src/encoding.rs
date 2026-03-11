@@ -1,22 +1,17 @@
-use puyo_core::board::{Board, PuyoColor, COLS, ROWS, VISIBLE_ROWS};
-use puyo_core::chain::flood_fill;
+use puyo_core::board::{Board, COLS, ROWS};
 
 /// Number of input channels:
 /// 0-4: one-hot per PuyoColor (Empty, Red, Green, Blue, Yellow)
 /// 5: column heights (normalized by ROWS)
-/// 6: adjacent empty count (normalized by 4)
-/// 7: connected group size (normalized by 4)
-pub const NUM_CHANNELS: usize = 8;
+pub const NUM_CHANNELS: usize = 6;
 
 /// Total size of the flattened tensor.
 pub const TENSOR_SIZE: usize = NUM_CHANNELS * ROWS * COLS;
 
 /// Convert a Board to a flat f32 array.
-/// Layout: [channel][row][col] = [8][14][6], total 672 floats.
+/// Layout: [channel][row][col] = [6][14][6], total 504 floats.
 /// Channels 0-4: one-hot encoding (Empty, Red, Green, Blue, Yellow).
 /// Channel 5: column height / ROWS for all cells in that column.
-/// Channel 6: adjacent empty count / 4.0 for non-empty cells.
-/// Channel 7: connected group size / 4.0 for non-empty cells.
 pub fn board_to_tensor_data(board: &Board) -> [f32; TENSOR_SIZE] {
     let mut data = [0.0f32; TENSOR_SIZE];
 
@@ -38,51 +33,13 @@ pub fn board_to_tensor_data(board: &Board) -> [f32; TENSOR_SIZE] {
         }
     }
 
-    // Channel 6: adjacent empty count (normalized by 4)
-    let ch6_offset = 6 * ROWS * COLS;
-    for col in 0..COLS {
-        for row in 0..ROWS {
-            if !board.get(col, row).is_color() {
-                continue;
-            }
-            let mut empty_count = 0u32;
-            for (dc, dr) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1)] {
-                let nc = col as i32 + dc;
-                let nr = row as i32 + dr;
-                if nc < 0 || nc >= COLS as i32 || nr < 0 || nr >= ROWS as i32 {
-                    continue;
-                }
-                if board.get(nc as usize, nr as usize) == PuyoColor::Empty {
-                    empty_count += 1;
-                }
-            }
-            data[ch6_offset + row * COLS + col] = empty_count as f32 / 4.0;
-        }
-    }
-
-    // Channel 7: connected group size (normalized by 4)
-    // flood_fill is bounded by VISIBLE_ROWS, so hidden rows naturally get 0.0
-    let ch7_offset = 7 * ROWS * COLS;
-    let mut visited = [[false; ROWS]; COLS];
-    for col in 0..COLS {
-        for row in 0..VISIBLE_ROWS {
-            if !board.get(col, row).is_color() || visited[col][row] {
-                continue;
-            }
-            let cells = flood_fill(board, col, row, &mut visited);
-            let group_size_norm = cells.len() as f32 / 4.0;
-            for &(c, r) in &cells {
-                data[ch7_offset + r * COLS + c] = group_size_norm;
-            }
-        }
-    }
-
     data
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use puyo_core::board::PuyoColor;
 
     #[test]
     fn test_empty_board_encoding() {
@@ -107,13 +64,6 @@ mod tests {
         for i in 0..(ROWS * COLS) {
             assert_eq!(data[ch5_offset + i], 0.0);
         }
-        // Channels 6, 7: all 0.0 for empty board (no colored cells)
-        for ch in 6..8 {
-            let offset = ch * ROWS * COLS;
-            for i in 0..(ROWS * COLS) {
-                assert_eq!(data[offset + i], 0.0);
-            }
-        }
     }
 
     #[test]
@@ -129,22 +79,12 @@ mod tests {
         // Channel 5: column 0 height = 1/14
         let ch5_offset = 5 * ROWS * COLS;
         assert_eq!(data[ch5_offset + 0 * COLS + 0], 1.0 / ROWS as f32);
-
-        // Channel 6: single puyo at (0,0), check adjacent empties
-        // left: out of bounds, right: (1,0) empty, down: out of bounds, up: (0,1) empty
-        // = 2 adjacent empties → 2/4 = 0.5
-        let ch6_offset = 6 * ROWS * COLS;
-        assert_eq!(data[ch6_offset + 0 * COLS + 0], 0.5);
-
-        // Channel 7: group size = 1 → 1/4 = 0.25
-        let ch7_offset = 7 * ROWS * COLS;
-        assert_eq!(data[ch7_offset + 0 * COLS + 0], 0.25);
     }
 
     #[test]
     fn test_tensor_size() {
-        // 8 channels * 14 rows * 6 cols = 672
-        assert_eq!(TENSOR_SIZE, 672);
+        // 6 channels * 14 rows * 6 cols = 504
+        assert_eq!(TENSOR_SIZE, 504);
     }
 
     #[test]
@@ -164,21 +104,5 @@ mod tests {
         }
         // Column 0 should be 0
         assert_eq!(data[ch5_offset + 0 * COLS + 0], 0.0);
-    }
-
-    #[test]
-    fn test_group_size_channel() {
-        let mut board = Board::new();
-        // Place 3 connected reds in an L shape
-        board.set(0, 0, PuyoColor::Red);
-        board.set(1, 0, PuyoColor::Red);
-        board.set(0, 1, PuyoColor::Red);
-        let data = board_to_tensor_data(&board);
-
-        let ch7_offset = 7 * ROWS * COLS;
-        let expected = 3.0 / 4.0; // group size 3, normalized by 4
-        assert_eq!(data[ch7_offset + 0 * COLS + 0], expected);
-        assert_eq!(data[ch7_offset + 0 * COLS + 1], expected);
-        assert_eq!(data[ch7_offset + 1 * COLS + 0], expected);
     }
 }
