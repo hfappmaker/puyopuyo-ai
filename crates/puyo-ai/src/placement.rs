@@ -32,9 +32,18 @@ fn compute_reachable_columns(board: &Board) -> [bool; COLS] {
 pub fn enumerate_placements(board: &Board, piece: &Piece) -> Vec<Placement> {
     let reachable = compute_reachable_columns(board);
 
-    // North: axis on bottom, satellite above. h + 2 <= ROWS ensures both fit.
+    // North: axis on bottom, satellite above. h + 2 <= max_rows ensures both fit.
+    // If row 13 has an isolated puyo, satellite cannot go there.
     let north = (0..COLS)
-        .filter(|&col| reachable[col] && board.column_height(col) + 2 <= ROWS)
+        .filter(|&col| {
+            let h = board.column_height(col);
+            let max_rows = if board.has_isolated_top_puyo(col) {
+                ROWS - 1
+            } else {
+                ROWS
+            };
+            reachable[col] && h + 2 <= max_rows
+        })
         .map(|col| Placement::new(col, Orientation::North));
 
     // South: satellite on bottom, axis above. Axis at h+1 must be < ROWS-1.
@@ -43,22 +52,34 @@ pub fn enumerate_placements(board: &Board, piece: &Piece) -> Vec<Placement> {
         .map(|col| Placement::new(col, Orientation::South));
 
     // East: axis at col, satellite at col+1. Axis must be < ROWS-1.
+    // Satellite column with isolated row 13 puyo has reduced max height.
     let east = (0..COLS - 1)
         .filter(|&col| {
+            let sat_max = if board.has_isolated_top_puyo(col + 1) {
+                ROWS - 1
+            } else {
+                ROWS
+            };
             reachable[col]
                 && reachable[col + 1]
                 && board.column_height(col) < ROWS - 1
-                && board.column_height(col + 1) < ROWS
+                && board.column_height(col + 1) < sat_max
         })
         .map(|col| Placement::new(col, Orientation::East));
 
     // West: axis at col, satellite at col-1. Axis must be < ROWS-1.
+    // Satellite column with isolated row 13 puyo has reduced max height.
     let west = (1..COLS)
         .filter(|&col| {
+            let sat_max = if board.has_isolated_top_puyo(col - 1) {
+                ROWS - 1
+            } else {
+                ROWS
+            };
             reachable[col]
                 && reachable[col - 1]
                 && board.column_height(col) < ROWS - 1
-                && board.column_height(col - 1) < ROWS
+                && board.column_height(col - 1) < sat_max
         })
         .map(|col| Placement::new(col, Orientation::West));
 
@@ -250,5 +271,62 @@ mod tests {
         assert!(placements
             .iter()
             .any(|p| p.col == 3 && p.orientation == Orientation::West));
+    }
+
+    #[test]
+    fn test_north_blocked_by_isolated_row13() {
+        let mut board = Board::new();
+        // Fill col 3 to height 12
+        for _ in 0..12 {
+            board.drop_puyo(3, PuyoColor::Red);
+        }
+        // Isolated puyo at row 13
+        board.set(3, ROWS - 1, PuyoColor::Green);
+
+        let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
+        let placements = enumerate_placements(&board, &piece);
+
+        // North at col 3: h=12, satellite would go to row 13 (occupied) → blocked
+        assert!(!placements
+            .iter()
+            .any(|p| p.col == 3 && p.orientation == Orientation::North));
+    }
+
+    #[test]
+    fn test_north_allowed_without_isolated_row13() {
+        let mut board = Board::new();
+        // Fill col 3 to height 10 + isolated puyo at row 13
+        for _ in 0..10 {
+            board.drop_puyo(3, PuyoColor::Red);
+        }
+        board.set(3, ROWS - 1, PuyoColor::Green);
+
+        let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
+        let placements = enumerate_placements(&board, &piece);
+
+        // North at col 3: h=10, satellite at row 11 (not row 13) → allowed
+        assert!(placements
+            .iter()
+            .any(|p| p.col == 3 && p.orientation == Orientation::North));
+    }
+
+    #[test]
+    fn test_east_west_blocked_by_isolated_row13_satellite() {
+        let mut board = Board::new();
+        // Fill col 4 to height 13 (row 0-12 filled)
+        for _ in 0..13 {
+            board.drop_puyo(4, PuyoColor::Red);
+        }
+        // Isolated puyo at row 13 on col 4
+        board.set(4, ROWS - 1, PuyoColor::Green);
+
+        let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
+        let placements = enumerate_placements(&board, &piece);
+
+        // East at col 3: satellite at col 4 (height 13, isolated row 13)
+        // sat_max = ROWS - 1 = 13, height 13 < 13 is false → blocked
+        assert!(!placements
+            .iter()
+            .any(|p| p.col == 3 && p.orientation == Orientation::East));
     }
 }

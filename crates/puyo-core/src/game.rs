@@ -1,4 +1,4 @@
-use crate::board::{Board, PuyoColor, COLS};
+use crate::board::{Board, PuyoColor, COLS, ROWS};
 use crate::chain::{self, ChainResult};
 use crate::piece::{FallingPiece, Orientation, Piece, Placement};
 use crate::rng::Rng;
@@ -89,9 +89,8 @@ impl GameState {
         if self.phase != GamePhase::Falling {
             return false;
         }
-        let heights = self.get_column_heights();
         if let Some(ref mut fp) = self.current_piece {
-            fp.try_move_left(&heights)
+            fp.try_move_left(&self.board)
         } else {
             false
         }
@@ -102,9 +101,8 @@ impl GameState {
         if self.phase != GamePhase::Falling {
             return false;
         }
-        let heights = self.get_column_heights();
         if let Some(ref mut fp) = self.current_piece {
-            fp.try_move_right(&heights)
+            fp.try_move_right(&self.board)
         } else {
             false
         }
@@ -115,9 +113,8 @@ impl GameState {
         if self.phase != GamePhase::Falling {
             return false;
         }
-        let heights = self.get_column_heights();
         if let Some(ref mut fp) = self.current_piece {
-            fp.try_rotate_cw(&heights)
+            fp.try_rotate_cw(&self.board)
         } else {
             false
         }
@@ -128,9 +125,8 @@ impl GameState {
         if self.phase != GamePhase::Falling {
             return false;
         }
-        let heights = self.get_column_heights();
         if let Some(ref mut fp) = self.current_piece {
-            fp.try_rotate_ccw(&heights)
+            fp.try_rotate_ccw(&self.board)
         } else {
             false
         }
@@ -159,7 +155,11 @@ impl GameState {
                 // Axis first (bottom), then satellite on top
                 self.board.drop_puyo(placement.col, piece.axis_color);
                 let sat_col = (placement.col as i32 + dc) as usize;
-                self.board.drop_puyo(sat_col, piece.satellite_color);
+                let sat_h = self.board.column_height(sat_col);
+                // Defend against overwriting an isolated puyo at row 13
+                if sat_h < ROWS && !self.board.get(sat_col, sat_h).is_color() {
+                    self.board.drop_puyo(sat_col, piece.satellite_color);
+                }
             }
             Orientation::South => {
                 // Satellite first (bottom), then axis on top
@@ -308,10 +308,6 @@ impl GameState {
     /// Restart the game with a new seed.
     pub fn restart(&mut self, seed: u64) {
         *self = GameState::new(seed);
-    }
-
-    fn get_column_heights(&self) -> [usize; COLS] {
-        std::array::from_fn(|col| self.board.column_height(col))
     }
 
     /// Get current piece info for rendering: (axis_color, sat_color, col, row, orientation_index)
@@ -478,5 +474,26 @@ mod tests {
         // Empty column: satellite at row 0, axis at row 1
         let fp = game.current_piece.as_ref().unwrap();
         assert_eq!(fp.row, 1.0);
+    }
+
+    #[test]
+    fn test_place_piece_north_defends_row13_isolated() {
+        use crate::board::ROWS;
+        let mut game = GameState::new(42);
+        // Fill col 0 to height 12
+        for _ in 0..12 {
+            game.board.drop_puyo(0, PuyoColor::Red);
+        }
+        // Place isolated puyo at row 13
+        game.board.set(0, ROWS - 1, PuyoColor::Green);
+
+        let piece = Piece::new(PuyoColor::Blue, PuyoColor::Yellow);
+        let placement = Placement::new(0, Orientation::North);
+        game.place_piece(&piece, &placement);
+
+        // Axis (Blue) should be placed at row 12
+        assert_eq!(game.board.get(0, 12), PuyoColor::Blue);
+        // Row 13 should still be the original isolated Green (satellite skipped)
+        assert_eq!(game.board.get(0, ROWS - 1), PuyoColor::Green);
     }
 }

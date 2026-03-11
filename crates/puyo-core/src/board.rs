@@ -57,6 +57,11 @@ impl Board {
         ROWS
     }
 
+    /// row 13（最上非可視行）にぷよがあり、その下(row 12)が空かを返す。
+    pub fn has_isolated_top_puyo(&self, col: usize) -> bool {
+        self.columns[col][ROWS - 1].is_color() && !self.columns[col][ROWS - 2].is_color()
+    }
+
     /// Get the color at (col, row).
     pub fn get(&self, col: usize, row: usize) -> PuyoColor {
         self.columns[col][row]
@@ -218,6 +223,24 @@ mod tests {
         let row = board.drop_puyo(0, PuyoColor::Blue);
         assert_eq!(row, 0);
         assert_eq!(board.get(0, 0), PuyoColor::Blue);
+    }
+
+    #[test]
+    fn test_has_isolated_top_puyo() {
+        let mut board = Board::new();
+        // Empty board: no isolated puyo
+        assert!(!board.has_isolated_top_puyo(0));
+
+        // Row 13 has puyo, row 12 empty → isolated
+        board.set(0, ROWS - 1, PuyoColor::Red);
+        assert!(board.has_isolated_top_puyo(0));
+
+        // Fill row 12 too → not isolated (contiguous)
+        board.set(0, ROWS - 2, PuyoColor::Blue);
+        assert!(!board.has_isolated_top_puyo(0));
+
+        // Different column unaffected
+        assert!(!board.has_isolated_top_puyo(1));
     }
 
     #[test]

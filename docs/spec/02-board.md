@@ -44,6 +44,7 @@ pub struct Board {
 | `drop_puyo(col, color)` | 指定列にぷよを落とし、積まれた行を返す。列が満杯なら `assert` でパニック |
 | `apply_gravity()` | 行0〜12のぷよを落下させて空隙を埋める。行13（最上非可視行）は対象外 |
 | `column_height(col)` | 指定列の高さ（底からの連続した非空セル数）をボトムアップ走査で返す。行13に孤立ぷよがあっても無視される |
+| `has_isolated_top_puyo(col)` | row 13にぷよがあり、row 12が空の場合に `true` を返す。連鎖消去後に孤立したぷよの検出に使用 |
 | `is_game_over()` | `SPAWN_COL`（列2）の高さが `VISIBLE_ROWS`（12）以上なら `true` |
 | `to_flat()` | WASM転送用に列優先・下から上の `Vec<u8>` に変換する（長さ84）。イテレータチェイン(`flat_map`)で実装 |
 
