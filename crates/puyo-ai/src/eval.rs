@@ -57,7 +57,13 @@ fn simulate_max_chain(board: &Board) -> u32 {
 
     for &color in &COLORS {
         for col in 0..COLS {
-            let available = ROWS - board.column_height(col);
+            let h = board.column_height(col);
+            // Account for isolated row 13 puyo: if present, one fewer slot is available
+            let available = if board.has_isolated_top_puyo(col) {
+                ROWS - 1 - h
+            } else {
+                ROWS - h
+            };
             if available == 0 {
                 continue;
             }
