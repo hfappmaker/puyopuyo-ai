@@ -21,7 +21,7 @@ Rust で実装したゲームロジックとAIを、`wasm-bindgen` を使って�
 
 | メソッド | 戻り値 | 説明 |
 |---------|--------|------|
-| `get_board()` | `Vec<u8>` (長さ78) | 盤面データ。列優先・下から上。各バイトは PuyoColor (0-4) |
+| `get_board()` | `Vec<u8>` (長さ84) | 盤面データ。列優先・下から上。6列×14行。各バイトは PuyoColor (0-4) |
 | `get_current_piece()` | `Vec<u8>` (長さ6 or 0) | `[axis_color, sat_color, col, row_int, row_frac×100, orientation]` |
 | `get_next_piece()` | `Vec<u8>` (長さ2) | `[axis_color, sat_color]` |
 | `get_next_next_piece()` | `Vec<u8>` (長さ2) | `[axis_color, sat_color]` |
@@ -48,3 +48,10 @@ Rust で実装したゲームロジックとAIを、`wasm-bindgen` を使って�
 |---------|--------|------|
 | `ai_best_move()` | `Vec<u8>` (長さ2 or 0) | `[col, orientation]` 形式で最善手を返す。orientation は `Orientation::as_u8()` で変換 |
 | `ai_play_move()` | `u32` | 最善手を計算し即座に適用。発生した連鎖数を返す |
+
+### モデル管理
+
+| メソッド | 引数 | 戻り値 | 説明 |
+|---------|------|--------|------|
+| `load_nn_model(model_bytes, mean, std_dev)` | `&[u8]`, `f32`, `f32` | - | NN モデルをバイト列から読み込み、評価器を `NnEvaluator` に切り替える |
+| `use_heuristic()` | - | - | 評価器を `HeuristicEvaluator` に切り替える |

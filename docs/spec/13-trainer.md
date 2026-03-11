@@ -34,7 +34,7 @@ crates/puyo-trainer/
 
 ```rust
 pub struct Sample {
-    pub board_data: Vec<f32>,  // one-hot 盤面 (390 floats)
+    pub board_data: Vec<f32>,  // エンコード済み盤面 (504 floats)
     pub target: f32,           // 目標値: 割引済み将来連鎖数
 }
 ```
@@ -185,7 +185,7 @@ for t in (0..n).rev():
 
 #### バッチ学習（`batch_update()`）
 
-バッファの全盤面データを `[n, 5, ROWS, COLS]` テンソルにまとめ、1回の forward + backward で MSE 損失を計算・逆伝播する。
+バッファの全盤面データを `[n, NUM_CHANNELS, ROWS, COLS]` テンソルにまとめ、1回の forward + backward で MSE 損失を計算・逆伝播する。
 
 ### エピソードレス設計
 

@@ -49,7 +49,7 @@ impl WasmGame {
     }
 
     /// Get the board as a flat Vec<u8>, column-major, bottom to top.
-    /// Length = 6 * 13 = 78. Each byte is a PuyoColor (0=empty, 1-4=colors).
+    /// Length = 6 * 14 = 84. Each byte is a PuyoColor (0=empty, 1-4=colors).
     #[wasm_bindgen]
     pub fn get_board(&self) -> Vec<u8> {
         self.state.board.to_flat()

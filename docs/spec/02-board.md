@@ -44,13 +44,13 @@ pub struct Board {
 | `drop_puyo(col, color)` | 指定列にぷよを落とし、積まれた行を返す。列が満杯なら `assert` でパニック |
 | `apply_gravity()` | 行0〜12のぷよを落下させて空隙を埋める。行13（最上非可視行）は対象外 |
 | `column_height(col)` | 指定列の高さ（底からの非空セル数）を返す |
-| `is_game_over()` | `SPAWN_COL`（列2）の高さが `VISIBLE_ROWS` を超えたら `true` |
+| `is_game_over()` | `SPAWN_COL`（列2）の高さが `VISIBLE_ROWS`（12）以上なら `true` |
 | `to_flat()` | WASM転送用に列優先・下から上の `Vec<u8>` に変換する（長さ84）。イテレータチェイン(`flat_map`)で実装 |
 
 ## ゲームオーバー判定
 
-`SPAWN_COL`（列2）の `column_height` が `VISIBLE_ROWS`（12）を超えるとゲームオーバーとなる。
-つまり行12（13段目・非可視行1段目）にぷよが到達した時点でゲームオーバー。
+`SPAWN_COL`（列2）の `column_height` が `VISIBLE_ROWS`（12）以上になるとゲームオーバーとなる（`>=` 判定）。
+つまり高さ12＝行11まで埋まった時点でゲームオーバー。可視行（行0〜11）が全て埋まると発動する。
 
 ## 非可視行の挙動
 
