@@ -81,6 +81,7 @@ pub trait Evaluator {
 - 色: Red, Green, Blue, Yellow の4色
 - 各パターンで同色ぷよを最大 `VIRTUAL_PUYO_COUNT`（3）個、同一列に縦積みする
 - 列の空きが3未満の場合は入る分だけ積む（空き0ならその列はスキップ）
+- row 13 に孤立ぷよがある列は、空きスロット数を `ROWS - 1 - column_height` として計算（孤立ぷよの分を差し引く）
 
 ### 計算量
 
