@@ -44,14 +44,17 @@ impl Board {
         }
     }
 
-    /// Returns the height of a column (number of non-empty cells from bottom).
+    /// Returns the height of a column (number of contiguous non-empty cells from bottom).
+    /// Bottom-up scan: finds the first empty cell from row 0 upward.
+    /// This correctly handles isolated puyos in row 13 (top hidden row)
+    /// that may remain after chain elimination clears cells below them.
     pub fn column_height(&self, col: usize) -> usize {
-        for row in (0..ROWS).rev() {
-            if self.columns[col][row].is_color() {
-                return row + 1;
+        for row in 0..ROWS {
+            if !self.columns[col][row].is_color() {
+                return row;
             }
         }
-        0
+        ROWS
     }
 
     /// Get the color at (col, row).
@@ -186,6 +189,35 @@ mod tests {
         // The puyo in row 13 must remain there (does not fall)
         assert_eq!(board.get(0, ROWS - 1), PuyoColor::Red);
         assert_eq!(board.get(0, 0), PuyoColor::Empty);
+    }
+
+    #[test]
+    fn test_column_height_with_isolated_row13() {
+        let mut board = Board::new();
+        // row 13 にぷよが孤立（下が空）→ 高さは 0
+        board.set(0, ROWS - 1, PuyoColor::Red);
+        assert_eq!(board.column_height(0), 0);
+    }
+
+    #[test]
+    fn test_column_height_with_stack_and_row13() {
+        let mut board = Board::new();
+        // row 0-2 にスタック + row 13 に孤立ぷよ → 高さは 3
+        board.set(0, 0, PuyoColor::Red);
+        board.set(0, 1, PuyoColor::Blue);
+        board.set(0, 2, PuyoColor::Green);
+        board.set(0, ROWS - 1, PuyoColor::Yellow);
+        assert_eq!(board.column_height(0), 3);
+    }
+
+    #[test]
+    fn test_drop_puyo_with_isolated_row13() {
+        let mut board = Board::new();
+        // row 13 に孤立ぷよがある列にも drop_puyo できる
+        board.set(0, ROWS - 1, PuyoColor::Red);
+        let row = board.drop_puyo(0, PuyoColor::Blue);
+        assert_eq!(row, 0);
+        assert_eq!(board.get(0, 0), PuyoColor::Blue);
     }
 
     #[test]
