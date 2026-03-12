@@ -47,8 +47,8 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 
 ### ボード表現とCNN
 - ボード: 6列×14行、`PuyoColor` enum（Empty, Red, Green, Blue, Yellow）
-- エンコーディング: one-hot 4ch + chain step maps 6ch = 10チャンネル × 14行 × 6列 = 840 floats → `[batch, 10, 14, 6]` テンソル
-- PuyoValueNet: Conv2d(10→32)→ResidualBlock(32)×2→Conv2d(32→64,1×1)→AdaptiveAvgPool2d([4,3])→Linear(768→128)→Linear(128→1)
+- エンコーディング: one-hot 4ch + occupancy 1ch + adjacency 1ch = 6チャンネル × 14行 × 6列 = 504 floats → `[batch, 6, 14, 6]` テンソル
+- PuyoValueNet: Conv2d(6→32)→ResidualBlock(32)×2→Conv2d(32→64,1×1)→AdaptiveAvgPool2d([4,3])→Linear(768→128)→Linear(128→1)
 - Burn 0.16、NdArrayバックエンド（CPU/WASM対応）
 
 ### WASMブリッジ
