@@ -6,6 +6,7 @@ use puyo_trainer::data::{Dataset, Sample};
 
 const NUM_GAMES: u64 = 10_000;
 const OUTPUT_PATH: &str = "data/training_data.bin";
+const MAX_MOVES_PER_GAME: usize = 50;
 
 fn main() {
     std::fs::create_dir_all("data").expect("Failed to create data directory");
@@ -23,6 +24,11 @@ fn main() {
 
         while game.phase != GamePhase::GameOver {
             if game.phase != GamePhase::Falling {
+                break;
+            }
+
+            if game_moves.len() >= MAX_MOVES_PER_GAME {
+                println!("Game {} reached max moves limit ({})", seed, MAX_MOVES_PER_GAME);
                 break;
             }
 
@@ -47,7 +53,7 @@ fn main() {
                 Some(r) => {
                     let chain_result = game.apply_placement(&r.best_placement);
                     game_max_chain = game_max_chain.max(chain_result.chain_count);
-                    game_moves.push((board_data, chain_result.chain_count));
+                    game_moves.push((board_data, chain_result.score));
                 }
                 None => break,
             }
@@ -64,9 +70,9 @@ fn main() {
 
         // Compute discounted future chain counts (backwards)
         let mut future_values = vec![0.0f32; num_moves];
-        future_values[num_moves - 1] = 2.0f32.powi(game_moves[num_moves - 1].1 as i32) - 1.0;
+        future_values[num_moves - 1] = game_moves[num_moves - 1].1 as f32;
         for i in (0..num_moves - 1).rev() {
-            let immediate = 2.0f32.powi(game_moves[i].1 as i32) - 1.0;
+            let immediate = game_moves[i].1 as f32;
             future_values[i] = immediate + gamma * future_values[i + 1];
         }
 
@@ -87,7 +93,7 @@ fn main() {
             let eta_secs = (NUM_GAMES - games_done) as f64 / games_per_sec;
             let avg_chain = total_chain_sum as f64 / games_done as f64;
             println!(
-                "[{:>5}/{}] samples: {:>7} | moves: {:>3} | chain(game/max/avg): {}/{}/{:.1} | {:.1} games/s | ETA: {:.0}s",
+                "[{:>5}/{}] samples: {:>7} | moves: {:>3} | chain(game/max/avg): {}/{}/{:.1} | score: {} | {:.1} games/s | ETA: {:.0}s",
                 games_done,
                 NUM_GAMES,
                 dataset.samples.len(),
@@ -95,6 +101,7 @@ fn main() {
                 game_max_chain,
                 total_max_chain,
                 avg_chain,
+                game.score,
                 games_per_sec,
                 eta_secs,
             );

@@ -570,7 +570,7 @@ fn run_training_loop(
             );
         } else {
             // 生存: reward=連鎖数
-            let reward = 2.0f32.powi(chain_result.chain_count as i32) - 1.0;
+            let reward = chain_result.score as f32;
             let next_board = board_to_tensor_data(&session.game.board);
             buffer.push(
                 Transition {
