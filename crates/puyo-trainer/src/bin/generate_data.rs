@@ -13,10 +13,13 @@ fn main() {
     let evaluator = SimulationEvaluator;
     let mut dataset = Dataset::new();
     let mut total_max_chain = 0u32;
+    let mut total_chain_sum = 0u64;
+    let start_time = std::time::Instant::now();
 
     for seed in 0..NUM_GAMES {
         let mut game = GameState::new(seed);
         let mut game_moves: Vec<(Vec<f32>, u32)> = Vec::new();
+        let mut game_max_chain = 0u32;
 
         while game.phase != GamePhase::GameOver {
             if game.phase != GamePhase::Falling {
@@ -43,7 +46,7 @@ fn main() {
             match result {
                 Some(r) => {
                     let chain_result = game.apply_placement(&r.best_placement);
-                    // Record (board_state, chain_count from this placement)
+                    game_max_chain = game_max_chain.max(chain_result.chain_count);
                     game_moves.push((board_data, chain_result.chain_count));
                 }
                 None => break,
@@ -75,14 +78,25 @@ fn main() {
         }
 
         total_max_chain = total_max_chain.max(game.max_chain);
+        total_chain_sum += game_max_chain as u64;
 
-        if (seed + 1) % 1000 == 0 {
+        if (seed + 1) % 100 == 0 {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            let games_done = seed + 1;
+            let games_per_sec = games_done as f64 / elapsed;
+            let eta_secs = (NUM_GAMES - games_done) as f64 / games_per_sec;
+            let avg_chain = total_chain_sum as f64 / games_done as f64;
             println!(
-                "Games: {}/{}, Samples: {}, Max chain so far: {}",
-                seed + 1,
+                "[{:>5}/{}] samples: {:>7} | moves: {:>3} | chain(game/max/avg): {}/{}/{:.1} | {:.1} games/s | ETA: {:.0}s",
+                games_done,
                 NUM_GAMES,
                 dataset.samples.len(),
-                total_max_chain
+                num_moves,
+                game_max_chain,
+                total_max_chain,
+                avg_chain,
+                games_per_sec,
+                eta_secs,
             );
         }
     }

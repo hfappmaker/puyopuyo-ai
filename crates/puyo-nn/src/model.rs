@@ -55,10 +55,10 @@ impl<B: Backend> ResidualBlock<B> {
 /// CNN value network for Puyo Puyo board evaluation with residual connections.
 ///
 /// Architecture:
-///   stem (6ch → 32ch) → ResidualBlock ×2 (32ch) → head_conv (32ch → 64ch)
+///   stem (10ch → 32ch) → ResidualBlock ×2 (32ch) → head_conv (32ch → 64ch)
 ///   → AdaptiveAvgPool → Linear(768→128) → Linear(128→1)
 ///
-/// Input: [batch, 6, 14, 6] (one-hot + column heights)
+/// Input: [batch, 10, 14, 6] (color one-hot 4ch + chain step maps 6ch)
 /// Output: [batch, 1] (scalar evaluation value)
 #[derive(Module, Debug)]
 pub struct PuyoValueNet<B: Backend> {
@@ -97,7 +97,7 @@ impl PuyoValueNetConfig {
 
 impl<B: Backend> PuyoValueNet<B> {
     /// Forward pass.
-    /// Input shape: [batch, NUM_CHANNELS, ROWS, COLS] = [batch, 6, 14, 6]
+    /// Input shape: [batch, NUM_CHANNELS, ROWS, COLS] = [batch, 10, 14, 6]
     /// Output shape: [batch, 1]
     pub fn forward(&self, x: Tensor<B, 4>) -> Tensor<B, 2> {
         let batch_size = x.dims()[0];
