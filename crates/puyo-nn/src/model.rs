@@ -5,9 +5,9 @@ use burn::prelude::*;
 
 use crate::encoding::NUM_CHANNELS;
 
-const RESIDUAL_CHANNELS: usize = 32;
-const NUM_RESIDUAL_BLOCKS: usize = 2;
-const HEAD_CHANNELS: usize = 64;
+const RESIDUAL_CHANNELS: usize = 64;
+const NUM_RESIDUAL_BLOCKS: usize = 6;
+const HEAD_CHANNELS: usize = 128;
 const POOL_H: usize = 4;
 const POOL_W: usize = 3;
 const HIDDEN_SIZE: usize = 128;
@@ -55,10 +55,10 @@ impl<B: Backend> ResidualBlock<B> {
 /// CNN value network for Puyo Puyo board evaluation with residual connections.
 ///
 /// Architecture:
-///   stem (10ch → 32ch) → ResidualBlock ×2 (32ch) → head_conv (32ch → 64ch)
+///   stem (6ch → 64ch) → ResidualBlock ×6 (64ch) → head_conv (64ch → 128ch)
 ///   → AdaptiveAvgPool → Linear(768→128) → Linear(128→1)
 ///
-/// Input: [batch, 10, 14, 6] (color one-hot 4ch + chain step maps 6ch)
+/// Input: [batch, 6, 14, 6] (color one-hot 4ch + occupancy 1ch + adjacency 1ch)
 /// Output: [batch, 1] (scalar evaluation value)
 #[derive(Module, Debug)]
 pub struct PuyoValueNet<B: Backend> {
