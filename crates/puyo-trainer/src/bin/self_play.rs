@@ -385,7 +385,7 @@ fn batch_update(
 ) -> (PuyoValueNet<TrainBackend>, f32) {
     let n = buffer.len();
 
-    // 全盤面データを1つのテンソルにまとめる [n, 5, ROWS, COLS]
+    // 全盤面データを1つのテンソルにまとめる [n, NUM_CHANNELS, ROWS, COLS]
     let mut all_data = Vec::with_capacity(n * TENSOR_SIZE);
     for tr in &buffer.transitions {
         all_data.extend_from_slice(&tr.board_data);
