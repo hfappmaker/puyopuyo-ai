@@ -569,7 +569,7 @@ fn run_training_loop(
                 lambda,
             );
         } else {
-            // 生存: reward=連鎖数
+            // 生存: reward=スコア
             let reward = chain_result.score as f32;
             let next_board = board_to_tensor_data(&session.game.board);
             buffer.push(

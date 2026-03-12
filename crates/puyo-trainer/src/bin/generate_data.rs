@@ -60,15 +60,15 @@ fn main() {
         }
 
         // Now create training samples.
-        // For each move, the target is the chain count achieved on that move.
-        // We also add a discounted future chain value to encourage setup.
+        // For each move, the target is the score achieved on that move.
+        // We also add a discounted future score to encourage setup.
         let gamma = 0.95f32;
         let num_moves = game_moves.len();
         if num_moves == 0 {
             continue;
         }
 
-        // Compute discounted future chain counts (backwards)
+        // Compute discounted future scores (backwards)
         let mut future_values = vec![0.0f32; num_moves];
         future_values[num_moves - 1] = game_moves[num_moves - 1].1 as f32;
         for i in (0..num_moves - 1).rev() {

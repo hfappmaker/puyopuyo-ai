@@ -34,8 +34,8 @@ crates/puyo-trainer/
 
 ```rust
 pub struct Sample {
-    pub board_data: Vec<f32>,  // エンコード済み盤面 (504 floats)
-    pub target: f32,           // 目標値: 割引済み将来連鎖数
+    pub board_data: Vec<f32>,  // エンコード済み盤面 (840 floats)
+    pub target: f32,           // 目標値: 割引済み将来スコア
 }
 ```
 
@@ -59,20 +59,22 @@ pub struct Dataset {
 |------|-----|------|
 | `NUM_GAMES` | 10,000 | 対戦回数 |
 | `OUTPUT_PATH` | `data/training_data.bin` | 出力先 |
+| `MAX_MOVES_PER_GAME` | 50 | 1ゲームあたりの最大手数 |
 
 ### 手順
 
 1. シード `0..NUM_GAMES` で各ゲームを実行
 2. 各手番で盤面状態を `board_to_tensor_data` で記録
-3. `find_best_move`（ヒューリスティック評価）で最善手を選択・適用
-4. 設置ごとの連鎖数を記録
-5. ゲーム終了後、割引累積報酬（γ = 0.95）を逆方向に計算
+3. `find_best_move`（`SimulationEvaluator`）で最善手を選択・適用
+4. 設置ごとのスコアを記録
+5. 最大手数（`MAX_MOVES_PER_GAME`）に達するかゲーム終了まで繰り返す
+6. ゲーム終了後、割引累積報酬（γ = 0.95）を逆方向に計算
 
 ### 目標値の計算
 
 ```
-future_values[最終手] = chain_count[最終手]
-future_values[t] = chain_count[t] + γ × future_values[t+1]
+future_values[最終手] = score[最終手]
+future_values[t] = score[t] + γ × future_values[t+1]
 ```
 
 ## Phase 2: 教師あり学習 (`train`)
@@ -85,7 +87,7 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
 |------|-----|------|
 | `BATCH_SIZE` | 512 | バッチサイズ |
 | `NUM_EPOCHS` | 20 | エポック数 |
-| `LEARNING_RATE` | 1e-3 | 学習率 |
+| `LEARNING_RATE` | 5e-4 | 学習率 |
 | `MODEL_PATH` | `artifacts/puyo_model` | モデル保存先 |
 
 ### 手順
@@ -93,10 +95,10 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
 1. データを 90:10 で訓練/検証に分割
 2. 訓練セットの目標値を標準化（平均0、標準偏差1）
 3. 正規化パラメータ（mean, std_dev）を `artifacts/norm_params.txt` に保存
-4. エポックごとに xorshift128+ RNG でシャッフル → ミニバッチ学習
+4. エポックごとに LCG ベースのシャッフル → ミニバッチ学習
 5. 損失関数: MSE
 6. 最適化: Adam
-7. 学習済みモデルを `CompactRecorder` で保存
+7. 学習済みモデルを `BinFileRecorder` で保存
 
 ## Phase 3: 自己対戦強化学習 (`self-play`)
 
@@ -160,7 +162,7 @@ future_values[t] = chain_count[t] + γ × future_values[t+1]
 
 | 条件 | 報酬 |
 |------|------|
-| N連鎖が発生 | N（連鎖数） |
+| 連鎖が発生 | スコア（`chain_result.score`） |
 | 連鎖なし（生存） | 0 |
 | ゲームオーバー | -1 |
 

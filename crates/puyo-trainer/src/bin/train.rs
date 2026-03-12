@@ -92,7 +92,7 @@ fn main() {
                 break;
             }
 
-            // Build input tensor [batch, 8, 14, 6]
+            // Build input tensor [batch, 10, 14, 6]
             let mut input_data = Vec::with_capacity(batch_size * TENSOR_SIZE);
             let mut target_data = Vec::with_capacity(batch_size);
 
