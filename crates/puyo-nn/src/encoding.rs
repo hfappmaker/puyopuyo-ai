@@ -51,7 +51,7 @@ pub fn board_to_tensor_data(board: &Board) -> [f32; TENSOR_SIZE] {
 }
 
 /// Compute chain step maps for all 6 trigger columns.
-/// Returns `[trigger_col][cell_col][cell_row]` with values `step / 10.0` clamped to [0, 1].
+/// Returns `[trigger_col][cell_col][cell_row]` with values `step / 19.0` clamped to [0, 1].
 fn compute_chain_step_maps(board: &Board) -> [[[f32; ROWS]; COLS]; COLS] {
     let mut maps = [[[0.0f32; ROWS]; COLS]; COLS];
 
@@ -97,7 +97,7 @@ fn compute_chain_step_maps(board: &Board) -> [[[f32; ROWS]; COLS]; COLS] {
 }
 
 /// Simulate chain resolution while tracking which step each cell was cleared in.
-/// Returns `(step_map[col][row], chain_count)` where step_map values are `step / 10.0` clamped to [0, 1].
+/// Returns `(step_map[col][row], chain_count)` where step_map values are `step / 19.0` clamped to [0, 1].
 fn simulate_with_tracking(board: &Board) -> ([[f32; ROWS]; COLS], u32) {
     let mut sim = board.clone();
     let mut step_map = [[0.0f32; ROWS]; COLS];
@@ -112,7 +112,7 @@ fn simulate_with_tracking(board: &Board) -> ([[f32; ROWS]; COLS], u32) {
 
         for group in &groups {
             for &(col, row) in &group.cells {
-                step_map[col][row] = (chain_num as f32 / 10.0).min(1.0);
+                step_map[col][row] = (chain_num as f32 / 19.0).min(1.0);
                 sim.set(col, row, PuyoColor::Empty);
             }
         }
@@ -157,7 +157,8 @@ mod tests {
             assert_eq!(data[ch * ROWS * COLS + 0 * COLS + 0], 0.0);
         }
         // ch4 (trigger col 0): adding 3 virtual reds makes 4 → 1-chain detected
-        assert_eq!(data[4 * ROWS * COLS + 0 * COLS + 0], 0.1); // step 1
+        let step1 = 1.0_f32 / 19.0;
+        assert!((data[4 * ROWS * COLS + 0 * COLS + 0] - step1).abs() < 1e-6); // step 1
         // Columns without relevant trigger should have no chain
         // (other trigger cols can't trigger a chain with just 1 red in col 0)
     }
@@ -185,7 +186,7 @@ mod tests {
                 "col 0, row {} should be cleared",
                 row
             );
-            assert_eq!(maps[0][0][row], 0.1); // step 1 / 10.0
+            assert!((maps[0][0][row] - 1.0 / 19.0).abs() < 1e-6); // step 1 / 19.0
         }
         // Cells not cleared should be 0
         assert_eq!(maps[0][0][4], 0.0);
@@ -214,13 +215,13 @@ mod tests {
         //   to col 1 row 0 and gets cleared in step 2, overwriting step_map[1][0].
         // So col 1 rows 1-3 = 0.1 (step 1 only), col 1 row 0 = 0.2 (overwritten by step 2)
         for row in 1..4 {
-            assert_eq!(maps[0][1][row], 0.1, "col 1, row {} should be step 1", row);
+            assert!((maps[0][1][row] - 1.0 / 19.0).abs() < 1e-6, "col 1, row {} should be step 1", row);
         }
-        assert_eq!(maps[0][1][0], 0.2, "col 1, row 0 overwritten by step 2 blue");
+        assert!((maps[0][1][0] - 2.0 / 19.0).abs() < 1e-6, "col 1, row 0 overwritten by step 2 blue");
 
         // Step 2: blues at col 0 rows 0-2 → 0.2
         for row in 0..3 {
-            assert_eq!(maps[0][0][row], 0.2, "col 0, row {} should be step 2", row);
+            assert!((maps[0][0][row] - 2.0 / 19.0).abs() < 1e-6, "col 0, row {} should be step 2", row);
         }
     }
 
