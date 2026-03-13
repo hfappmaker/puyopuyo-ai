@@ -26,7 +26,7 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 
 | クレート | 役割 |
 |---------|------|
-| `puyo-core` | ゲームエンジン（Board, GameState, Piece, Chain, Score, RNG） |
+| `puyo-core` | ゲームエンジン（Board（連鎖解決含む）, GameState, Piece, Score, RNG） |
 | `puyo-ai` | AI探索・評価（Evaluator trait, search_depth1/depth2/depth3, find_best_move） |
 | `puyo-nn` | CNN評価ネットワーク（PuyoValueNet, one-hot encoding） |
 | `puyo-trainer` | 学習パイプライン（3つのバイナリ: generate-data, train, self-play） |
@@ -69,6 +69,14 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 - `model-loader.ts`: NNモデル読み込み（`web/public/models/`から）
 - `wasm.ts` / `types.ts`: WASMモジュールローダーと型定義
 
+## コーディングルール
+
+### `&mut` の使用制限（Rust）
+- `&mut self` は許可。
+- それ以外の `&mut` パラメータは原則禁止。値の返却（タプル含む）で代替すること。
+- 複数の可変状態を扱う場合は構造体にまとめ、メソッド（`&mut self`）で操作する。
+- 例外: コンストラクタ内など `self` が存在しない文脈での `&mut`（例: `generate_piece(rng: &mut Rng)`）。
+
 ## モデルファイル
 
 - `artifacts/puyo_model.bin` (~500KB): 学習済みモデル（`BinFileRecorder`形式）
@@ -82,7 +90,6 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 |----------------|----------------------|
 | `crates/puyo-core/src/board.rs` | `docs/spec/02-board.md`, `docs/spec/01-architecture.md` |
 | `crates/puyo-core/src/piece.rs` | `docs/spec/03-piece.md`, `docs/spec/01-architecture.md` |
-| `crates/puyo-core/src/chain.rs` | `docs/spec/04-chain.md`, `docs/spec/01-architecture.md` |
 | `crates/puyo-core/src/score.rs` | `docs/spec/05-score.md`, `docs/spec/01-architecture.md` |
 | `crates/puyo-core/src/game.rs` | `docs/spec/06-game.md`, `docs/spec/01-architecture.md` |
 | `crates/puyo-core/src/rng.rs` | `docs/spec/07-rng.md`, `docs/spec/01-architecture.md` |

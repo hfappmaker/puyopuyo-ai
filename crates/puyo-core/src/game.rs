@@ -1,5 +1,4 @@
-use crate::board::{Board, PuyoColor, COLS, ROWS};
-use crate::chain::{self, ChainResult};
+use crate::board::{Board, ChainResult, PuyoColor, COLS, ROWS};
 use crate::piece::{FallingPiece, Orientation, Piece, Placement};
 use crate::rng::Rng;
 
@@ -180,7 +179,7 @@ impl GameState {
     fn resolve(&mut self) -> ChainResult {
         self.phase = GamePhase::Resolving;
 
-        let result = chain::resolve_chains(&mut self.board);
+        let result = self.board.resolve_chains();
         self.score += result.score;
         if result.chain_count > self.max_chain {
             self.max_chain = result.chain_count;

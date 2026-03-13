@@ -139,15 +139,36 @@ future_values[t] = score[t] + γ × future_values[t+1]
 | `GameSession` | 構造体 | ゲーム状態（`GameState`, seed, カウンタ）。`reset()`, `log_game_over_and_reset()` |
 | `Transition` | 構造体 | TD(λ) バッファの1遷移（`board_data`, `reward`, `terminal`） |
 | `TrajectoryBuffer` | 構造体 | 遷移バッファ。`push()`, `is_full()`, `clear()` を提供 |
+| `TrainingContext<O>` | 構造体 | 学習に関する可変状態を一括管理。`optim`, `buffer`, `target_model`, `step`, `stats`, `game_stats` 等を保持。`flush_buffer()` と `batch_update()` をメソッドとして提供 |
 | `SelfPlayEvaluator` | 構造体 | `Evaluator` トレイト実装。ターゲットモデルで盤面を評価 |
 | `compute_lambda_returns()` | 関数 | バッファを後ろから走査してλ-returnを計算 |
-| `batch_update()` | 関数 | バッファ全遷移を1回のforward + backwardで学習 |
-| `flush_buffer()` | 関数 | λ-return計算 → バッチ学習 → 統計記録 → バッファクリアを一括実行 |
 | `sync_target_network()` | 関数 | ターゲットネットワークをオンラインモデルから同期 |
 | `select_placement()` | 関数 | ε-greedy 配置選択。`Option<Placement>` を返す |
 | `compute_epsilon()` | 関数 | εの線形減衰計算 |
 | `simple_rng()` | 関数 | splitmix64 アルゴリズムによる決定論的 RNG（ε-greedy 用） |
 | `run_training_loop()` | 関数 | メインの学習ループ |
+
+### TrainingContext
+
+`TrainingContext<O>` は学習ループ内の可変状態を集約する構造体で、`&mut self` 以外の `&mut` パラメータを排除している。
+
+```rust
+struct TrainingContext<O> {
+    optim: O,
+    buffer: TrajectoryBuffer,
+    target_model: PuyoValueNet<InferBackend>,
+    step: u64,
+    stats: RewardStats,
+    game_stats: GameStats,
+    config: PuyoValueNetConfig,
+    norm: NormParams,
+    // ... デバイス・ハイパーパラメータ
+}
+```
+
+主要メソッド:
+- `batch_update(&mut self, model, targets) -> (model, loss)`: バッファの全遷移をまとめて1回のforward + backwardで学習する。model を消費して更新済み model と平均損失を返す
+- `flush_buffer(&mut self, model, session, epsilon) -> model`: λ-return計算 → バッチ学習 → 統計記録 → ターゲット更新判定 → バッファクリアを一括実行。model を消費して更新済み model を返す
 
 ### 探索率（ε）
 
@@ -169,7 +190,7 @@ future_values[t] = score[t] + γ × future_values[t+1]
 
 ### 遷移バッファと TD(λ)
 
-各配置で1つの `Transition` をバッファに追加する。バッファが満杯（`BUFFER_SIZE` 遷移）またはゲームオーバー時に `flush_buffer()` を呼び、バッファ内の全遷移をまとめて学習する。
+各配置で1つの `Transition` をバッファに追加する。バッファが満杯（`BUFFER_SIZE` 遷移）またはゲームオーバー時に `TrainingContext::flush_buffer()` を呼び、バッファ内の全遷移をまとめて学習する。
 
 #### λ-return の計算（`compute_lambda_returns()`）
 
@@ -186,9 +207,9 @@ for t in (0..n).rev():
     targets[t] = normalize(g)
 ```
 
-#### バッチ学習（`batch_update()`）
+#### バッチ学習（`TrainingContext::batch_update()`）
 
-バッファの全盤面データを `[n, NUM_CHANNELS, ROWS, COLS]` テンソルにまとめ、1回の forward + backward で MSE 損失を計算・逆伝播する。
+バッファの全盤面データを `[n, NUM_CHANNELS, ROWS, COLS]` テンソルにまとめ、1回の forward + backward で MSE 損失を計算・逆伝播する。`TrainingContext` のメソッドとして実装されている。
 
 ### エピソードレス設計
 
@@ -205,9 +226,9 @@ for t in (0..n).rev():
 5. 遷移をバッファに追加:
    - **ゲームオーバー**: `reward=-1, terminal=true` → バッファを即座に消化
    - **生存**: `reward=連鎖数, terminal=false` → バッファが満杯なら消化
-6. `flush_buffer()` で TD(λ) 学習:
+6. `TrainingContext::flush_buffer()` で TD(λ) 学習:
    - `compute_lambda_returns()` でλ-returnを計算
-   - `batch_update()` でバッチ学習（MSE損失）
+   - `TrainingContext::batch_update()` でバッチ学習（MSE損失）
 7. `TARGET_UPDATE_INTERVAL` ステップごとにターゲットネットワークを現在のモデルで更新（一時ファイル経由）
 8. 最終モデルを `artifacts/puyo_model_selfplay` に保存
 
@@ -226,7 +247,7 @@ for t in (0..n).rev():
 | `avg_moves` | 直近ゲームの手数の平均 | 増加 |
 | `rewards(-1/0/+1)` | 報酬分布（ゲームオーバー/連鎖なし/連鎖あり） | 正報酬が増加 |
 
-`flush_buffer()` 内で各遷移の報酬を `RewardStats` に記録し、`batch_update()` の損失値を累積する。`GameStats` はゲーム終了ごとに連鎖数と手数を記録し、ログ時に平均を計算してリセットする。
+`TrainingContext::flush_buffer()` 内で各遷移の報酬を `RewardStats` に記録し、`batch_update()` の損失値を累積する。`GameStats` はゲーム終了ごとに連鎖数と手数を記録し、ログ時に平均を計算してリセットする。
 
 ### NN 評価関数
 

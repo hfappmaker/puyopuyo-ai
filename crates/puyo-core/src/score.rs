@@ -1,4 +1,4 @@
-use crate::chain::Group;
+use crate::board::Group;
 
 /// Chain power table (standard Puyo Puyo rules).
 /// Index 0 = chain 1, index 1 = chain 2, etc.

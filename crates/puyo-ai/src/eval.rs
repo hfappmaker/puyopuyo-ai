@@ -1,5 +1,4 @@
 use puyo_core::board::{Board, PuyoColor, COLS, ROWS, VISIBLE_ROWS};
-use puyo_core::chain;
 
 /// Trait for board evaluation strategies.
 pub trait Evaluator {
@@ -23,7 +22,7 @@ pub struct HeuristicEvaluator;
 
 impl Evaluator for HeuristicEvaluator {
     fn evaluate(&self, board: &Board) -> f64 {
-        evaluate(board)
+        heuristic_evaluate(board)
     }
 }
 
@@ -53,15 +52,13 @@ const COLORS: [PuyoColor; 4] = [
 /// 既存の盤面と合わせて連鎖が発生するかをシミュレートする。
 /// 現在の盤面にすでに存在する連鎖も考慮する。
 fn simulate_max_chain(board: &Board) -> u32 {
-    // Check current board for existing chains
     let mut sim = board.clone();
-    let result = chain::resolve_chains(&mut sim);
+    let result = sim.resolve_chains();
     let mut max_chain = result.chain_count;
 
     for &color in &COLORS {
         for col in 0..COLS {
             let h = board.column_height(col);
-            // Account for isolated row 13 puyo: if present, one fewer slot is available
             let available = if board.has_isolated_top_puyo(col) {
                 ROWS - 1 - h
             } else {
@@ -75,7 +72,7 @@ fn simulate_max_chain(board: &Board) -> u32 {
             for _ in 0..count {
                 sim.drop_puyo(col, color);
             }
-            let result = chain::resolve_chains(&mut sim);
+            let result = sim.resolve_chains();
             max_chain = max_chain.max(result.chain_count);
         }
     }
@@ -93,13 +90,13 @@ const W_CENTER_WEIGHT: f64 = 1.0;
 pub const W_GAME_OVER: f64 = -100000.0;
 
 /// Evaluate a board state. Higher is better.
-pub fn evaluate(board: &Board) -> f64 {
+pub fn heuristic_evaluate(board: &Board) -> f64 {
     if board.is_game_over() {
         return W_GAME_OVER;
     }
 
     let mut sim_board = board.clone();
-    let chain_result = chain::resolve_chains(&mut sim_board);
+    let chain_result = sim_board.resolve_chains();
 
     chain_result.score as f64 * W_CHAIN_SCORE
         + chain_result.chain_count as f64 * W_CHAIN_LENGTH
@@ -145,7 +142,7 @@ fn height_variance(board: &Board) -> f64 {
 /// Evaluate board after placing a piece (does not modify the input board).
 /// Resolves chains and evaluates the resulting board.
 pub fn evaluate_placement(board: &Board) -> f64 {
-    evaluate(board)
+    heuristic_evaluate(board)
 }
 
 /// Count same-color adjacent pairs (horizontal and vertical).
@@ -164,22 +161,11 @@ pub fn count_connectivity(board: &Board) -> u32 {
 
 /// Count groups of 2-3 same-color connected puyos (potential chains).
 pub fn count_potential_chains(board: &Board) -> u32 {
-    let mut visited = [[false; ROWS]; COLS];
-    let mut count = 0;
-
-    for col in 0..COLS {
-        for row in 0..VISIBLE_ROWS {
-            if !board.get(col, row).is_color() || visited[col][row] {
-                continue;
-            }
-            let cells = chain::flood_fill(board, col, row, &mut visited);
-            if matches!(cells.len(), 2 | 3) {
-                count += 1;
-            }
-        }
-    }
-
-    count
+    board
+        .find_connected_groups()
+        .iter()
+        .filter(|g| matches!(g.cells.len(), 2 | 3))
+        .count() as u32
 }
 
 const CENTER_WEIGHTS: [f64; COLS] = [0.5, 0.8, 1.0, 1.0, 0.8, 0.5];
@@ -201,25 +187,22 @@ mod tests {
     #[test]
     fn test_empty_board_eval() {
         let board = Board::new();
-        let score = evaluate(&board);
-        // Empty board should have a baseline score (near 0)
+        let score = heuristic_evaluate(&board);
         assert!(score.abs() < 100.0);
     }
 
     #[test]
     fn test_game_over_eval() {
         let mut board = Board::new();
-        // Fill column 2 past visible rows
         for _ in 0..=VISIBLE_ROWS {
             board.drop_puyo(2, PuyoColor::Red);
         }
-        let score = evaluate(&board);
+        let score = heuristic_evaluate(&board);
         assert!(score < -10000.0);
     }
 
     #[test]
     fn test_chain_rewards_higher() {
-        // Board with 4-in-a-row ready to clear should score higher
         let mut board_chain = Board::new();
         for _ in 0..4 {
             board_chain.drop_puyo(0, PuyoColor::Red);
@@ -231,26 +214,23 @@ mod tests {
         board_no_chain.drop_puyo(2, PuyoColor::Green);
         board_no_chain.drop_puyo(3, PuyoColor::Yellow);
 
-        let score_chain = evaluate(&board_chain);
-        let score_no_chain = evaluate(&board_no_chain);
+        let score_chain = heuristic_evaluate(&board_chain);
+        let score_no_chain = heuristic_evaluate(&board_no_chain);
         assert!(score_chain > score_no_chain);
     }
 
     #[test]
     fn test_connectivity_bonus() {
         let mut board1 = Board::new();
-        // Adjacent same-color puyos
         board1.drop_puyo(0, PuyoColor::Red);
         board1.drop_puyo(0, PuyoColor::Red);
         board1.drop_puyo(0, PuyoColor::Red);
 
         let mut board2 = Board::new();
-        // Scattered different colors
         board2.drop_puyo(0, PuyoColor::Red);
         board2.drop_puyo(1, PuyoColor::Blue);
         board2.drop_puyo(2, PuyoColor::Green);
 
-        // Board1 should have higher connectivity
         let conn1 = count_connectivity(&board1);
         let conn2 = count_connectivity(&board2);
         assert!(conn1 > conn2);

@@ -113,7 +113,7 @@ impl RewardStats {
         total_steps: u64,
         game_count: u64,
         epsilon: f32,
-        game_stats: &mut GameStats,
+        game_stats: &GameStats,
     ) {
         let avg_loss = if self.loss_count > 0 {
             self.loss_sum / self.loss_count as f64
@@ -128,7 +128,6 @@ impl RewardStats {
             avg_loss, avg_chain, avg_moves,
         );
         *self = Self::new();
-        *game_stats = GameStats::new();
     }
 }
 
@@ -374,36 +373,6 @@ fn compute_lambda_returns(
     targets
 }
 
-/// バッファの全遷移をまとめて1回のforward + backwardで学習する。
-/// model を消費して更新済み model と平均損失を返す。
-fn batch_update(
-    model: PuyoValueNet<TrainBackend>,
-    optim: &mut impl Optimizer<PuyoValueNet<TrainBackend>, TrainBackend>,
-    buffer: &TrajectoryBuffer,
-    targets: &[f32],
-    device: &<TrainBackend as Backend>::Device,
-) -> (PuyoValueNet<TrainBackend>, f32) {
-    let n = buffer.len();
-
-    // 全盤面データを1つのテンソルにまとめる [n, NUM_CHANNELS, ROWS, COLS]
-    let mut all_data = Vec::with_capacity(n * TENSOR_SIZE);
-    for tr in &buffer.transitions {
-        all_data.extend_from_slice(&tr.board_data);
-    }
-    let input = Tensor::<TrainBackend, 1>::from_floats(all_data.as_slice(), device)
-        .reshape([n, NUM_CHANNELS, ROWS, COLS]);
-    let prediction = model.forward(input); // [n, 1]
-
-    let target_tensor =
-        Tensor::<TrainBackend, 1>::from_floats(targets, device).reshape([n, 1]);
-    let diff = prediction - target_tensor;
-    let loss = diff.clone().mul(diff).mean();
-    let loss_val = loss.clone().into_data().to_vec::<f32>().unwrap()[0];
-    let grads = loss.backward();
-    let grads = GradientsParams::from_grads(grads, &model);
-    (optim.step(LEARNING_RATE, model, grads), loss_val)
-}
-
 /// ターゲットネットワークをオンラインモデルから同期する
 fn sync_target_network(
     model: &PuyoValueNet<TrainBackend>,
@@ -429,57 +398,103 @@ fn sync_target_network(
     target
 }
 
-/// バッファのλ-return計算 → バッチ学習 → 統計記録 → バッファクリアを一括実行。
-/// model を消費して更新済み model を返す。
-fn flush_buffer(
-    model: PuyoValueNet<TrainBackend>,
-    optim: &mut impl Optimizer<PuyoValueNet<TrainBackend>, TrainBackend>,
-    buffer: &mut TrajectoryBuffer,
-    target_model: &mut PuyoValueNet<InferBackend>,
-    device: &<TrainBackend as Backend>::Device,
-    norm: &NormParams,
-    infer_device: &<InferBackend as Backend>::Device,
-    step: &mut u64,
+/// 学習に関する可変状態を一括管理する構造体。
+/// `&mut self` 以外の `&mut` パラメータを排除する。
+struct TrainingContext<O> {
+    optim: O,
+    buffer: TrajectoryBuffer,
+    target_model: PuyoValueNet<InferBackend>,
+    step: u64,
+    stats: RewardStats,
+    game_stats: GameStats,
+    config: PuyoValueNetConfig,
+    norm: NormParams,
+    device: <TrainBackend as Backend>::Device,
+    infer_device: <InferBackend as Backend>::Device,
     total_steps: u64,
     target_update_interval: u64,
-    stats: &mut RewardStats,
-    game_stats: &mut GameStats,
-    session: &GameSession,
-    epsilon: f32,
-    config: &PuyoValueNetConfig,
     gamma: f32,
     lambda: f32,
-) -> PuyoValueNet<TrainBackend> {
-    if buffer.len() == 0 {
-        return model;
+}
+
+impl<O: Optimizer<PuyoValueNet<TrainBackend>, TrainBackend>> TrainingContext<O> {
+    /// バッファの全遷移をまとめて1回のforward + backwardで学習する。
+    /// model を消費して更新済み model と平均損失を返す。
+    fn batch_update(
+        &mut self,
+        model: PuyoValueNet<TrainBackend>,
+        targets: &[f32],
+    ) -> (PuyoValueNet<TrainBackend>, f32) {
+        let n = self.buffer.len();
+
+        let mut all_data = Vec::with_capacity(n * TENSOR_SIZE);
+        for tr in &self.buffer.transitions {
+            all_data.extend_from_slice(&tr.board_data);
+        }
+        let input = Tensor::<TrainBackend, 1>::from_floats(all_data.as_slice(), &self.device)
+            .reshape([n, NUM_CHANNELS, ROWS, COLS]);
+        let prediction = model.forward(input);
+
+        let target_tensor =
+            Tensor::<TrainBackend, 1>::from_floats(targets, &self.device).reshape([n, 1]);
+        let diff = prediction - target_tensor;
+        let loss = diff.clone().mul(diff).mean();
+        let loss_val = loss.clone().into_data().to_vec::<f32>().unwrap()[0];
+        let grads = loss.backward();
+        let grads = GradientsParams::from_grads(grads, &model);
+        (self.optim.step(LEARNING_RATE, model, grads), loss_val)
     }
 
-    let targets = compute_lambda_returns(buffer, target_model, norm, infer_device, gamma, lambda);
+    /// バッファのλ-return計算 → バッチ学習 → 統計記録 → バッファクリアを一括実行。
+    /// model を消費して更新済み model を返す。
+    fn flush_buffer(
+        &mut self,
+        model: PuyoValueNet<TrainBackend>,
+        session: &GameSession,
+        epsilon: f32,
+    ) -> PuyoValueNet<TrainBackend> {
+        if self.buffer.len() == 0 {
+            return model;
+        }
 
-    // 統計記録（バッファ内の各遷移の報酬を記録）
-    for tr in &buffer.transitions {
-        stats.record(tr.reward, 0.0); // loss は batch 全体で後から記録
+        let targets = compute_lambda_returns(
+            &self.buffer,
+            &self.target_model,
+            &self.norm,
+            &self.infer_device,
+            self.gamma,
+            self.lambda,
+        );
+
+        for tr in &self.buffer.transitions {
+            self.stats.record(tr.reward, 0.0);
+        }
+
+        let (model, loss) = self.batch_update(model, &targets);
+
+        self.stats.loss_sum += loss as f64;
+
+        self.step += self.buffer.len() as u64;
+
+        if self.step % LOG_INTERVAL < self.buffer.len() as u64 {
+            self.stats.log_and_reset(
+                self.step,
+                self.total_steps,
+                session.game_count,
+                epsilon,
+                &self.game_stats,
+            );
+            self.game_stats = GameStats::new();
+        }
+
+        if self.step % self.target_update_interval < self.buffer.len() as u64 {
+            self.target_model =
+                sync_target_network(&model, &self.config, &self.infer_device);
+        }
+
+        self.buffer.clear();
+        model
     }
-
-    let (model, loss) = batch_update(model, optim, buffer, &targets, device);
-
-    // loss をバッファサイズ分の遷移に按分して記録（上で 0.0 で記録済みなので上書き）
-    // 簡易化: loss_sum に直接加算
-    stats.loss_sum += loss as f64;
-    // record() で loss_count を既に増やしているので調整不要（0.0 で n 回記録済み）
-
-    *step += buffer.len() as u64;
-
-    if *step % LOG_INTERVAL < buffer.len() as u64 {
-        stats.log_and_reset(*step, total_steps, session.game_count, epsilon, game_stats);
-    }
-
-    if *step % target_update_interval < buffer.len() as u64 {
-        *target_model = sync_target_network(&model, config, infer_device);
-    }
-
-    buffer.clear();
-    model
 }
 
 /// 決定論的 RNG（ε-greedy 用）。
@@ -498,30 +513,46 @@ fn simple_rng(seed: u64) -> u64 {
 
 fn run_training_loop(
     mut model: PuyoValueNet<TrainBackend>,
-    mut target_model: PuyoValueNet<InferBackend>,
-    mut optim: impl Optimizer<PuyoValueNet<TrainBackend>, TrainBackend>,
-    config: &PuyoValueNetConfig,
-    device: &<TrainBackend as Backend>::Device,
-    infer_device: &<InferBackend as Backend>::Device,
-    norm: &NormParams,
+    target_model: PuyoValueNet<InferBackend>,
+    optim: impl Optimizer<PuyoValueNet<TrainBackend>, TrainBackend>,
+    config: PuyoValueNetConfig,
+    device: <TrainBackend as Backend>::Device,
+    infer_device: <InferBackend as Backend>::Device,
+    norm: NormParams,
     total_steps: u64,
     target_update_interval: u64,
     buffer_size: usize,
     lambda: f32,
 ) -> PuyoValueNet<InferBackend> {
+    let mut ctx = TrainingContext {
+        optim,
+        buffer: TrajectoryBuffer::new(buffer_size),
+        target_model,
+        step: 0,
+        stats: RewardStats::new(),
+        game_stats: GameStats::new(),
+        config,
+        norm,
+        device,
+        infer_device,
+        total_steps,
+        target_update_interval,
+        gamma: GAMMA,
+        lambda,
+    };
     let mut session = GameSession::new(100_000);
-    let mut step: u64 = 0;
-    let mut stats = RewardStats::new();
-    let mut game_stats = GameStats::new();
-    let mut buffer = TrajectoryBuffer::new(buffer_size);
 
-    while step < total_steps {
-        let epsilon = compute_epsilon(step, total_steps);
+    while ctx.step < ctx.total_steps {
+        let epsilon = compute_epsilon(ctx.step, ctx.total_steps);
         let board_data = board_to_tensor_data(&session.game.board);
 
-        // 配置を選択
-        let placement = match select_placement(&session, &target_model, infer_device, norm, epsilon)
-        {
+        let placement = match select_placement(
+            &session,
+            &ctx.target_model,
+            &ctx.infer_device,
+            &ctx.norm,
+            epsilon,
+        ) {
             Some(p) => p,
             None => {
                 session.reset();
@@ -529,19 +560,18 @@ fn run_training_loop(
             }
         };
 
-        // 配置 + 連鎖解決を一括実行
         let prev_max = session.game.max_chain;
         let chain_result = session.game.apply_placement(&placement);
         session.move_count += 1;
-        session.log_if_new_max_chain(prev_max, step);
+        session.log_if_new_max_chain(prev_max, ctx.step);
 
         if session.game.board.is_game_over() {
-            // ゲームオーバー: reward=-1, terminal=true
-            game_stats.record(session.game.max_chain, session.move_count);
-            session.log_game_over_and_reset(epsilon, step);
+            ctx.game_stats
+                .record(session.game.max_chain, session.move_count);
+            session.log_game_over_and_reset(epsilon, ctx.step);
 
             let next_board = board_to_tensor_data(&session.game.board);
-            buffer.push(
+            ctx.buffer.push(
                 Transition {
                     board_data,
                     reward: -1.0,
@@ -550,31 +580,11 @@ fn run_training_loop(
                 next_board,
             );
 
-            // ゲームオーバー時は即座にバッファを消化
-            model = flush_buffer(
-                model,
-                &mut optim,
-                &mut buffer,
-                &mut target_model,
-                device,
-                norm,
-                infer_device,
-                &mut step,
-                total_steps,
-                target_update_interval,
-                &mut stats,
-                &mut game_stats,
-                &session,
-                epsilon,
-                config,
-                GAMMA,
-                lambda,
-            );
+            model = ctx.flush_buffer(model, &session, epsilon);
         } else {
-            // 生存: reward=スコア
             let reward = chain_result.score as f32;
             let next_board = board_to_tensor_data(&session.game.board);
-            buffer.push(
+            ctx.buffer.push(
                 Transition {
                     board_data,
                     reward,
@@ -583,52 +593,15 @@ fn run_training_loop(
                 next_board,
             );
 
-            if buffer.is_full() {
-                model = flush_buffer(
-                    model,
-                    &mut optim,
-                    &mut buffer,
-                    &mut target_model,
-                    device,
-                    norm,
-                    infer_device,
-                    &mut step,
-                    total_steps,
-                    target_update_interval,
-                    &mut stats,
-                    &mut game_stats,
-                    &session,
-                    epsilon,
-                    config,
-                    GAMMA,
-                    lambda,
-                );
+            if ctx.buffer.is_full() {
+                model = ctx.flush_buffer(model, &session, epsilon);
             }
         }
     }
 
-    // 残りのバッファを消化
-    if buffer.len() > 0 {
-        let epsilon = compute_epsilon(step, total_steps);
-        model = flush_buffer(
-            model,
-            &mut optim,
-            &mut buffer,
-            &mut target_model,
-            device,
-            norm,
-            infer_device,
-            &mut step,
-            total_steps,
-            target_update_interval,
-            &mut stats,
-            &mut game_stats,
-            &session,
-            epsilon,
-            config,
-            GAMMA,
-            lambda,
-        );
+    if ctx.buffer.len() > 0 {
+        let epsilon = compute_epsilon(ctx.step, ctx.total_steps);
+        model = ctx.flush_buffer(model, &session, epsilon);
     }
 
     model.valid()
@@ -729,10 +702,10 @@ fn main() {
         model,
         target_model,
         optim,
-        &config,
-        &device,
-        &infer_device,
-        &norm,
+        config,
+        device,
+        infer_device,
+        norm,
         args.total_steps,
         args.target_update_interval,
         args.buffer_size,

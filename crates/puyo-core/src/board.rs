@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 /// Puyo colors. Empty = no puyo in that cell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -29,6 +31,37 @@ pub const COLS: usize = 6;
 pub const ROWS: usize = 14; // 12 visible + 2 hidden top rows
 pub const VISIBLE_ROWS: usize = 12;
 pub const SPAWN_COL: usize = 2;
+
+/// Minimum number of connected same-color puyos required to clear.
+pub const MIN_GROUP_SIZE: usize = 4;
+
+// ---- Chain types ----
+
+/// A connected group of same-color puyos.
+#[derive(Debug, Clone)]
+pub struct Group {
+    pub color: PuyoColor,
+    pub cells: Vec<(usize, usize)>, // (col, row)
+}
+
+/// A single chain step (one round of simultaneous clears).
+#[derive(Debug, Clone)]
+pub struct ChainStep {
+    pub chain_num: u32,     // 1-indexed chain number
+    pub groups: Vec<Group>, // groups cleared in this step
+    pub score: u32,         // score for this step
+}
+
+/// Result of resolving all chains on a board.
+#[derive(Debug, Clone)]
+pub struct ChainResult {
+    pub chain_count: u32,
+    pub score: u32,
+    /// Details per chain step.
+    pub steps: Vec<ChainStep>,
+}
+
+// ---- Board ----
 
 /// Board stored in column-major order: columns[col][row].
 /// Row 0 is the bottom, row 13 is the top (hidden).
@@ -114,6 +147,95 @@ impl Board {
             .flat_map(|col| col.iter().map(|&c| c as u8))
             .collect()
     }
+
+    // ---- Chain detection & resolution ----
+
+    /// Find all connected same-color groups on the visible board.
+    pub fn find_connected_groups(&self) -> Vec<Group> {
+        let mut visited = [[false; ROWS]; COLS];
+        let mut groups = Vec::new();
+
+        for col in 0..COLS {
+            for row in 0..VISIBLE_ROWS {
+                if !self.get(col, row).is_color() || visited[col][row] {
+                    continue;
+                }
+                let color = self.get(col, row);
+
+                // BFS flood fill
+                let mut queue = VecDeque::new();
+                let mut cells = Vec::new();
+                queue.push_back((col, row));
+                visited[col][row] = true;
+
+                while let Some((c, r)) = queue.pop_front() {
+                    cells.push((c, r));
+                    for (dc, dr) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1)] {
+                        let nc = c as i32 + dc;
+                        let nr = r as i32 + dr;
+                        if nc < 0 || nc >= COLS as i32 || nr < 0 || nr >= VISIBLE_ROWS as i32 {
+                            continue;
+                        }
+                        let (nc, nr) = (nc as usize, nr as usize);
+                        if !visited[nc][nr] && self.get(nc, nr) == color {
+                            visited[nc][nr] = true;
+                            queue.push_back((nc, nr));
+                        }
+                    }
+                }
+
+                groups.push(Group { color, cells });
+            }
+        }
+
+        groups
+    }
+
+    /// Find groups of MIN_GROUP_SIZE or larger (clearable groups).
+    pub fn find_clearable_groups(&self) -> Vec<Group> {
+        self.find_connected_groups()
+            .into_iter()
+            .filter(|g| g.cells.len() >= MIN_GROUP_SIZE)
+            .collect()
+    }
+
+    /// Resolve one chain step. Modifies board in-place.
+    /// Returns Some(ChainStep) if groups were found and cleared, None if no groups exist.
+    pub fn resolve_one_step(&mut self, chain_num: u32) -> Option<ChainStep> {
+        let groups = self.find_clearable_groups();
+        if groups.is_empty() {
+            return None;
+        }
+
+        // Remove groups from board
+        for group in &groups {
+            for &(col, row) in &group.cells {
+                self.set(col, row, PuyoColor::Empty);
+            }
+        }
+
+        let step_score = crate::score::calculate_step_score(chain_num, &groups);
+        self.apply_gravity();
+
+        Some(ChainStep {
+            chain_num,
+            groups,
+            score: step_score,
+        })
+    }
+
+    /// Resolve all chains on the board. Modifies board in-place.
+    pub fn resolve_chains(&mut self) -> ChainResult {
+        let steps: Vec<ChainStep> = (1..)
+            .map_while(|chain_num| self.resolve_one_step(chain_num))
+            .collect();
+        let total_score = steps.iter().map(|s| s.score).sum();
+        ChainResult {
+            chain_count: steps.len() as u32,
+            score: total_score,
+            steps,
+        }
+    }
 }
 
 impl Default for Board {
@@ -175,12 +297,10 @@ mod tests {
     fn test_game_over() {
         let mut board = Board::new();
         assert!(!board.is_game_over());
-        // Fill column 2 to height 11 (visible rows full, not yet game over)
         for _ in 0..VISIBLE_ROWS-1 {
             board.drop_puyo(2, PuyoColor::Red);
         }
         assert!(!board.is_game_over());
-        // One more puyo reaches row 12 (13th row, 1st hidden row) -> game over
         board.drop_puyo(2, PuyoColor::Red);
         assert!(board.is_game_over());
     }
@@ -188,10 +308,8 @@ mod tests {
     #[test]
     fn test_top_hidden_row_not_affected_by_gravity() {
         let mut board = Board::new();
-        // Place a puyo directly at row 13 (top hidden row)
         board.set(0, ROWS - 1, PuyoColor::Red);
         board.apply_gravity();
-        // The puyo in row 13 must remain there (does not fall)
         assert_eq!(board.get(0, ROWS - 1), PuyoColor::Red);
         assert_eq!(board.get(0, 0), PuyoColor::Empty);
     }
@@ -199,7 +317,6 @@ mod tests {
     #[test]
     fn test_column_height_with_isolated_row13() {
         let mut board = Board::new();
-        // row 13 にぷよが孤立（下が空）→ 高さは 0
         board.set(0, ROWS - 1, PuyoColor::Red);
         assert_eq!(board.column_height(0), 0);
     }
@@ -207,7 +324,6 @@ mod tests {
     #[test]
     fn test_column_height_with_stack_and_row13() {
         let mut board = Board::new();
-        // row 0-2 にスタック + row 13 に孤立ぷよ → 高さは 3
         board.set(0, 0, PuyoColor::Red);
         board.set(0, 1, PuyoColor::Blue);
         board.set(0, 2, PuyoColor::Green);
@@ -218,7 +334,6 @@ mod tests {
     #[test]
     fn test_drop_puyo_with_isolated_row13() {
         let mut board = Board::new();
-        // row 13 に孤立ぷよがある列にも drop_puyo できる
         board.set(0, ROWS - 1, PuyoColor::Red);
         let row = board.drop_puyo(0, PuyoColor::Blue);
         assert_eq!(row, 0);
@@ -228,18 +343,11 @@ mod tests {
     #[test]
     fn test_has_isolated_top_puyo() {
         let mut board = Board::new();
-        // Empty board: no isolated puyo
         assert!(!board.has_isolated_top_puyo(0));
-
-        // Row 13 has puyo, row 12 empty → isolated
         board.set(0, ROWS - 1, PuyoColor::Red);
         assert!(board.has_isolated_top_puyo(0));
-
-        // Fill row 12 too → not isolated (contiguous)
         board.set(0, ROWS - 2, PuyoColor::Blue);
         assert!(!board.has_isolated_top_puyo(0));
-
-        // Different column unaffected
         assert!(!board.has_isolated_top_puyo(1));
     }
 
@@ -249,5 +357,156 @@ mod tests {
         let flat = board.to_flat();
         assert_eq!(flat.len(), COLS * ROWS);
         assert!(flat.iter().all(|&v| v == 0));
+    }
+
+    // ---- Chain tests ----
+
+    #[test]
+    fn test_no_chain() {
+        let mut board = Board::new();
+        board.drop_puyo(0, PuyoColor::Red);
+        board.drop_puyo(1, PuyoColor::Blue);
+        let result = board.resolve_chains();
+        assert_eq!(result.chain_count, 0);
+        assert_eq!(result.score, 0);
+    }
+
+    #[test]
+    fn test_single_group_clear() {
+        let mut board = Board::new();
+        for _ in 0..4 {
+            board.drop_puyo(0, PuyoColor::Red);
+        }
+        let result = board.resolve_chains();
+        assert_eq!(result.chain_count, 1);
+        assert!(result.score > 0);
+        assert_eq!(board.column_height(0), 0);
+    }
+
+    #[test]
+    fn test_horizontal_group() {
+        let mut board = Board::new();
+        for col in 0..4 {
+            board.drop_puyo(col, PuyoColor::Red);
+        }
+        let result = board.resolve_chains();
+        assert_eq!(result.chain_count, 1);
+    }
+
+    #[test]
+    fn test_two_chain() {
+        let mut board = Board::new();
+        for _ in 0..3 {
+            board.drop_puyo(0, PuyoColor::Blue);
+        }
+        for _ in 0..4 {
+            board.drop_puyo(1, PuyoColor::Red);
+        }
+        board.drop_puyo(1, PuyoColor::Blue);
+        let result = board.resolve_chains();
+        assert_eq!(result.chain_count, 2);
+        assert_eq!(board.column_height(0), 0);
+        assert_eq!(board.column_height(1), 0);
+    }
+
+    #[test]
+    fn test_gravity_after_clear() {
+        let mut board = Board::new();
+        for _ in 0..4 {
+            board.drop_puyo(0, PuyoColor::Red);
+        }
+        board.drop_puyo(0, PuyoColor::Green);
+        board.resolve_chains();
+        assert_eq!(board.get(0, 0), PuyoColor::Green);
+        assert_eq!(board.column_height(0), 1);
+    }
+
+    #[test]
+    fn test_l_shape_group() {
+        let mut board = Board::new();
+        board.set(0, 0, PuyoColor::Red);
+        board.set(0, 1, PuyoColor::Red);
+        board.set(1, 0, PuyoColor::Red);
+        board.set(2, 0, PuyoColor::Red);
+        let groups = board.find_clearable_groups();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].cells.len(), 4);
+    }
+
+    #[test]
+    fn test_hidden_row_puyo_not_cleared() {
+        let mut board = Board::new();
+        for row in 0..4 {
+            board.set(0, row, PuyoColor::Red);
+        }
+        board.set(0, VISIBLE_ROWS, PuyoColor::Red);
+        let result = board.resolve_chains();
+        assert_eq!(result.chain_count, 1);
+        assert_eq!(board.get(0, 0), PuyoColor::Red);
+        assert_eq!(board.column_height(0), 1);
+    }
+
+    #[test]
+    fn test_hidden_row_puyo_falls_after_clear() {
+        let mut board = Board::new();
+        for row in 0..4 {
+            board.set(0, row, PuyoColor::Red);
+        }
+        board.set(0, 4, PuyoColor::Green);
+        board.set(0, VISIBLE_ROWS, PuyoColor::Green);
+        board.resolve_chains();
+        assert_eq!(board.get(0, 0), PuyoColor::Green);
+        assert_eq!(board.get(0, 1), PuyoColor::Green);
+        assert_eq!(board.column_height(0), 2);
+    }
+
+    #[test]
+    fn test_resolve_one_step_two_chain() {
+        let mut board = Board::new();
+        for _ in 0..3 {
+            board.drop_puyo(0, PuyoColor::Blue);
+        }
+        for _ in 0..4 {
+            board.drop_puyo(1, PuyoColor::Red);
+        }
+        board.drop_puyo(1, PuyoColor::Blue);
+
+        let step1 = board.resolve_one_step(1);
+        assert!(step1.is_some());
+        assert_eq!(step1.unwrap().chain_num, 1);
+
+        let step2 = board.resolve_one_step(2);
+        assert!(step2.is_some());
+        assert_eq!(step2.unwrap().chain_num, 2);
+
+        let step3 = board.resolve_one_step(3);
+        assert!(step3.is_none());
+
+        assert_eq!(board.column_height(0), 0);
+        assert_eq!(board.column_height(1), 0);
+    }
+
+    #[test]
+    fn test_resolve_one_step_no_chain() {
+        let mut board = Board::new();
+        board.drop_puyo(0, PuyoColor::Red);
+        board.drop_puyo(1, PuyoColor::Blue);
+        let result = board.resolve_one_step(1);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_hidden_row_only_does_not_clear() {
+        let mut board = Board::new();
+        for col in 0..4 {
+            board.set(col, VISIBLE_ROWS, PuyoColor::Red);
+        }
+        let groups = board.find_clearable_groups();
+        assert!(
+            groups.is_empty(),
+            "Hidden-row-only puyos should not form clearable groups"
+        );
+        let result = board.resolve_chains();
+        assert_eq!(result.chain_count, 0);
     }
 }

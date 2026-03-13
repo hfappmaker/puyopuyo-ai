@@ -55,5 +55,45 @@ pub struct Board {
 
 ## 非可視行の挙動
 
-- **行12（13段目）**: 連鎖計算（`find_groups`）の対象外。ここにぷよが存在するとゲームオーバー判定が発生する。
+- **行12（13段目）**: 連鎖計算（`find_connected_groups`）の対象外。ここにぷよが存在するとゲームオーバー判定が発生する。
 - **行13（14段目）**: 連鎖計算・重力（`apply_gravity`）の対象外。ここにぷよを置いてもゲームオーバーにはならないが、重力でフィールドに降りてくることもない（ゲームが終わるまで引っかかったまま）。`column_height` はボトムアップ走査のため、行13に孤立ぷよがあっても高さに影響しない。
+
+## 連鎖解決メソッド
+
+連鎖ロジックは `Board` の impl メソッドとして統合されている（以前は `chain.rs` に分離していたが、`board.rs` に統合された）。
+
+### 定数
+
+| 定数 | 値 | 説明 |
+|------|-----|------|
+| `MIN_GROUP_SIZE` | 4 | 消去に必要な最小グループサイズ |
+
+### データ構造
+
+```rust
+pub struct Group {
+    pub color: PuyoColor,
+    pub cells: Vec<(usize, usize)>,  // (col, row)
+}
+
+pub struct ChainStep {
+    pub chain_num: u32,          // 連鎖番号（1始まり）
+    pub groups: Vec<Group>,      // 消去されたグループ
+    pub score: u32,              // このステップのスコア
+}
+
+pub struct ChainResult {
+    pub chain_count: u32,        // 連鎖数
+    pub score: u32,              // 合計スコア
+    pub steps: Vec<ChainStep>,   // 各ステップの詳細
+}
+```
+
+### メソッド
+
+| メソッド | 説明 |
+|---------|------|
+| `find_connected_groups()` | BFS（幅優先探索）で可視行（行0〜行11）の同色連結グループを全て検出する。グループサイズの制限なし |
+| `find_clearable_groups()` | `find_connected_groups()` のうち `MIN_GROUP_SIZE`（4）個以上のグループのみ返す |
+| `resolve_one_step(chain_num)` | 1ステップ分の連鎖処理。消去可能グループを削除 → スコア計算 → 重力適用。グループがなければ `None` を返す |
+| `resolve_chains()` | `resolve_one_step` に委譲するイテレータチェイン（`(1..).map_while(...).collect()`）で全連鎖を解決する |

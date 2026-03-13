@@ -1,5 +1,4 @@
-use puyo_core::board::Board;
-use puyo_core::chain::ChainResult;
+use puyo_core::board::{Board, ChainResult};
 use puyo_core::game::GameState;
 use puyo_core::piece::{Piece, Placement};
 
@@ -21,7 +20,7 @@ fn simulate_placement(board: &Board, piece: &Piece, placement: &Placement) -> (B
     let mut sim = GameState::new(0);
     sim.board = board.clone();
     sim.place_piece(piece, placement);
-    let chain_result = puyo_core::chain::resolve_chains(&mut sim.board);
+    let chain_result = sim.board.resolve_chains();
     (sim.board, chain_result)
 }
 

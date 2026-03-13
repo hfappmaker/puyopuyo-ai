@@ -1,5 +1,9 @@
 # 連鎖処理仕様
 
+> **注意**: `chain.rs` は廃止され、連鎖ロジックは全て `board.rs` の `Board` impl メソッドに統合された。
+> 連鎖関連の型（`Group`, `ChainStep`, `ChainResult`）と定数（`MIN_GROUP_SIZE`）は `puyo_core::board` モジュールからエクスポートされている。
+> 詳細な API 仕様は [02-board.md](./02-board.md) の「連鎖解決メソッド」セクションを参照。
+
 ## 連鎖の仕組み
 
 1. 同色ぷよが `MIN_GROUP_SIZE`（4）個以上つながっていると消去される
@@ -15,40 +19,9 @@
 
 ## グループ検出アルゴリズム
 
-BFS（幅優先探索）によるフラッドフィルで同色の連結グループを検出する。
+BFS（幅優先探索）によるフラッドフィルで同色の連結グループを検出する。`Board::find_connected_groups()` が全グループを返し、`Board::find_clearable_groups()` が `MIN_GROUP_SIZE` 以上のグループのみを返す。
 
-```rust
-pub struct Group {
-    pub color: PuyoColor,
-    pub cells: Vec<(usize, usize)>,  // (col, row)
-}
-```
-
-### flood_fill ヘルパー
-
-`flood_fill(board, col, row, visited)` は指定セルから同色の連結セルをBFSで探索し、全セルの座標を返す公開関数。`find_groups` と `puyo-ai` の `count_potential_chains` で共有して使用し、BFSロジックの重複を排除している。
-
-`find_groups` は `flood_fill` で検出したグループのうち `MIN_GROUP_SIZE`（4）個以上のものを返す。この定数は `pub const MIN_GROUP_SIZE: usize = 4` として公開されている。
-
-### resolve_chains
-
-`resolve_chains` は `resolve_one_step` に委譲するイテレータチェイン（`(1..).map_while(...).collect()`）で実装されている。
-
-## 連鎖結果
-
-```rust
-pub struct ChainResult {
-    pub chain_count: u32,        // 連鎖数
-    pub score: u32,              // 合計スコア
-    pub steps: Vec<ChainStep>,   // 各ステップの詳細
-}
-
-pub struct ChainStep {
-    pub chain_num: u32,          // 連鎖番号（1始まり）
-    pub groups: Vec<Group>,      // 消去されたグループ
-    pub score: u32,              // このステップのスコア
-}
-```
+`find_connected_groups` は `puyo-ai` の `count_potential_chains` でも使用されており、BFSロジックの重複を排除している。
 
 ## 連鎖の例（2連鎖）
 

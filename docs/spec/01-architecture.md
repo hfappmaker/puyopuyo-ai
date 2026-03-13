@@ -8,7 +8,7 @@ Rust でゲームロジックとAIを実装し、WASM 経由でブラウザ上�
 
 | レイヤー | クレート/ディレクトリ | 役割 |
 |----------|---------------------|------|
-| puyo-core | `crates/puyo-core/` | 盤面（`Board`）・ぷよ組（`Piece`, `FallingPiece`）・連鎖（`chain`）・スコア（`score`）・ゲーム進行（`GameState`）・乱数（`Rng`） |
+| puyo-core | `crates/puyo-core/` | 盤面（`Board`、連鎖解決を含む）・ぷよ組（`Piece`, `FallingPiece`）・スコア（`score`）・ゲーム進行（`GameState`）・乱数（`Rng`） |
 | puyo-ai | `crates/puyo-ai/` | 盤面評価（`eval`）・配置列挙（`placement`）・最善手探索（`search`） |
 | puyo-nn | `crates/puyo-nn/` | CNN 価値ネットワーク（`PuyoValueNet`）・盤面テンソルエンコーディング（`encoding`） |
 | puyo-trainer | `crates/puyo-trainer/` | 訓練データ生成（`generate-data`）・教師あり学習（`train`）・自己対戦強化学習（`self-play`） |
