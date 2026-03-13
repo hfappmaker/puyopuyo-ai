@@ -31,6 +31,7 @@ const VAL_BATCH_SIZE: usize = 512;
 const VAL_BATCH_SIZE: usize = 8;
 const NUM_EPOCHS: usize = 20;
 const LEARNING_RATE: f64 = 5e-4;
+const TRAIN_SPLIT_RATIO: f64 = 0.9;
 
 fn main() {
     std::fs::create_dir_all("artifacts").expect("Failed to create artifacts directory");
@@ -48,8 +49,8 @@ fn main() {
     let num_samples = dataset.samples.len();
     println!("Loaded {} samples", num_samples);
 
-    // Split into train/val (90/10) — use full dataset on GPU
-    let split = (num_samples as f64 * 0.9) as usize;
+    // Split into train/val — use full dataset on GPU
+    let split = (num_samples as f64 * TRAIN_SPLIT_RATIO) as usize;
     let train_samples = &dataset.samples[..split];
     let val_samples = &dataset.samples[split..];
     println!("Train: {}, Val: {}", train_samples.len(), val_samples.len());
@@ -76,11 +77,14 @@ fn main() {
         let mut epoch_loss = 0.0f32;
         let mut num_batches = 0;
 
-        // Shuffle indices
+        // Shuffle indices using LCG (Linear Congruential Generator)
+        // Parameters from PCG family: multiplier and increment for full-period LCG
         let mut indices: Vec<usize> = (0..train_samples.len()).collect();
         let mut rng_state = epoch as u64 + 42;
+        const LCG_MULTIPLIER: u64 = 6364136223846793005;
+        const LCG_INCREMENT: u64 = 1;
         for i in (1..indices.len()).rev() {
-            rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            rng_state = rng_state.wrapping_mul(LCG_MULTIPLIER).wrapping_add(LCG_INCREMENT);
             let j = (rng_state >> 33) as usize % (i + 1);
             indices.swap(i, j);
         }

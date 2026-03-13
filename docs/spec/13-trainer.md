@@ -92,10 +92,10 @@ future_values[t] = score[t] + γ × future_values[t+1]
 
 ### 手順
 
-1. データを 90:10 で訓練/検証に分割
+1. データを `TRAIN_SPLIT_RATIO`（0.9）で訓練/検証に分割
 2. 訓練セットの目標値を標準化（平均0、標準偏差1）
 3. 正規化パラメータ（mean, std_dev）を `artifacts/norm_params.txt` に保存
-4. エポックごとに LCG ベースのシャッフル → ミニバッチ学習
+4. エポックごとに LCG（PCG family パラメータ: `6364136223846793005`, `1`）ベースのシャッフル → ミニバッチ学習
 5. 損失関数: MSE
 6. 最適化: Adam
 7. 学習済みモデルを `BinFileRecorder` で保存
@@ -146,6 +146,7 @@ future_values[t] = score[t] + γ × future_values[t+1]
 | `sync_target_network()` | 関数 | ターゲットネットワークをオンラインモデルから同期 |
 | `select_placement()` | 関数 | ε-greedy 配置選択。`Option<Placement>` を返す |
 | `compute_epsilon()` | 関数 | εの線形減衰計算 |
+| `simple_rng()` | 関数 | splitmix64 アルゴリズムによる決定論的 RNG（ε-greedy 用） |
 | `run_training_loop()` | 関数 | メインの学習ループ |
 
 ### 探索率（ε）

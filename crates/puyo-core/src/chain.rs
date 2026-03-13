@@ -56,6 +56,9 @@ pub fn flood_fill(
     cells
 }
 
+/// Minimum number of connected same-color puyos required to clear.
+pub const MIN_GROUP_SIZE: usize = 4;
+
 /// Find all connected groups of 4+ same-color puyos using BFS flood-fill.
 pub fn find_groups(board: &Board) -> Vec<Group> {
     let mut visited = [[false; ROWS]; COLS];
@@ -68,7 +71,7 @@ pub fn find_groups(board: &Board) -> Vec<Group> {
             }
             let color = board.get(col, row);
             let cells = flood_fill(board, col, row, &mut visited);
-            if cells.len() >= 4 {
+            if cells.len() >= MIN_GROUP_SIZE {
                 groups.push(Group { color, cells });
             }
         }

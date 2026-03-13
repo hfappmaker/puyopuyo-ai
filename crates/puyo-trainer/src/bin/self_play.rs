@@ -482,7 +482,9 @@ fn flush_buffer(
     model
 }
 
-/// 決定論的 RNG（ε-greedy 用）
+/// 決定論的 RNG（ε-greedy 用）。
+/// splitmix64 アルゴリズム: 黄金比定数 0x9E37... で入力を分散させ、
+/// xorshift + 乗算の3段パイプラインで高品質な擬似乱数を生成する。
 fn simple_rng(seed: u64) -> u64 {
     let mut x = seed.wrapping_add(0x9E3779B97F4A7C15);
     x = (x ^ (x >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);

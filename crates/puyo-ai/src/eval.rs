@@ -47,8 +47,11 @@ const COLORS: [PuyoColor; 4] = [
     PuyoColor::Yellow,
 ];
 
-/// Simulate dropping virtual puyos (4 colors × 6 columns = 24 patterns) and return the max chain count.
-/// For each column, drop up to 3 same-color puyos (or fewer if space is limited).
+/// 仮想ぷよを落として最大連鎖数を推定する。
+/// 戦略: 4色 × 6列 = 24パターンの仮想配置を試し、最も大きな連鎖を返す。
+/// 各列に最大3個の同色ぷよを落とし（空きスペースが少なければそれ以下）、
+/// 既存の盤面と合わせて連鎖が発生するかをシミュレートする。
+/// 現在の盤面にすでに存在する連鎖も考慮する。
 fn simulate_max_chain(board: &Board) -> u32 {
     // Check current board for existing chains
     let mut sim = board.clone();

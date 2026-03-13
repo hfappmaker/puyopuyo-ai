@@ -14,6 +14,59 @@ const PUYO_RADIUS = CELL_SIZE * 0.42;
 const EYE_RADIUS = 3;
 const EYE_OFFSET_X = 5;
 const EYE_OFFSET_Y = -4;
+const PUPIL_RADIUS = 1.5;
+const PUPIL_OFFSET_X = 1;
+
+// Transparency levels
+const HIDDEN_AREA_ALPHA = 0.5;
+const CURRENT_PIECE_ALPHA = 0.9;
+const GHOST_ALPHA = 0.25;
+
+// Board background colors
+const BG_HIDDEN = "#080812";
+const BG_VISIBLE = "#0f0f23";
+const GRID_COLOR = "#1a1a3e";
+const GRID_LINE_WIDTH = 0.5;
+const BOUNDARY_COLOR = "#e94560";
+const BOUNDARY_LINE_WIDTH = 2;
+const BOUNDARY_DASH = [6, 4];
+
+// Next piece preview sizes
+const NEXT_PREVIEW_SIZE = 80;
+const NEXT_NEXT_PREVIEW_SIZE = 60;
+const NEXT_NEXT_SCALE = 0.75;
+
+// Preview canvas background
+const PREVIEW_BG = "#16213e";
+
+/** ピースデータ配列の各フィールド */
+interface PieceData {
+  axisColor: number;
+  satColor: number;
+  col: number;
+  row: number;
+  orientation: number;
+}
+
+function parsePieceData(data: Uint8Array): PieceData | null {
+  if (data.length < 6) return null;
+  return {
+    axisColor: data[0],
+    satColor: data[1],
+    col: data[2],
+    row: data[3] + data[4] / 100,
+    orientation: data[5],
+  };
+}
+
+/** 盤面座標をキャンバスピクセル座標に変換 */
+function cellCenterX(col: number): number {
+  return col * CELL_SIZE + CELL_SIZE / 2;
+}
+
+function cellCenterY(row: number): number {
+  return (ROWS - 1 - row) * CELL_SIZE + CELL_SIZE / 2;
+}
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
@@ -39,14 +92,14 @@ export class Renderer {
     const hiddenRows = ROWS - VISIBLE_ROWS;
 
     // Clear: hidden area (darker) + visible area
-    ctx.fillStyle = "#080812";
+    ctx.fillStyle = BG_HIDDEN;
     ctx.fillRect(0, 0, COLS * CELL_SIZE, hiddenRows * CELL_SIZE);
-    ctx.fillStyle = "#0f0f23";
+    ctx.fillStyle = BG_VISIBLE;
     ctx.fillRect(0, hiddenRows * CELL_SIZE, COLS * CELL_SIZE, VISIBLE_ROWS * CELL_SIZE);
 
     // Grid lines
-    ctx.strokeStyle = "#1a1a3e";
-    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = GRID_COLOR;
+    ctx.lineWidth = GRID_LINE_WIDTH;
     for (let col = 0; col <= COLS; col++) {
       ctx.beginPath();
       ctx.moveTo(col * CELL_SIZE, 0);
@@ -61,9 +114,9 @@ export class Renderer {
     }
 
     // Boundary line between hidden and visible area
-    ctx.strokeStyle = "#e94560";
-    ctx.lineWidth = 2;
-    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = BOUNDARY_COLOR;
+    ctx.lineWidth = BOUNDARY_LINE_WIDTH;
+    ctx.setLineDash(BOUNDARY_DASH);
     ctx.beginPath();
     ctx.moveTo(0, hiddenRows * CELL_SIZE);
     ctx.lineTo(COLS * CELL_SIZE, hiddenRows * CELL_SIZE);
@@ -75,13 +128,10 @@ export class Renderer {
       for (let row = 0; row < ROWS; row++) {
         const color = board[col * ROWS + row];
         if (color !== COLOR_EMPTY) {
-          const x = col * CELL_SIZE + CELL_SIZE / 2;
-          const y = (ROWS - 1 - row) * CELL_SIZE + CELL_SIZE / 2;
-          // Hidden area puyos are dimmed
           if (row >= VISIBLE_ROWS) {
-            ctx.globalAlpha = 0.5;
+            ctx.globalAlpha = HIDDEN_AREA_ALPHA;
           }
-          this.drawPuyo(ctx, x, y, color, 1.0);
+          this.drawPuyo(ctx, cellCenterX(col), cellCenterY(row), color, 1.0);
           ctx.globalAlpha = 1.0;
         }
       }
@@ -89,43 +139,20 @@ export class Renderer {
   }
 
   private drawCurrentPiece(game: WasmGame): void {
-    const pieceData = game.get_current_piece();
-    if (pieceData.length === 0) return;
+    const piece = parsePieceData(game.get_current_piece());
+    if (!piece) return;
 
-    const axisColor = pieceData[0];
-    const satColor = pieceData[1];
-    const col = pieceData[2];
-    const rowInt = pieceData[3];
-    const rowFrac = pieceData[4] / 100;
-    const orientation = pieceData[5];
+    const [dc, dr] = ORIENTATION_OFFSETS[piece.orientation];
 
-    const row = rowInt + rowFrac;
-    const [dc, dr] = ORIENTATION_OFFSETS[orientation];
+    this.drawPuyo(this.ctx, cellCenterX(piece.col), cellCenterY(piece.row), piece.axisColor, CURRENT_PIECE_ALPHA);
+    this.drawPuyo(this.ctx, cellCenterX(piece.col + dc), cellCenterY(piece.row + dr), piece.satColor, CURRENT_PIECE_ALPHA);
 
-    // Draw axis puyo
-    const axisX = col * CELL_SIZE + CELL_SIZE / 2;
-    const axisY = (ROWS - 1 - row) * CELL_SIZE + CELL_SIZE / 2;
-    this.drawPuyo(this.ctx, axisX, axisY, axisColor, 0.9);
-
-    // Draw satellite puyo
-    const satX = (col + dc) * CELL_SIZE + CELL_SIZE / 2;
-    const satY = (ROWS - 1 - (row + dr)) * CELL_SIZE + CELL_SIZE / 2;
-    this.drawPuyo(this.ctx, satX, satY, satColor, 0.9);
-
-    // Draw ghost (hard drop preview)
-    this.drawGhost(game, col, orientation, axisColor, satColor);
+    this.drawGhost(game, piece);
   }
 
-  private drawGhost(
-    game: WasmGame,
-    col: number,
-    orientation: number,
-    axisColor: number,
-    satColor: number
-  ): void {
-    // Simple ghost: show where piece would land
+  private drawGhost(game: WasmGame, piece: PieceData): void {
     const board = game.get_board();
-    const [dc, dr] = ORIENTATION_OFFSETS[orientation];
+    const [dc, dr] = ORIENTATION_OFFSETS[piece.orientation];
 
     const getHeight = (c: number): number => {
       for (let r = ROWS - 1; r >= 0; r--) {
@@ -134,46 +161,30 @@ export class Renderer {
       return 0;
     };
 
-    const satCol = col + dc;
+    const satCol = piece.col + dc;
     if (satCol < 0 || satCol >= COLS) return;
 
     let axisRow: number;
     let satRow: number;
 
     if (dc === 0) {
-      // Vertical: both in same column
-      const h = getHeight(col);
+      const h = getHeight(piece.col);
       if (dr > 0) {
-        // North: axis below, satellite above
         axisRow = h;
         satRow = h + 1;
       } else {
-        // South: satellite below, axis above
         satRow = h;
         axisRow = h + 1;
       }
     } else {
-      // Horizontal: side by side
-      axisRow = getHeight(col);
+      axisRow = getHeight(piece.col);
       satRow = getHeight(satCol);
     }
 
     const ctx = this.ctx;
-    ctx.globalAlpha = 0.25;
-    this.drawPuyo(
-      ctx,
-      col * CELL_SIZE + CELL_SIZE / 2,
-      (ROWS - 1 - axisRow) * CELL_SIZE + CELL_SIZE / 2,
-      axisColor,
-      1.0
-    );
-    this.drawPuyo(
-      ctx,
-      satCol * CELL_SIZE + CELL_SIZE / 2,
-      (ROWS - 1 - satRow) * CELL_SIZE + CELL_SIZE / 2,
-      satColor,
-      1.0
-    );
+    ctx.globalAlpha = GHOST_ALPHA;
+    this.drawPuyo(ctx, cellCenterX(piece.col), cellCenterY(axisRow), piece.axisColor, 1.0);
+    this.drawPuyo(ctx, cellCenterX(satCol), cellCenterY(satRow), piece.satColor, 1.0);
     ctx.globalAlpha = 1.0;
   }
 
@@ -182,15 +193,12 @@ export class Renderer {
     const nextData = game.get_next_piece();
     if (nextData.length < 2) return;
 
-    const axisColor = nextData[0];
-    const satColor = nextData[1];
+    ctx.fillStyle = PREVIEW_BG;
+    ctx.fillRect(0, 0, NEXT_PREVIEW_SIZE, NEXT_PREVIEW_SIZE);
 
-    ctx.fillStyle = "#16213e";
-    ctx.fillRect(0, 0, 80, 80);
-
-    // Draw satellite above axis (North orientation)
-    this.drawPuyo(ctx, 40, 20, satColor, 1.0);
-    this.drawPuyo(ctx, 40, 56, axisColor, 1.0);
+    const cx = NEXT_PREVIEW_SIZE / 2;
+    this.drawPuyo(ctx, cx, 20, nextData[1], 1.0);
+    this.drawPuyo(ctx, cx, 56, nextData[0], 1.0);
   }
 
   private drawNextNext(game: WasmGame): void {
@@ -198,15 +206,12 @@ export class Renderer {
     const data = game.get_next_next_piece();
     if (data.length < 2) return;
 
-    const axisColor = data[0];
-    const satColor = data[1];
+    ctx.fillStyle = PREVIEW_BG;
+    ctx.fillRect(0, 0, NEXT_NEXT_PREVIEW_SIZE, NEXT_NEXT_PREVIEW_SIZE);
 
-    ctx.fillStyle = "#16213e";
-    ctx.fillRect(0, 0, 60, 60);
-
-    // Draw satellite above axis (North orientation), scaled down
-    this.drawPuyo(ctx, 30, 15, satColor, 0.75);
-    this.drawPuyo(ctx, 30, 42, axisColor, 0.75);
+    const cx = NEXT_NEXT_PREVIEW_SIZE / 2;
+    this.drawPuyo(ctx, cx, 15, data[1], NEXT_NEXT_SCALE);
+    this.drawPuyo(ctx, cx, 42, data[0], NEXT_NEXT_SCALE);
   }
 
   private drawPuyo(
@@ -247,10 +252,10 @@ export class Renderer {
     // Pupils
     ctx.fillStyle = "#000";
     ctx.beginPath();
-    ctx.arc(x - EYE_OFFSET_X + 1, y + EYE_OFFSET_Y, 1.5, 0, Math.PI * 2);
+    ctx.arc(x - EYE_OFFSET_X + PUPIL_OFFSET_X, y + EYE_OFFSET_Y, PUPIL_RADIUS, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(x + EYE_OFFSET_X + 1, y + EYE_OFFSET_Y, 1.5, 0, Math.PI * 2);
+    ctx.arc(x + EYE_OFFSET_X + PUPIL_OFFSET_X, y + EYE_OFFSET_Y, PUPIL_RADIUS, 0, Math.PI * 2);
     ctx.fill();
   }
 }

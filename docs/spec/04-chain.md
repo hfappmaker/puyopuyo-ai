@@ -2,7 +2,7 @@
 
 ## 連鎖の仕組み
 
-1. 同色ぷよが4個以上つながっていると消去される
+1. 同色ぷよが `MIN_GROUP_SIZE`（4）個以上つながっていると消去される
 2. 消去後、上にあったぷよが重力で落下する
 3. 落下の結果、再び4個以上つながれば連続して消去される
 4. これ以上消えなくなるまで繰り返す
@@ -28,7 +28,7 @@ pub struct Group {
 
 `flood_fill(board, col, row, visited)` は指定セルから同色の連結セルをBFSで探索し、全セルの座標を返す公開関数。`find_groups` と `puyo-ai` の `count_potential_chains` で共有して使用し、BFSロジックの重複を排除している。
 
-`find_groups` は `flood_fill` で検出したグループのうち4個以上のものを返す。
+`find_groups` は `flood_fill` で検出したグループのうち `MIN_GROUP_SIZE`（4）個以上のものを返す。この定数は `pub const MIN_GROUP_SIZE: usize = 4` として公開されている。
 
 ### resolve_chains
 

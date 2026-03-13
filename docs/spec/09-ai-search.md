@@ -122,9 +122,18 @@ pub fn find_best_move(
 
 全配置のシミュレーション完了後、実際に発生した最大連鎖数と、evaluatorが選んだ最善手の連鎖数を比較する。最大連鎖の方が大きければ、evaluatorの判断をオーバーライドしてその配置を選択する。スコアは `f64::INFINITY` として返される。
 
-- **search_depth1**: 各配置の連鎖数を追跡し、ループ後に `best_chain_count > eval_best_chain_count` なら最大連鎖の配置を返す
-- **search_depth2**: 1手目・2手目で発生した最大連鎖数とその1手目配置を追跡。evaluator最善手の1手目に対応する最大連鎖数と比較し、オーバーライドする
-- **search_depth3**: 1手目・2手目・3手目で発生した最大連鎖数とその1手目配置を追跡。同様にオーバーライドする
+連鎖追跡は `ChainTracker` 構造体で管理される:
+- `update(chain_count, placement)`: 最大連鎖数と対応する1手目配置を更新
+- `set_eval_best(chain_count)`: evaluator最善手の連鎖数を記録
+- `override_result(depth)`: オーバーライドが発動する場合に `SearchResult` を返す
+
+## 内部構造
+
+### search_deep / search_remaining
+
+`search_depth2` と `search_depth3` は内部で共通の `search_deep` 関数を使用する。`search_deep` は1手目の全配置を列挙し、各配置後の盤面に対して `search_remaining` を再帰的に呼び出す。`search_remaining` は残りのピースリスト（`&[&Piece]`）を受け取り、空になったら盤面を直接評価する。
+
+これにより depth2/3（および将来のより深い探索）の重複コードが解消されている。
 
 ## シミュレーション
 

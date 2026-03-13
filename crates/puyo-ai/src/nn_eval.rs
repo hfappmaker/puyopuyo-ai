@@ -51,10 +51,10 @@ impl Evaluator for NnEvaluator {
         let tensor = Tensor::<InferBackend, 1>::from_floats(data.as_slice(), &self.device)
             .reshape([1, NUM_CHANNELS, ROWS, COLS]);
         let output = self.model.forward(tensor);
-        let normalized = output
-            .into_data()
-            .to_vec::<f32>()
-            .expect("NN output tensor conversion to f32 failed")[0];
+        let normalized = match output.into_data().to_vec::<f32>() {
+            Ok(v) => v[0],
+            Err(_) => return crate::eval::W_GAME_OVER,
+        };
         // Denormalize
         (normalized * self.std_dev + self.mean) as f64
     }

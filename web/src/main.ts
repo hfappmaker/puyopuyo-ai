@@ -4,6 +4,28 @@ import { GameLoop } from "./game-loop";
 import { UI } from "./ui";
 import { loadNnModel } from "./model-loader";
 
+function setupAiModeToggle(gameLoop: GameLoop): void {
+  const aiModeSelect = document.getElementById("ai-mode-select") as HTMLSelectElement;
+  const aiModeStatus = document.getElementById("ai-mode-status") as HTMLElement;
+
+  aiModeSelect.addEventListener("change", async () => {
+    const mode = aiModeSelect.value;
+    if (mode === "nn") {
+      aiModeStatus.textContent = "モデル読み込み中...";
+      const success = await loadNnModel(gameLoop.getGame());
+      if (success) {
+        aiModeStatus.textContent = "NN AI 有効";
+      } else {
+        aiModeStatus.textContent = "モデル未配置";
+        aiModeSelect.value = "heuristic";
+      }
+    } else {
+      gameLoop.getGame().use_heuristic();
+      aiModeStatus.textContent = "";
+    }
+  });
+}
+
 async function main() {
   const wasm = await loadWasm();
 
@@ -20,28 +42,7 @@ async function main() {
   const gameLoop = new GameLoop(game, renderer, ui, createGame);
   gameLoop.start();
 
-  // AI mode toggle
-  const aiModeSelect = document.getElementById("ai-mode-select") as HTMLSelectElement;
-  const aiModeStatus = document.getElementById("ai-mode-status") as HTMLElement;
-
-  aiModeSelect.addEventListener("change", async () => {
-    const mode = aiModeSelect.value;
-    if (mode === "nn") {
-      aiModeStatus.textContent = "モデル読み込み中...";
-      const currentGame = gameLoop.getGame();
-      const success = await loadNnModel(currentGame);
-      if (success) {
-        aiModeStatus.textContent = "NN AI 有効";
-      } else {
-        aiModeStatus.textContent = "モデル未配置";
-        aiModeSelect.value = "heuristic";
-      }
-    } else {
-      const currentGame = gameLoop.getGame();
-      currentGame.use_heuristic();
-      aiModeStatus.textContent = "";
-    }
-  });
+  setupAiModeToggle(gameLoop);
 }
 
 main().catch(console.error);
