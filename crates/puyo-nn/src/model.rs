@@ -97,7 +97,7 @@ impl PuyoValueNetConfig {
 
 impl<B: Backend> PuyoValueNet<B> {
     /// Forward pass.
-    /// Input shape: [batch, NUM_CHANNELS, ROWS, COLS] = [batch, 10, 14, 6]
+    /// Input shape: [batch, NUM_CHANNELS, ROWS, COLS] = [batch, 6, 14, 6]
     /// Output shape: [batch, 1]
     pub fn forward(&self, x: Tensor<B, 4>) -> Tensor<B, 2> {
         let batch_size = x.dims()[0];
