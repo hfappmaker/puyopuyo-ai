@@ -31,8 +31,9 @@ const MODEL_PATH: &str = "artifacts/puyo_model";
 const OUTPUT_PATH: &str = "artifacts/puyo_model_selfplay";
 const GAMMA: f32 = 0.99;
 const LAMBDA: f32 = 0.8;
-const BUFFER_SIZE: usize = 64;
-const LEARNING_RATE: f64 = 1e-4;
+const BUFFER_SIZE: usize = 256;
+const LR_MAX: f64 = 1e-4;
+const LR_MIN: f64 = 1e-6;
 const EPSILON_START: f32 = 0.3;
 const EPSILON_END: f32 = 0.01;
 const LOG_INTERVAL: u64 = 100;
@@ -122,9 +123,10 @@ impl RewardStats {
             0.0
         };
         let (avg_chain, avg_moves) = game_stats.averages();
+        let lr = cosine_lr(step, total_steps);
         println!(
-            "[PROGRESS] step={}/{}, games={}, eps={:.3}, rewards(-/0/+)={}/{}/{}, loss={:.4}, avg_chain={:.1}, avg_moves={:.1}",
-            step, total_steps, game_count, epsilon,
+            "[PROGRESS] step={}/{}, games={}, eps={:.3}, lr={:.6}, rewards(-/0/+)={}/{}/{}, loss={:.4}, avg_chain={:.1}, avg_moves={:.1}",
+            step, total_steps, game_count, epsilon, lr,
             self.negative, self.zero, self.positive,
             avg_loss, avg_chain, avg_moves,
         );
@@ -351,6 +353,15 @@ fn compute_epsilon(step: u64, total_steps: u64) -> f32 {
     EPSILON_START + (EPSILON_END - EPSILON_START) * progress
 }
 
+/// Cosine Annealing 学習率スケジューラ
+fn cosine_lr(step: u64, total_steps: u64) -> f64 {
+    LR_MIN
+        + 0.5
+            * (LR_MAX - LR_MIN)
+            * (1.0
+                + (std::f64::consts::PI * step as f64 / total_steps.max(1) as f64).cos())
+}
+
 /// ε-greedy で配置を選択。配置不能な場合は None を返す。
 fn select_placement(
     session: &GameSession,
@@ -503,7 +514,8 @@ impl<O: Optimizer<PuyoValueNet<TrainBackend>, TrainBackend>> TrainingContext<O> 
         let loss_val = loss.clone().into_data().to_vec::<f32>().unwrap()[0];
         let grads = loss.backward();
         let grads = GradientsParams::from_grads(grads, &model);
-        (self.optim.step(LEARNING_RATE, model, grads), loss_val)
+        let lr = cosine_lr(self.step, self.total_steps);
+        (self.optim.step(lr, model, grads), loss_val)
     }
 
     /// バッファのλ-return計算 → バッチ学習 → 統計記録 → バッファクリアを一括実行。
@@ -682,8 +694,8 @@ struct Args {
 fn parse_args() -> Args {
     let args: Vec<String> = std::env::args().collect();
     let mut result = Args {
-        total_steps: 200_000,
-        target_update_interval: 1_000,
+        total_steps: 500_000,
+        target_update_interval: 2_000,
         buffer_size: BUFFER_SIZE,
         lambda: LAMBDA,
     };

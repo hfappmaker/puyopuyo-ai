@@ -24,14 +24,23 @@ const MODEL_PATH: &str = "artifacts/puyo_model";
 #[cfg(feature = "gpu")]
 const BATCH_SIZE: usize = 512;
 #[cfg(not(feature = "gpu"))]
-const BATCH_SIZE: usize = 8;
+const BATCH_SIZE: usize = 64;
 #[cfg(feature = "gpu")]
 const VAL_BATCH_SIZE: usize = 512;
 #[cfg(not(feature = "gpu"))]
-const VAL_BATCH_SIZE: usize = 8;
-const NUM_EPOCHS: usize = 20;
-const LEARNING_RATE: f64 = 5e-4;
+const VAL_BATCH_SIZE: usize = 64;
+const NUM_EPOCHS: usize = 50;
+const LR_MAX: f64 = 5e-4;
+const LR_MIN: f64 = 1e-5;
+const EARLY_STOPPING_PATIENCE: usize = 5;
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
+
+fn cosine_lr(epoch: usize, total_epochs: usize) -> f64 {
+    LR_MIN
+        + 0.5
+            * (LR_MAX - LR_MIN)
+            * (1.0 + (std::f64::consts::PI * epoch as f64 / total_epochs as f64).cos())
+}
 
 fn main() {
     std::fs::create_dir_all("artifacts").expect("Failed to create artifacts directory");
@@ -72,8 +81,14 @@ fn main() {
     let mut model = config.init::<TrainBackend>(&device);
     let mut optim = AdamConfig::new().init();
 
-    // Training loop
+    // Training loop with Cosine Annealing LR and Early Stopping
+    let mut best_val_loss = f32::MAX;
+    let mut patience_counter = 0usize;
+
     for epoch in 0..NUM_EPOCHS {
+        let lr = cosine_lr(epoch, NUM_EPOCHS);
+        println!("Learning rate: {:.6}", lr);
+
         let mut epoch_loss = 0.0f32;
         let mut num_batches = 0;
 
@@ -126,7 +141,7 @@ fn main() {
             // Backward pass
             let grads = loss.backward();
             let grads = GradientsParams::from_grads(grads, &model);
-            model = optim.step(LEARNING_RATE, model, grads);
+            model = optim.step(lr, model, grads);
 
             if num_batches % 50 == 0 {
                 let total_batches = (train_samples.len() + BATCH_SIZE - 1) / BATCH_SIZE;
@@ -145,21 +160,50 @@ fn main() {
         let val_device: <InnerBackend as Backend>::Device = Default::default();
         let val_loss = compute_val_loss(&val_model, val_samples, mean, std_dev, &val_device);
 
+        let avg_train_loss = epoch_loss / num_batches as f32;
         println!(
-            "Epoch {}/{}: train_loss={:.6}, val_loss={:.6}",
+            "Epoch {}/{}: train_loss={:.6}, val_loss={:.6}, lr={:.6}",
             epoch + 1,
             NUM_EPOCHS,
-            epoch_loss / num_batches as f32,
-            val_loss
+            avg_train_loss,
+            val_loss,
+            lr
         );
+
+        // Early Stopping + Best Model Save
+        if val_loss < best_val_loss {
+            best_val_loss = val_loss;
+            patience_counter = 0;
+            // Save best model
+            let best_model = model.valid();
+            best_model
+                .save_file(MODEL_PATH, &BinFileRecorder::<FullPrecisionSettings>::new())
+                .expect("Failed to save best model");
+            println!("  -> Best model saved (val_loss={:.6})", val_loss);
+        } else {
+            patience_counter += 1;
+            println!(
+                "  -> No improvement ({}/{})",
+                patience_counter, EARLY_STOPPING_PATIENCE
+            );
+            if patience_counter >= EARLY_STOPPING_PATIENCE {
+                println!("Early stopping triggered at epoch {}", epoch + 1);
+                break;
+            }
+        }
     }
 
-    // Save model
-    let model_valid = model.valid();
-    model_valid
-        .save_file(MODEL_PATH, &BinFileRecorder::<FullPrecisionSettings>::new())
-        .expect("Failed to save model");
-    println!("Model saved to {}", MODEL_PATH);
+    // Save final model (if early stopping didn't trigger, save the last epoch)
+    if patience_counter < EARLY_STOPPING_PATIENCE {
+        let model_valid = model.valid();
+        model_valid
+            .save_file(MODEL_PATH, &BinFileRecorder::<FullPrecisionSettings>::new())
+            .expect("Failed to save model");
+    }
+    println!(
+        "Training complete. Best model saved to {} (val_loss={:.6})",
+        MODEL_PATH, best_val_loss
+    );
 }
 
 type InnerBackend = <TrainBackend as AutodiffBackend>::InnerBackend;

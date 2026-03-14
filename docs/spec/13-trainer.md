@@ -85,20 +85,36 @@ future_values[t] = score[t] + γ × future_values[t+1]
 
 | 名前 | 値 | 説明 |
 |------|-----|------|
-| `BATCH_SIZE` | 512 | バッチサイズ |
-| `NUM_EPOCHS` | 20 | エポック数 |
-| `LEARNING_RATE` | 5e-4 | 学習率 |
+| `BATCH_SIZE` | 512 (GPU) / 64 (CPU) | バッチサイズ |
+| `NUM_EPOCHS` | 50 | 最大エポック数 |
+| `LR_MAX` | 5e-4 | Cosine Annealing 初期学習率 |
+| `LR_MIN` | 1e-5 | Cosine Annealing 最終学習率 |
+| `EARLY_STOPPING_PATIENCE` | 5 | Early Stopping の patience（エポック数） |
 | `MODEL_PATH` | `artifacts/puyo_model` | モデル保存先 |
+
+### 学習率スケジューラ（Cosine Annealing）
+
+エポック単位で学習率を Cosine 減衰させる。
+
+```
+lr(epoch) = LR_MIN + 0.5 × (LR_MAX - LR_MIN) × (1 + cos(π × epoch / NUM_EPOCHS))
+```
+
+### Early Stopping
+
+Validation loss が `EARLY_STOPPING_PATIENCE` エポック連続で改善しない場合、学習を早期終了する。Validation loss が改善するたびにベストモデルを保存する。
 
 ### 手順
 
 1. データを `TRAIN_SPLIT_RATIO`（0.9）で訓練/検証に分割
 2. 訓練セットの目標値を標準化（平均0、標準偏差1）
 3. 正規化パラメータ（mean, std_dev）を `artifacts/norm_params.txt` に保存
-4. エポックごとに LCG（PCG family パラメータ: `6364136223846793005`, `1`）ベースのシャッフル → ミニバッチ学習
-5. 損失関数: MSE
-6. 最適化: Adam
-7. 学習済みモデルを `BinFileRecorder` で保存
+4. エポックごとに Cosine Annealing で学習率を計算
+5. LCG（PCG family パラメータ: `6364136223846793005`, `1`）ベースのシャッフル → ミニバッチ学習
+6. 損失関数: MSE
+7. 最適化: Adam
+8. Validation loss 改善時にベストモデルを `BinFileRecorder` で保存
+9. Early Stopping 判定（patience=5）
 
 ## Phase 3: 自己対戦強化学習 (`self-play`)
 
@@ -108,23 +124,32 @@ future_values[t] = score[t] + γ × future_values[t+1]
 
 | 名前 | 値 | 説明 |
 |------|-----|------|
-| `TOTAL_STEPS` | 200,000 | 全体のステップ数（遷移数ベース） |
+| `TOTAL_STEPS` | 500,000 | 全体のステップ数（遷移数ベース） |
 | `GAMMA` | 0.99 | 割引率 |
 | `LAMBDA` | 0.8 | TD(λ) の λ パラメータ |
-| `BUFFER_SIZE` | 64 | 軌跡バッファの容量 |
-| `LEARNING_RATE` | 1e-4 | 学習率 |
+| `BUFFER_SIZE` | 256 | 軌跡バッファの容量 |
+| `LR_MAX` | 1e-4 | Cosine Annealing 初期学習率 |
+| `LR_MIN` | 1e-6 | Cosine Annealing 最終学習率 |
 | `EPSILON_START` | 0.3 | 初期探索率 |
 | `EPSILON_END` | 0.01 | 最終探索率 |
-| `TARGET_UPDATE_INTERVAL` | 1,000 | ターゲットネットワーク更新間隔（ステップ数） |
+| `TARGET_UPDATE_INTERVAL` | 2,000 | ターゲットネットワーク更新間隔（ステップ数） |
 | `LOG_INTERVAL` | 100 | 進捗ログ出力間隔（ステップ数） |
+
+### 学習率スケジューラ（Cosine Annealing）
+
+ステップ単位で学習率を Cosine 減衰させる。
+
+```
+lr(step) = LR_MIN + 0.5 × (LR_MAX - LR_MIN) × (1 + cos(π × step / TOTAL_STEPS))
+```
 
 ### コマンドラインオプション
 
 | オプション | 型 | デフォルト | 説明 |
 |-----------|-----|----------|------|
-| `--steps` | u64 | 200,000 | 全体のステップ数 |
-| `--target-update` | u64 | 1,000 | ターゲット更新間隔 |
-| `--buffer-size` | usize | 64 | バッファ容量 |
+| `--steps` | u64 | 500,000 | 全体のステップ数 |
+| `--target-update` | u64 | 2,000 | ターゲット更新間隔 |
+| `--buffer-size` | usize | 256 | バッファ容量 |
 | `--lambda` | f32 | 0.8 | λ パラメータ |
 
 ### コード構造
@@ -145,6 +170,7 @@ future_values[t] = score[t] + γ × future_values[t+1]
 | `sync_target_network()` | 関数 | ターゲットネットワークをオンラインモデルから同期 |
 | `select_placement()` | 関数 | ε-greedy 配置選択。`Option<Placement>` を返す |
 | `compute_epsilon()` | 関数 | εの線形減衰計算 |
+| `cosine_lr()` | 関数 | Cosine Annealing 学習率スケジューラ |
 | `simple_rng()` | 関数 | splitmix64 アルゴリズムによる決定論的 RNG（ε-greedy 用） |
 | `run_training_loop()` | 関数 | メインの学習ループ |
 
@@ -184,8 +210,7 @@ struct TrainingContext<O> {
 
 | 条件 | 報酬 |
 |------|------|
-| 連鎖が発生 | スコア（`chain_result.score`） |
-| 連鎖なし（生存） | 0 |
+| 通常（ピース設置後） | `chain_result.score as f32`（連鎖なしなら0） |
 | ゲームオーバー | -1 |
 
 ### 遷移バッファと TD(λ)
@@ -237,7 +262,7 @@ for t in (0..n).rev():
 `LOG_INTERVAL`（100ステップ）ごとに以下の収束指標をログ出力する。
 
 ```
-[PROGRESS] step=100/200000, games=5, eps=0.299, rewards(-1/0/+1)=10/20/70, loss=0.0342, avg_chain=4.2, avg_moves=18.5
+[PROGRESS] step=100/500000, games=5, eps=0.299, lr=0.000100, rewards(-1/0/+1)=10/20/70, loss=0.0342, avg_chain=4.2, avg_moves=18.5
 ```
 
 | フィールド | 説明 | 収束時の傾向 |
