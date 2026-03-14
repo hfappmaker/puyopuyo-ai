@@ -3277,7 +3277,6 @@ dependencies = [
  "puyo-core",
  "puyo-nn",
  "rand 0.8.5",
- "rayon",
  "serde",
 ]
 

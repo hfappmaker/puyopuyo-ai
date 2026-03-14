@@ -27,7 +27,6 @@ crates/puyo-trainer/
 | `puyo-nn` | CNN モデル・エンコーディング |
 | `burn` | NN フレームワーク（ndarray, autodiff, train） |
 | `serde` / `bincode` | データのシリアライズ |
-| `rayon` | ゲーム生成の並列化 |
 
 ## 訓練データ (`data`)
 
@@ -62,24 +61,14 @@ SimulationEvaluator AI に自動対戦させ、訓練データを収集する。
 | `OUTPUT_PATH` | `data/training_data.bin` | 出力先 |
 | `MAX_MOVES_PER_GAME` | 50 | 1ゲームあたりの最大手数 |
 
-### 並列化
-
-`rayon` の `into_par_iter()` により、ゲーム単位で並列実行する。各ゲームは seed のみで決まり完全に独立しているため、スレッド安全に並列化できる。
-
-- `run_single_game(seed, &evaluator) -> GameResult` に1ゲームの処理を抽出
-- `SimulationEvaluator` は unit struct（状態なし）で自動的に `Sync + Send`
-- 進捗表示は `AtomicU64` で完了ゲーム数をカウント
-- `collect()` は入力順を保持するため、出力の再現性は維持される
-
 ### 手順
 
-1. シード `0..NUM_GAMES` で各ゲームを rayon で並列実行
+1. シード `0..NUM_GAMES` で各ゲームを実行
 2. 各手番で盤面状態を `board_to_tensor_data` で記録
 3. `find_best_move`（`SimulationEvaluator`）で最善手を選択・適用
 4. 設置ごとのスコアを記録
 5. 最大手数（`MAX_MOVES_PER_GAME`）に達するかゲーム終了まで繰り返す
 6. ゲーム終了後、割引累積報酬（γ = 0.95）を逆方向に計算
-7. 全ゲームの結果をシーケンシャルにマージ
 
 ### 目標値の計算
 
