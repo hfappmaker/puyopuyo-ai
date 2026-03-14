@@ -16,7 +16,7 @@ pub trait Evaluator {
 
 | Evaluator | 探索深度 | 評価関数 |
 |-----------|----------|---------|
-| `SimulationEvaluator` | depth-1〜3 を BFS 順で統一評価 | 仮想ぷよシミュレーション |
+| `SimulationEvaluator` | depth-1〜3 を BFS 順で統一評価 | max(実連鎖スコア, 仮想ぷよシミュレーション期待値) |
 | `NnEvaluator` | depth-1〜3 を BFS 順で統一評価 | CNN forward pass |
 
 ## 共通定数
@@ -47,6 +47,16 @@ pub trait Evaluator {
 
 - 最大44回（4色 × 最大11配置）のシミュレーション / 盤面評価
 - depth-3 探索と組み合わせた場合: ~10,648盤面 × 44 ≈ 468,512 シミュレーション / 手
+
+### 探索時の評価値
+
+`find_best_move` の各深度（depth-1〜3）では、`simulate_placement()` が返す実連鎖スコア（`ChainResult.score`）と `simulate_expected_score()` の期待値の大きい方を評価値として採用する:
+
+```
+評価値 = max(result.score as f64, simulate_expected_score(&board))
+```
+
+これにより、即座に大連鎖が発生する配置を見逃さず、かつ将来の連鎖ポテンシャルも考慮できる。実連鎖スコアは各深度で独立して評価し、深度間で累積しない。
 
 ### 用途
 

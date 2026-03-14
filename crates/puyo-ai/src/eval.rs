@@ -36,36 +36,36 @@ impl Evaluator for SimulationEvaluator {
         let mut best_placement = placements[0];
 
         for p1 in &placements {
-            let (board1, _) = simulate_placement(board, current, p1);
+            let (board1, result1) = simulate_placement(board, current, p1);
             if board1.is_game_over() {
                 continue;
             }
 
-            let s = simulate_expected_score(&board1);
+            let s = (result1.score as f64).max(simulate_expected_score(&board1));
             if s > best_score {
                 best_score = s;
                 best_placement = *p1;
             }
 
             for p2 in &enumerate_placements(&board1, next) {
-                let (board2, _) = simulate_placement(&board1, next, p2);
+                let (board2, result2) = simulate_placement(&board1, next, p2);
                 if board2.is_game_over() {
                     continue;
                 }
 
-                let s = simulate_expected_score(&board2);
+                let s = (result2.score as f64).max(simulate_expected_score(&board2));
                 if s > best_score {
                     best_score = s;
                     best_placement = *p1;
                 }
 
                 for p3 in &enumerate_placements(&board2, next_next) {
-                    let (board3, _) = simulate_placement(&board2, next_next, p3);
+                    let (board3, result3) = simulate_placement(&board2, next_next, p3);
                     if board3.is_game_over() {
                         continue;
                     }
 
-                    let s = simulate_expected_score(&board3);
+                    let s = (result3.score as f64).max(simulate_expected_score(&board3));
                     if s > best_score {
                         best_score = s;
                         best_placement = *p1;
