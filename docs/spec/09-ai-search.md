@@ -6,13 +6,7 @@
 
 ## 探索結果
 
-```rust
-pub struct SearchResult {
-    pub best_placement: Placement,  // 最善の配置
-    pub score: f64,                 // 評価スコア
-    pub depth: u32,                 // 探索深度（1, 2, or 3）
-}
-```
+`find_best_move` は `Option<Placement>` を返す。配置不能な場合は `None`。
 
 ## 配置列挙
 
@@ -57,77 +51,46 @@ East/West 配置では軸列・衛星列の両方が到達可能でなければ�
 
 連鎖消去により row 13 にぷよが孤立して残る場合がある（下の行が消えても `apply_gravity` は row 13 を移動しない）。この孤立ぷよを上書きしないよう、3層の防御を行う:
 
-1. **AI配置列挙**: `has_isolated_top_puyo(col)` で検出し、North/East/West の衛星配置先の上限を `ROWS - 1` に制限
+1. **AI配置列挙**: `column_info(col)` の孤立フラグで検出し、North/East/West の衛星配置先の上限を `ROWS - 1` に制限
 2. **ゲームプレイ衝突判定**: `FallingPiece::can_occupy` でセルレベルの衝突チェックを実施（`board.get(col, row).is_color()` で占有セルを検出）
 3. **place_piece 防御**: North 配置時、衛星の着地先セルが占有済みなら `drop_puyo` をスキップ
 
-## 1手先読み探索 (search_depth1)
+## find_best_move
 
-1. 現在のぷよ組の全配置パターンを列挙する
-2. 各配置の結果盤面を評価関数で採点する
-3. 最高評価の配置を返す
+`find_best_move` は `Evaluator` トレイトの唯一のメソッド。各評価器が評価関数・探索深度・連鎖オーバーライドを含む探索戦略を完全に実装する。
 
-## 2手先読み探索 (search_depth2)
+```rust
+fn find_best_move(&self, board: &Board, current: &Piece, next: &Piece, next_next: Option<&Piece>) -> Option<Placement>
+```
 
-`search_deep(board, current, &[&next], evaluator, 2)` の薄いラッパー。
+| Evaluator | 探索深度 | 連鎖オーバーライド |
+|-----------|----------|-------------------|
+| `SimulationEvaluator` | depth-2 → depth-1 | あり |
+| `NnEvaluator` | depth-3 → depth-2 → depth-1 | なし |
+
+## 探索の流れ
 
 1. 現在のぷよ組の全配置パターンを列挙する
 2. 各配置に対して盤面をシミュレーション（設置 + 連鎖解決）する
 3. ゲームオーバーになる配置はスキップする
-4. シミュレーション後の盤面に対して、次のぷよ組の全配置パターンを列挙する
-5. 各2手目配置の結果盤面を評価関数で採点する
-6. 2手目の最高評価を、その1手目配置の評価とする
-7. 全1手目配置の中で最高評価のものを「次の一手」として返す
-
-## 3手先読み探索 (search_depth3)
-
-`search_deep(board, current, &[&next, &next_next], evaluator, 3)` の薄いラッパー。NN評価器使用時に自動的に選択される。見えている3つのツモ（current, next, next_next）すべてを使って最善手を探索する。
+4. 残りのピースがあればインラインのネストループで探索、なければ評価関数で採点する
+5. 全1手目配置の中で最高評価のものを「次の一手」として返す
+6. （連鎖オーバーライド有効時）最大連鎖がevaluator最善手を上回ればオーバーライド
 
 ### 計算量
 
-最大 22 × 22 × 22 = 10,648 盤面の評価。NN評価器は単一のCNN forward passで高速なため、WASMでも実用的な速度で動作する。
+- depth-2: 最大 22 × 22 = 484 盤面の評価
+- depth-3: 最大 22 × 22 × 22 = 10,648 盤面の評価
 
-## フォールバック
+## 共通ユーティリティ（placement.rs）
 
-`find_best_move` は `evaluator.preferred_depth()` に基づいて探索深度を決定する:
+- `simulate_placement(board, piece, placement)`: 配置シミュレーション。一時的な `GameState` でピースを設置し連鎖解決。結果の盤面と `ChainResult` を返す。元の盤面は変更されない
+- `enumerate_placements(board, piece)`: 盤面上の全合法配置を列挙する
 
-1. `preferred_depth() >= 3` かつ `next_next` が `Some` の場合: 3手先読みを試行
-2. 有効な結果がなければ2手先読みに切り替え
-3. それも有効でなければ1手先読みに切り替え
+## 連鎖オーバーライド（eval.rs）
 
-### preferred_depth
+`ChainTracker` 構造体で連鎖オーバーライドを管理する。全配置のシミュレーション完了後、実際に発生した最大連鎖数と、evaluatorが選んだ最善手の連鎖数を比較する。最大連鎖の方が大きければ、evaluatorの判断をオーバーライドしてその配置を選択する。
 
-`Evaluator` トレイトのメソッド。デフォルトは `2`。`NnEvaluator` は `3` を返す。
+`SimulationEvaluator` は連鎖オーバーライドを使用し、`NnEvaluator` は使用しない（NNスコアを信頼するため）。
 
-### シグネチャ
-
-```rust
-pub fn find_best_move(
-    board: &Board,
-    current: &Piece,
-    next: &Piece,
-    next_next: Option<&Piece>,
-    evaluator: &dyn Evaluator,
-) -> Option<SearchResult>
-```
-
-## 実連鎖の最大値による配置選択オーバーライド
-
-全配置のシミュレーション完了後、実際に発生した最大連鎖数と、evaluatorが選んだ最善手の連鎖数を比較する。最大連鎖の方が大きければ、evaluatorの判断をオーバーライドしてその配置を選択する。スコアは `f64::INFINITY` として返される。
-
-連鎖追跡は `ChainTracker` 構造体で管理される:
-- `update(chain_count, placement)`: 最大連鎖数と対応する1手目配置を更新
-- `set_eval_best(chain_count)`: evaluator最善手の連鎖数を記録
-- `override_result(depth)`: オーバーライドが発動する場合に `SearchResult` を返す
-
-## 内部構造
-
-### search_deep / search_remaining
-
-`search_depth2` と `search_depth3` は内部で共通の `search_deep` 関数を使用する。`search_deep` は1手目の全配置を列挙し、各配置後の盤面に対して `search_remaining` を再帰的に呼び出す。`search_remaining` は残りのピースリスト（`&[&Piece]`）を受け取り、空になったら盤面を直接評価する。
-
-これにより depth2/3（および将来のより深い探索）の重複コードが解消されている。
-
-## シミュレーション
-
-配置シミュレーションでは、一時的な `GameState` を作成し、`place_piece` でピースを設置後、`resolve_chains` で連鎖を解決する。結果として盤面と `ChainResult`（連鎖数・スコア等）の両方を返す。元の盤面は変更されない。
+2手目以降の探索は各 Evaluator が `find_best_move` 内にインラインで実装する（共通の再帰関数は使用しない）。

@@ -233,7 +233,6 @@ impl GameState {
             ChainResult {
                 chain_count: 0,
                 score: 0,
-                steps: vec![],
             }
         }
     }

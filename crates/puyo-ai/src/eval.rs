@@ -1,28 +1,57 @@
-use puyo_core::board::{Board, PuyoColor, COLS, ROWS, VISIBLE_ROWS};
+use puyo_core::board::{Board, PuyoColor, COLS, ROWS};
+use puyo_core::piece::{Piece, Placement};
+
+use crate::placement::{enumerate_placements, simulate_placement};
 
 /// Trait for board evaluation strategies.
 pub trait Evaluator {
-    fn evaluate(&self, board: &Board) -> f64;
-
-    /// Preferred search depth for this evaluator.
-    /// Default is 2 (current + next). NN evaluators may prefer 3 (+ next_next).
-    fn preferred_depth(&self) -> u32 {
-        2
-    }
-
-    /// シミュレーション中の最大連鎖数がevaluator最善手を上回った場合にオーバーライドするか。
-    /// HeuristicEvaluatorではtrue、NnEvaluatorではfalse。
-    fn use_chain_override(&self) -> bool {
-        true
-    }
+    /// AI最善手を探索する。
+    fn find_best_move(
+        &self,
+        board: &Board,
+        current: &Piece,
+        next: &Piece,
+        next_next: Option<&Piece>,
+    ) -> Option<Placement>;
 }
 
-/// The existing hand-tuned heuristic evaluator.
-pub struct HeuristicEvaluator;
+/// 連鎖オーバーライド判定用の追跡構造体。
+/// evaluator最善手より大きい連鎖が見つかった場合、そちらを優先する。
+pub struct ChainTracker {
+    best_chain_count: u32,
+    best_chain_placement: Placement,
+    eval_best_chain_count: u32,
+}
 
-impl Evaluator for HeuristicEvaluator {
-    fn evaluate(&self, board: &Board) -> f64 {
-        heuristic_evaluate(board)
+impl ChainTracker {
+    pub fn new(default_placement: Placement) -> Self {
+        Self {
+            best_chain_count: 0,
+            best_chain_placement: default_placement,
+            eval_best_chain_count: 0,
+        }
+    }
+
+    /// 連鎖数を更新（1手目配置に紐付ける）
+    pub fn update(&mut self, chain_count: u32, first_placement: Placement) {
+        if chain_count > self.best_chain_count {
+            self.best_chain_count = chain_count;
+            self.best_chain_placement = first_placement;
+        }
+    }
+
+    /// evaluator最善手が更新された時の連鎖数を記録
+    pub fn set_eval_best(&mut self, chain_count: u32) {
+        self.eval_best_chain_count = chain_count;
+    }
+
+    /// 連鎖オーバーライドが発動するならその配置を返す
+    pub fn override_placement(&self) -> Option<Placement> {
+        if self.best_chain_count > self.eval_best_chain_count {
+            Some(self.best_chain_placement)
+        } else {
+            None
+        }
     }
 }
 
@@ -30,13 +59,104 @@ impl Evaluator for HeuristicEvaluator {
 pub struct SimulationEvaluator;
 
 impl Evaluator for SimulationEvaluator {
-    fn evaluate(&self, board: &Board) -> f64 {
-        if board.is_game_over() {
-            return W_GAME_OVER;
+    /// depth-2 + 連鎖オーバーライド、depth-1 フォールバック。
+    fn find_best_move(
+        &self,
+        board: &Board,
+        current: &Piece,
+        next: &Piece,
+        _next_next: Option<&Piece>,
+    ) -> Option<Placement> {
+        let placements = enumerate_placements(board, current);
+        if placements.is_empty() {
+            return None;
         }
-        simulate_max_chain(board) as f64
+
+        // depth-2
+        let mut tracker = ChainTracker::new(placements[0]);
+        let mut best_score = f64::NEG_INFINITY;
+        let mut best_placement = placements[0];
+
+        for placement in &placements {
+            let (board_after, chain_result) = simulate_placement(board, current, placement);
+
+            if board_after.is_game_over() {
+                tracker.update(chain_result.chain_count, *placement);
+                continue;
+            }
+
+            let next_placements = enumerate_placements(&board_after, next);
+            let mut inner_best_score = f64::NEG_INFINITY;
+            let mut deeper_chain: u32 = 0;
+
+            for next_placement in &next_placements {
+                let (next_board, next_chain_result) =
+                    simulate_placement(&board_after, next, next_placement);
+                if next_chain_result.chain_count > deeper_chain {
+                    deeper_chain = next_chain_result.chain_count;
+                }
+                if next_board.is_game_over() {
+                    continue;
+                }
+                let s = simulation_evaluate(&next_board);
+                if s > inner_best_score {
+                    inner_best_score = s;
+                }
+            }
+
+            let score = inner_best_score;
+            let max_chain_for_this = chain_result.chain_count.max(deeper_chain);
+            tracker.update(max_chain_for_this, *placement);
+
+            if score > best_score {
+                best_score = score;
+                best_placement = *placement;
+                tracker.set_eval_best(max_chain_for_this);
+            }
+        }
+
+        if let Some(p) = tracker.override_placement() {
+            return Some(p);
+        }
+
+        if best_score > f64::NEG_INFINITY {
+            return Some(best_placement);
+        }
+
+        // depth-1 フォールバック
+        let mut tracker = ChainTracker::new(placements[0]);
+        let mut best_score = f64::NEG_INFINITY;
+        let mut best_placement = placements[0];
+
+        for placement in &placements {
+            let (board_after, chain_result) = simulate_placement(board, current, placement);
+            tracker.update(chain_result.chain_count, *placement);
+
+            if board_after.is_game_over() {
+                continue;
+            }
+
+            let score = simulation_evaluate(&board_after);
+            if score > best_score {
+                best_score = score;
+                best_placement = *placement;
+                tracker.set_eval_best(chain_result.chain_count);
+            }
+        }
+
+        if let Some(p) = tracker.override_placement() {
+            return Some(p);
+        }
+
+        Some(best_placement)
     }
 }
+
+pub const W_GAME_OVER: f64 = -100000.0;
+
+// ---------------------------------------------------------------------------
+// シミュレーション評価
+// ---------------------------------------------------------------------------
 
 const VIRTUAL_PUYO_COUNT: usize = 3;
 const COLORS: [PuyoColor; 4] = [
@@ -46,11 +166,14 @@ const COLORS: [PuyoColor; 4] = [
     PuyoColor::Yellow,
 ];
 
+fn simulation_evaluate(board: &Board) -> f64 {
+    if board.is_game_over() {
+        return W_GAME_OVER;
+    }
+    simulate_max_chain(board) as f64
+}
+
 /// 仮想ぷよを落として最大連鎖数を推定する。
-/// 戦略: 4色 × 6列 = 24パターンの仮想配置を試し、最も大きな連鎖を返す。
-/// 各列に最大3個の同色ぷよを落とし（空きスペースが少なければそれ以下）、
-/// 既存の盤面と合わせて連鎖が発生するかをシミュレートする。
-/// 現在の盤面にすでに存在する連鎖も考慮する。
 fn simulate_max_chain(board: &Board) -> u32 {
     let mut sim = board.clone();
     let result = sim.resolve_chains();
@@ -58,12 +181,8 @@ fn simulate_max_chain(board: &Board) -> u32 {
 
     for &color in &COLORS {
         for col in 0..COLS {
-            let h = board.column_height(col);
-            let available = if board.has_isolated_top_puyo(col) {
-                ROWS - 1 - h
-            } else {
-                ROWS - h
-            };
+            let (h, isolated) = board.column_info(col);
+            let available = if isolated { ROWS - 1 - h } else { ROWS - h };
             if available == 0 {
                 continue;
             }
@@ -79,160 +198,62 @@ fn simulate_max_chain(board: &Board) -> u32 {
     max_chain
 }
 
-/// Evaluation weights.
-const W_CHAIN_SCORE: f64 = 1.0;
-const W_CHAIN_LENGTH: f64 = 50.0;
-const W_HEIGHT_PENALTY: f64 = -5.0;
-const W_HEIGHT_VARIANCE: f64 = -3.0;
-const W_CONNECTIVITY: f64 = 2.0;
-const W_POTENTIAL_CHAIN: f64 = 15.0;
-const W_CENTER_WEIGHT: f64 = 1.0;
-pub const W_GAME_OVER: f64 = -100000.0;
-
-/// Evaluate a board state. Higher is better.
-pub fn heuristic_evaluate(board: &Board) -> f64 {
-    if board.is_game_over() {
-        return W_GAME_OVER;
-    }
-
-    let mut sim_board = board.clone();
-    let chain_result = sim_board.resolve_chains();
-
-    chain_result.score as f64 * W_CHAIN_SCORE
-        + chain_result.chain_count as f64 * W_CHAIN_LENGTH
-        + height_penalty(&sim_board)
-        + height_variance(&sim_board) * W_HEIGHT_VARIANCE
-        + count_connectivity(&sim_board) as f64 * W_CONNECTIVITY
-        + count_potential_chains(&sim_board) as f64 * W_POTENTIAL_CHAIN
-        + count_center_weight(&sim_board) * W_CENTER_WEIGHT
-}
-
-const HEIGHT_WARNING_THRESHOLD: usize = 8;
-const HEIGHT_DANGER_THRESHOLD: usize = 10;
-const HEIGHT_WARNING_MULTIPLIER: f64 = 2.0;
-const HEIGHT_DANGER_MULTIPLIER: f64 = 10.0;
-
-/// Penalize tall columns, with extra penalty near the death zone.
-fn height_penalty(board: &Board) -> f64 {
-    let max_height = (0..COLS).map(|c| board.column_height(c)).max().unwrap_or(0);
-    let base = if max_height > HEIGHT_WARNING_THRESHOLD {
-        (max_height as f64 - HEIGHT_WARNING_THRESHOLD as f64)
-            * W_HEIGHT_PENALTY
-            * HEIGHT_WARNING_MULTIPLIER
-    } else {
-        0.0
-    };
-    let extra = if max_height > HEIGHT_DANGER_THRESHOLD {
-        (max_height as f64 - HEIGHT_DANGER_THRESHOLD as f64)
-            * W_HEIGHT_PENALTY
-            * HEIGHT_DANGER_MULTIPLIER
-    } else {
-        0.0
-    };
-    base + extra
-}
-
-/// Variance of column heights. Lower variance = more even columns.
-fn height_variance(board: &Board) -> f64 {
-    let heights: Vec<f64> = (0..COLS).map(|c| board.column_height(c) as f64).collect();
-    let avg = heights.iter().sum::<f64>() / COLS as f64;
-    heights.iter().map(|&h| (h - avg) * (h - avg)).sum::<f64>() / COLS as f64
-}
-
-/// Evaluate board after placing a piece (does not modify the input board).
-/// Resolves chains and evaluates the resulting board.
-pub fn evaluate_placement(board: &Board) -> f64 {
-    heuristic_evaluate(board)
-}
-
-/// Count same-color adjacent pairs (horizontal and vertical).
-pub fn count_connectivity(board: &Board) -> u32 {
-    (0..COLS)
-        .flat_map(|col| (0..VISIBLE_ROWS).map(move |row| (col, row)))
-        .filter(|&(col, row)| board.get(col, row).is_color())
-        .map(|(col, row)| {
-            let color = board.get(col, row);
-            let right = (col + 1 < COLS && board.get(col + 1, row) == color) as u32;
-            let upper = (row + 1 < VISIBLE_ROWS && board.get(col, row + 1) == color) as u32;
-            right + upper
-        })
-        .sum()
-}
-
-/// Count groups of 2-3 same-color connected puyos (potential chains).
-pub fn count_potential_chains(board: &Board) -> u32 {
-    board
-        .find_connected_groups()
-        .iter()
-        .filter(|g| matches!(g.cells.len(), 2 | 3))
-        .count() as u32
-}
-
-const CENTER_WEIGHTS: [f64; COLS] = [0.5, 0.8, 1.0, 1.0, 0.8, 0.5];
-
-/// Compute center-column weight. Center columns (2, 3) get higher weight.
-fn count_center_weight(board: &Board) -> f64 {
-    CENTER_WEIGHTS
-        .iter()
-        .enumerate()
-        .map(|(col, &w)| board.column_height(col) as f64 * w)
-        .sum()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use puyo_core::board::{PuyoColor, VISIBLE_ROWS};
+    use puyo_core::board::PuyoColor;
 
     #[test]
-    fn test_empty_board_eval() {
+    fn test_depth1_finds_move() {
         let board = Board::new();
-        let score = heuristic_evaluate(&board);
-        assert!(score.abs() < 100.0);
+        let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
+        let evaluator = SimulationEvaluator;
+        let result = evaluator.find_best_move(&board, &piece, &Piece::new(PuyoColor::Red, PuyoColor::Blue), None);
+        assert!(result.is_some());
     }
 
     #[test]
-    fn test_game_over_eval() {
+    fn test_depth2_finds_move() {
+        let board = Board::new();
+        let current = Piece::new(PuyoColor::Red, PuyoColor::Blue);
+        let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
+        let evaluator = SimulationEvaluator;
+        let result = evaluator.find_best_move(&board, &current, &next, None);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_ai_avoids_game_over() {
         let mut board = Board::new();
-        for _ in 0..=VISIBLE_ROWS {
-            board.drop_puyo(2, PuyoColor::Red);
+        for col in 0..6 {
+            for i in 0..10 {
+                let color = if (col + i) % 2 == 0 {
+                    PuyoColor::Red
+                } else {
+                    PuyoColor::Blue
+                };
+                board.drop_puyo(col, color);
+            }
         }
-        let score = heuristic_evaluate(&board);
-        assert!(score < -10000.0);
+
+        let current = Piece::new(PuyoColor::Red, PuyoColor::Blue);
+        let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
+        let evaluator = SimulationEvaluator;
+        let result = evaluator.find_best_move(&board, &current, &next, None);
+        assert!(result.is_some());
     }
 
     #[test]
-    fn test_chain_rewards_higher() {
-        let mut board_chain = Board::new();
-        for _ in 0..4 {
-            board_chain.drop_puyo(0, PuyoColor::Red);
-        }
+    fn test_ai_prefers_chain() {
+        let mut board = Board::new();
+        board.drop_puyo(0, PuyoColor::Red);
+        board.drop_puyo(0, PuyoColor::Red);
+        board.drop_puyo(0, PuyoColor::Red);
 
-        let mut board_no_chain = Board::new();
-        board_no_chain.drop_puyo(0, PuyoColor::Red);
-        board_no_chain.drop_puyo(1, PuyoColor::Blue);
-        board_no_chain.drop_puyo(2, PuyoColor::Green);
-        board_no_chain.drop_puyo(3, PuyoColor::Yellow);
-
-        let score_chain = heuristic_evaluate(&board_chain);
-        let score_no_chain = heuristic_evaluate(&board_no_chain);
-        assert!(score_chain > score_no_chain);
-    }
-
-    #[test]
-    fn test_connectivity_bonus() {
-        let mut board1 = Board::new();
-        board1.drop_puyo(0, PuyoColor::Red);
-        board1.drop_puyo(0, PuyoColor::Red);
-        board1.drop_puyo(0, PuyoColor::Red);
-
-        let mut board2 = Board::new();
-        board2.drop_puyo(0, PuyoColor::Red);
-        board2.drop_puyo(1, PuyoColor::Blue);
-        board2.drop_puyo(2, PuyoColor::Green);
-
-        let conn1 = count_connectivity(&board1);
-        let conn2 = count_connectivity(&board2);
-        assert!(conn1 > conn2);
+        let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
+        let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
+        let evaluator = SimulationEvaluator;
+        let result = evaluator.find_best_move(&board, &piece, &next, None);
+        assert!(result.is_some());
     }
 }

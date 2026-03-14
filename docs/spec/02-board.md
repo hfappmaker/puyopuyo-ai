@@ -76,16 +76,9 @@ pub struct Group {
     pub cells: Vec<(usize, usize)>,  // (col, row)
 }
 
-pub struct ChainStep {
-    pub chain_num: u32,          // 連鎖番号（1始まり）
-    pub groups: Vec<Group>,      // 消去されたグループ
-    pub score: u32,              // このステップのスコア
-}
-
 pub struct ChainResult {
     pub chain_count: u32,        // 連鎖数
     pub score: u32,              // 合計スコア
-    pub steps: Vec<ChainStep>,   // 各ステップの詳細
 }
 ```
 
@@ -95,5 +88,4 @@ pub struct ChainResult {
 |---------|------|
 | `find_connected_groups()` | BFS（幅優先探索）で可視行（行0〜行11）の同色連結グループを全て検出する。グループサイズの制限なし |
 | `find_clearable_groups()` | `find_connected_groups()` のうち `MIN_GROUP_SIZE`（4）個以上のグループのみ返す |
-| `resolve_one_step(chain_num)` | 1ステップ分の連鎖処理。消去可能グループを削除 → スコア計算 → 重力適用。グループがなければ `None` を返す |
-| `resolve_chains()` | `resolve_one_step` に委譲するイテレータチェイン（`(1..).map_while(...).collect()`）で全連鎖を解決する |
+| `resolve_chains()` | 内部で1ステップずつ連鎖を処理（消去→スコア計算→重力適用）し、全連鎖を解決して `ChainResult`（連鎖数・合計スコア）を返す |

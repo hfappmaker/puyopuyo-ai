@@ -4,9 +4,8 @@ use burn::backend::ndarray::NdArray;
 use burn::prelude::*;
 use burn::record::{BinBytesRecorder, FullPrecisionSettings, Recorder};
 
-use puyo_ai::eval::{Evaluator, HeuristicEvaluator};
+use puyo_ai::eval::{Evaluator, SimulationEvaluator};
 use puyo_ai::nn_eval::NnEvaluator;
-use puyo_ai::search;
 use puyo_core::game::{GamePhase, GameState};
 use puyo_nn::model::{PuyoValueNet, PuyoValueNetConfig};
 
@@ -24,7 +23,7 @@ impl WasmGame {
     pub fn new(seed: u64) -> WasmGame {
         WasmGame {
             state: GameState::new(seed),
-            evaluator: Box::new(HeuristicEvaluator),
+            evaluator: Box::new(SimulationEvaluator),
         }
     }
 
@@ -45,7 +44,7 @@ impl WasmGame {
     /// Switch back to heuristic evaluator.
     #[wasm_bindgen]
     pub fn use_heuristic(&mut self) {
-        self.evaluator = Box::new(HeuristicEvaluator);
+        self.evaluator = Box::new(SimulationEvaluator);
     }
 
     /// Get the board as a flat Vec<u8>, column-major, bottom to top.
@@ -173,19 +172,18 @@ impl WasmGame {
             None => return vec![],
         };
 
-        let result = search::find_best_move(
+        let result = self.evaluator.find_best_move(
             &self.state.board,
             &current_piece,
             &self.state.next_piece,
             Some(&self.state.next_next_piece),
-            &*self.evaluator,
         );
 
         match result {
-            Some(r) => {
+            Some(placement) => {
                 vec![
-                    r.best_placement.col as u8,
-                    r.best_placement.orientation.as_u8(),
+                    placement.col as u8,
+                    placement.orientation.as_u8(),
                 ]
             }
             None => vec![],
@@ -205,17 +203,16 @@ impl WasmGame {
             None => return 0,
         };
 
-        let result = search::find_best_move(
+        let result = self.evaluator.find_best_move(
             &self.state.board,
             &current_piece,
             &self.state.next_piece,
             Some(&self.state.next_next_piece),
-            &*self.evaluator,
         );
 
         match result {
-            Some(r) => {
-                let chain_result = self.state.apply_placement(&r.best_placement);
+            Some(placement) => {
+                let chain_result = self.state.apply_placement(&placement);
                 chain_result.chain_count
             }
             None => 0,

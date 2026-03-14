@@ -1,5 +1,15 @@
-use puyo_core::board::{Board, COLS, ROWS, SPAWN_COL};
+use puyo_core::board::{Board, ChainResult, COLS, ROWS, SPAWN_COL};
+use puyo_core::game::GameState;
 use puyo_core::piece::{Orientation, Piece, Placement};
+
+/// Simulate placing a piece on a board clone. Returns the resulting board and chain result.
+pub fn simulate_placement(board: &Board, piece: &Piece, placement: &Placement) -> (Board, ChainResult) {
+    let mut sim = GameState::new(0);
+    sim.board = board.clone();
+    sim.place_piece(piece, placement);
+    let chain_result = sim.board.resolve_chains();
+    (sim.board, chain_result)
+}
 
 /// Compute which columns are reachable from the spawn column.
 /// A column with height >= ROWS - 1 blocks entry and further traversal.
@@ -36,12 +46,8 @@ pub fn enumerate_placements(board: &Board, piece: &Piece) -> Vec<Placement> {
     // If row 13 has an isolated puyo, satellite cannot go there.
     let north = (0..COLS)
         .filter(|&col| {
-            let h = board.column_height(col);
-            let max_rows = if board.has_isolated_top_puyo(col) {
-                ROWS - 1
-            } else {
-                ROWS
-            };
+            let (h, isolated) = board.column_info(col);
+            let max_rows = if isolated { ROWS - 1 } else { ROWS };
             reachable[col] && h + 2 <= max_rows
         })
         .map(|col| Placement::new(col, Orientation::North));
@@ -55,15 +61,12 @@ pub fn enumerate_placements(board: &Board, piece: &Piece) -> Vec<Placement> {
     // Satellite column with isolated row 13 puyo has reduced max height.
     let east = (0..COLS - 1)
         .filter(|&col| {
-            let sat_max = if board.has_isolated_top_puyo(col + 1) {
-                ROWS - 1
-            } else {
-                ROWS
-            };
+            let (sat_h, sat_isolated) = board.column_info(col + 1);
+            let sat_max = if sat_isolated { ROWS - 1 } else { ROWS };
             reachable[col]
                 && reachable[col + 1]
                 && board.column_height(col) < ROWS - 1
-                && board.column_height(col + 1) < sat_max
+                && sat_h < sat_max
         })
         .map(|col| Placement::new(col, Orientation::East));
 
@@ -71,15 +74,12 @@ pub fn enumerate_placements(board: &Board, piece: &Piece) -> Vec<Placement> {
     // Satellite column with isolated row 13 puyo has reduced max height.
     let west = (1..COLS)
         .filter(|&col| {
-            let sat_max = if board.has_isolated_top_puyo(col - 1) {
-                ROWS - 1
-            } else {
-                ROWS
-            };
+            let (sat_h, sat_isolated) = board.column_info(col - 1);
+            let sat_max = if sat_isolated { ROWS - 1 } else { ROWS };
             reachable[col]
                 && reachable[col - 1]
                 && board.column_height(col) < ROWS - 1
-                && board.column_height(col - 1) < sat_max
+                && sat_h < sat_max
         })
         .map(|col| Placement::new(col, Orientation::West));
 

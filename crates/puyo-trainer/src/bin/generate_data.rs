@@ -1,5 +1,4 @@
-use puyo_ai::eval::SimulationEvaluator;
-use puyo_ai::search;
+use puyo_ai::eval::{Evaluator, SimulationEvaluator};
 use puyo_core::game::{GamePhase, GameState};
 use puyo_nn::encoding::board_to_tensor_data;
 use puyo_trainer::data::{Dataset, Sample};
@@ -41,17 +40,16 @@ fn main() {
             let board_data = board_to_tensor_data(&game.board).to_vec();
 
             // Find and apply best move
-            let result = search::find_best_move(
+            let result = evaluator.find_best_move(
                 &game.board,
                 &current_piece,
                 &game.next_piece,
                 Some(&game.next_next_piece),
-                &evaluator,
             );
 
             match result {
-                Some(r) => {
-                    let chain_result = game.apply_placement(&r.best_placement);
+                Some(placement) => {
+                    let chain_result = game.apply_placement(&placement);
                     game_max_chain = game_max_chain.max(chain_result.chain_count);
                     game_moves.push((board_data, chain_result.score));
                 }

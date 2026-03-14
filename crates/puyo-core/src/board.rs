@@ -44,21 +44,11 @@ pub struct Group {
     pub cells: Vec<(usize, usize)>, // (col, row)
 }
 
-/// A single chain step (one round of simultaneous clears).
-#[derive(Debug, Clone)]
-pub struct ChainStep {
-    pub chain_num: u32,     // 1-indexed chain number
-    pub groups: Vec<Group>, // groups cleared in this step
-    pub score: u32,         // score for this step
-}
-
 /// Result of resolving all chains on a board.
 #[derive(Debug, Clone)]
 pub struct ChainResult {
     pub chain_count: u32,
     pub score: u32,
-    /// Details per chain step.
-    pub steps: Vec<ChainStep>,
 }
 
 // ---- Board ----
@@ -82,17 +72,20 @@ impl Board {
     /// This correctly handles isolated puyos in row 13 (top hidden row)
     /// that may remain after chain elimination clears cells below them.
     pub fn column_height(&self, col: usize) -> usize {
-        for row in 0..ROWS {
-            if !self.columns[col][row].is_color() {
-                return row;
-            }
-        }
-        ROWS
+        self.column_info(col).0
     }
 
-    /// row 13（最上非可視行）にぷよがあり、その下(row 12)が空かを返す。
-    pub fn has_isolated_top_puyo(&self, col: usize) -> bool {
-        self.columns[col][ROWS - 1].is_color() && !self.columns[col][ROWS - 2].is_color()
+    /// 列の高さと row 13 孤立ぷよの有無を同時に返す。
+    pub fn column_info(&self, col: usize) -> (usize, bool) {
+        let mut height = ROWS;
+        for row in 0..ROWS {
+            if !self.columns[col][row].is_color() {
+                height = row;
+                break;
+            }
+        }
+        let isolated = self.columns[col][ROWS - 1].is_color() && !self.columns[col][ROWS - 2].is_color();
+        (height, isolated)
     }
 
     /// Get the color at (col, row).
@@ -200,8 +193,8 @@ impl Board {
     }
 
     /// Resolve one chain step. Modifies board in-place.
-    /// Returns Some(ChainStep) if groups were found and cleared, None if no groups exist.
-    pub fn resolve_one_step(&mut self, chain_num: u32) -> Option<ChainStep> {
+    /// Returns Some(score) if groups were found and cleared, None if no groups exist.
+    fn resolve_one_step(&mut self, chain_num: u32) -> Option<u32> {
         let groups = self.find_clearable_groups();
         if groups.is_empty() {
             return None;
@@ -217,24 +210,23 @@ impl Board {
         let step_score = crate::score::calculate_step_score(chain_num, &groups);
         self.apply_gravity();
 
-        Some(ChainStep {
-            chain_num,
-            groups,
-            score: step_score,
-        })
+        Some(step_score)
     }
 
     /// Resolve all chains on the board. Modifies board in-place.
     pub fn resolve_chains(&mut self) -> ChainResult {
-        let steps: Vec<ChainStep> = (1..)
-            .map_while(|chain_num| self.resolve_one_step(chain_num))
-            .collect();
-        let total_score = steps.iter().map(|s| s.score).sum();
-        ChainResult {
-            chain_count: steps.len() as u32,
-            score: total_score,
-            steps,
+        let mut chain_count = 0u32;
+        let mut score = 0u32;
+        for chain_num in 1.. {
+            match self.resolve_one_step(chain_num) {
+                Some(step_score) => {
+                    chain_count += 1;
+                    score += step_score;
+                }
+                None => break,
+            }
         }
+        ChainResult { chain_count, score }
     }
 }
 
@@ -341,14 +333,14 @@ mod tests {
     }
 
     #[test]
-    fn test_has_isolated_top_puyo() {
+    fn test_column_info_isolated() {
         let mut board = Board::new();
-        assert!(!board.has_isolated_top_puyo(0));
+        assert_eq!(board.column_info(0), (0, false));
         board.set(0, ROWS - 1, PuyoColor::Red);
-        assert!(board.has_isolated_top_puyo(0));
+        assert_eq!(board.column_info(0), (0, true));
         board.set(0, ROWS - 2, PuyoColor::Blue);
-        assert!(!board.has_isolated_top_puyo(0));
-        assert!(!board.has_isolated_top_puyo(1));
+        assert_eq!(board.column_info(0), (0, false));
+        assert_eq!(board.column_info(1), (0, false));
     }
 
     #[test]
@@ -458,41 +450,6 @@ mod tests {
         assert_eq!(board.get(0, 0), PuyoColor::Green);
         assert_eq!(board.get(0, 1), PuyoColor::Green);
         assert_eq!(board.column_height(0), 2);
-    }
-
-    #[test]
-    fn test_resolve_one_step_two_chain() {
-        let mut board = Board::new();
-        for _ in 0..3 {
-            board.drop_puyo(0, PuyoColor::Blue);
-        }
-        for _ in 0..4 {
-            board.drop_puyo(1, PuyoColor::Red);
-        }
-        board.drop_puyo(1, PuyoColor::Blue);
-
-        let step1 = board.resolve_one_step(1);
-        assert!(step1.is_some());
-        assert_eq!(step1.unwrap().chain_num, 1);
-
-        let step2 = board.resolve_one_step(2);
-        assert!(step2.is_some());
-        assert_eq!(step2.unwrap().chain_num, 2);
-
-        let step3 = board.resolve_one_step(3);
-        assert!(step3.is_none());
-
-        assert_eq!(board.column_height(0), 0);
-        assert_eq!(board.column_height(1), 0);
-    }
-
-    #[test]
-    fn test_resolve_one_step_no_chain() {
-        let mut board = Board::new();
-        board.drop_puyo(0, PuyoColor::Red);
-        board.drop_puyo(1, PuyoColor::Blue);
-        let result = board.resolve_one_step(1);
-        assert!(result.is_none());
     }
 
     #[test]

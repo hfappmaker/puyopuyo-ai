@@ -9,7 +9,8 @@ use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 
 use puyo_ai::eval::Evaluator;
-use puyo_ai::search;
+use puyo_ai::placement::enumerate_placements;
+use puyo_ai::placement::simulate_placement;
 use puyo_core::board::{Board, COLS, ROWS};
 use puyo_core::game::GameState;
 use puyo_core::piece::Placement;
@@ -266,8 +267,8 @@ struct SelfPlayEvaluator<'a> {
     norm: &'a NormParams,
 }
 
-impl<'a> Evaluator for SelfPlayEvaluator<'a> {
-    fn evaluate(&self, board: &Board) -> f64 {
+impl<'a> SelfPlayEvaluator<'a> {
+    fn nn_evaluate(&self, board: &Board) -> f64 {
         if board.is_game_over() {
             return -100000.0;
         }
@@ -277,6 +278,76 @@ impl<'a> Evaluator for SelfPlayEvaluator<'a> {
         let output = self.model.forward(tensor);
         let normalized = output.into_data().to_vec::<f32>().unwrap()[0];
         (normalized * self.norm.std_dev + self.norm.mean) as f64
+    }
+}
+
+impl<'a> Evaluator for SelfPlayEvaluator<'a> {
+    /// depth-2 + 連鎖オーバーライド、depth-1 フォールバック。
+    fn find_best_move(
+        &self,
+        board: &Board,
+        current: &puyo_core::piece::Piece,
+        next: &puyo_core::piece::Piece,
+        _next_next: Option<&puyo_core::piece::Piece>,
+    ) -> Option<Placement> {
+        let placements = enumerate_placements(board, current);
+        if placements.is_empty() {
+            return None;
+        }
+
+        // depth-2
+        let mut best_score = f64::NEG_INFINITY;
+        let mut best_placement = placements[0];
+
+        for placement in &placements {
+            let (board_after, _) = simulate_placement(board, current, placement);
+            if board_after.is_game_over() {
+                continue;
+            }
+
+            let next_placements = enumerate_placements(&board_after, next);
+            let mut inner_best_score = f64::NEG_INFINITY;
+
+            for next_placement in &next_placements {
+                let (next_board, _) =
+                    simulate_placement(&board_after, next, next_placement);
+                if next_board.is_game_over() {
+                    continue;
+                }
+                let s = self.nn_evaluate(&next_board);
+                if s > inner_best_score {
+                    inner_best_score = s;
+                }
+            }
+
+            if inner_best_score > best_score {
+                best_score = inner_best_score;
+                best_placement = *placement;
+            }
+        }
+
+        if best_score > f64::NEG_INFINITY {
+            return Some(best_placement);
+        }
+
+        // depth-1 フォールバック
+        best_score = f64::NEG_INFINITY;
+        best_placement = placements[0];
+
+        for placement in &placements {
+            let (board_after, _) = simulate_placement(board, current, placement);
+            if board_after.is_game_over() {
+                continue;
+            }
+
+            let score = self.nn_evaluate(&board_after);
+            if score > best_score {
+                best_score = score;
+                best_placement = *placement;
+            }
+        }
+
+        Some(best_placement)
     }
 }
 
@@ -317,14 +388,12 @@ fn select_placement(
             device: infer_device.clone(),
             norm,
         };
-        search::find_best_move(
+        evaluator.find_best_move(
             &session.game.board,
             &current_piece,
             &session.game.next_piece,
             Some(&session.game.next_next_piece),
-            &evaluator,
         )
-        .map(|r| r.best_placement)
     }
 }
 

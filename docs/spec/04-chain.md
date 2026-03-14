@@ -1,7 +1,7 @@
 # 連鎖処理仕様
 
 > **注意**: `chain.rs` は廃止され、連鎖ロジックは全て `board.rs` の `Board` impl メソッドに統合された。
-> 連鎖関連の型（`Group`, `ChainStep`, `ChainResult`）と定数（`MIN_GROUP_SIZE`）は `puyo_core::board` モジュールからエクスポートされている。
+> 連鎖関連の型（`Group`, `ChainResult`）と定数（`MIN_GROUP_SIZE`）は `puyo_core::board` モジュールからエクスポートされている。
 > 詳細な API 仕様は [02-board.md](./02-board.md) の「連鎖解決メソッド」セクションを参照。
 
 ## 連鎖の仕組み
