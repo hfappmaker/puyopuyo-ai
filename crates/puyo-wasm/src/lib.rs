@@ -222,6 +222,25 @@ impl WasmGame {
         }
     }
 
+    /// Apply a placement directly by column and orientation.
+    /// orientation: 0=North, 1=East, 2=South, 3=West
+    /// Returns chain count from the placement.
+    #[wasm_bindgen]
+    pub fn apply_placement_direct(&mut self, col: u8, ori: u8) -> u32 {
+        use puyo_core::piece::{Orientation, Placement};
+
+        let orientation = match ori {
+            0 => Orientation::North,
+            1 => Orientation::East,
+            2 => Orientation::South,
+            3 => Orientation::West,
+            _ => return 0,
+        };
+        let placement = Placement::new(col as usize, orientation);
+        let result = self.state.apply_placement(&placement);
+        result.chain_count
+    }
+
     /// Enumerate all legal placements for the current piece.
     /// Returns a flat Vec<u8> of [col, orientation, col, orientation, ...].
     #[wasm_bindgen]

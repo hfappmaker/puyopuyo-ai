@@ -16,6 +16,8 @@ export class GameLoop {
 
   private gameOver: boolean = false;
   private aiPreviewing: boolean = false;
+  private savedCol: number = 0;
+  private savedOri: number = 0;
   private placementListEl: HTMLElement | null = null;
   private aiEvalPanel: HTMLElement | null = null;
   private aiScoreDisplay: HTMLElement | null = null;
@@ -118,7 +120,7 @@ export class GameLoop {
     if (this.gameOver) return;
 
     if (this.aiPreviewing) {
-      this.game.hard_drop();
+      this.game.apply_placement_direct(this.savedCol, this.savedOri);
       this.aiPreviewing = false;
       this.onPieceLanded();
       return;
@@ -127,49 +129,17 @@ export class GameLoop {
     const bestMove = this.game.ai_best_move();
     if (bestMove.length === 0) return;
 
-    const targetCol = bestMove[0];
-    const targetOri = bestMove[1];
+    this.savedCol = bestMove[0];
+    this.savedOri = bestMove[1];
 
     if (bestMove.length >= 10) {
       const dataView = new DataView(bestMove.buffer, bestMove.byteOffset, bestMove.byteLength);
       const score = dataView.getFloat64(2, true);
-      this.showAiEval(score, targetCol, targetOri);
+      this.showAiEval(score, this.savedCol, this.savedOri);
     }
 
-    const currentPiece = this.game.get_current_piece();
-    if (currentPiece.length === 0) return;
-    const currentOri = currentPiece[5];
-
-    this.rotateTo(currentOri, targetOri);
-
-    const afterRotate = this.game.get_current_piece();
-    const currentCol = afterRotate[2];
-    this.moveTo(currentCol, targetCol);
-
-    this.renderer.render(this.game);
+    this.renderer.renderWithPlacementPreview(this.game, this.savedCol, this.savedOri);
     this.aiPreviewing = true;
-  }
-
-  private rotateTo(currentOri: number, targetOri: number): void {
-    if (currentOri === targetOri) return;
-    const cwSteps = (targetOri - currentOri + 4) % 4;
-    const ccwSteps = (currentOri - targetOri + 4) % 4;
-    if (cwSteps <= ccwSteps) {
-      for (let i = 0; i < cwSteps; i++) this.game.rotate_cw();
-    } else {
-      for (let i = 0; i < ccwSteps; i++) this.game.rotate_ccw();
-    }
-  }
-
-  private moveTo(currentCol: number, targetCol: number): void {
-    while (currentCol < targetCol) {
-      this.game.move_right();
-      currentCol++;
-    }
-    while (currentCol > targetCol) {
-      this.game.move_left();
-      currentCol--;
-    }
   }
 
   private showAiEval(score: number, col: number, ori: number): void {

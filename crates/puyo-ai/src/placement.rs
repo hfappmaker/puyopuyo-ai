@@ -53,8 +53,17 @@ pub fn enumerate_placements(board: &Board, piece: &Piece) -> Vec<Placement> {
         .map(|col| Placement::new(col, Orientation::North));
 
     // South: satellite on bottom, axis above. Axis at h+1 must be < ROWS-1.
+    // Additionally, South requires rotating through East or West from spawn (North).
+    // If both adjacent columns have height >= ROWS-1 (or are walls), rotation is blocked.
     let south = (0..COLS)
-        .filter(|&col| reachable[col] && board.column_height(col) + 2 <= ROWS - 1)
+        .filter(|&col| {
+            if !reachable[col] || board.column_height(col) + 2 > ROWS - 1 {
+                return false;
+            }
+            let left_blocked = col == 0 || board.column_height(col - 1) >= ROWS - 1;
+            let right_blocked = col == COLS - 1 || board.column_height(col + 1) >= ROWS - 1;
+            !(left_blocked && right_blocked)
+        })
         .map(|col| Placement::new(col, Orientation::South));
 
     // East: axis at col, satellite at col+1. Axis must be < ROWS-1.
@@ -308,6 +317,62 @@ mod tests {
         assert!(placements
             .iter()
             .any(|p| p.col == 3 && p.orientation == Orientation::North));
+    }
+
+    #[test]
+    fn test_south_blocked_when_both_neighbors_height_13() {
+        let mut board = Board::new();
+        // Fill col 1 and col 3 to height 13
+        for _ in 0..13 {
+            board.drop_puyo(1, PuyoColor::Red);
+            board.drop_puyo(3, PuyoColor::Blue);
+        }
+        let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
+        let placements = enumerate_placements(&board, &piece);
+
+        // South at col 2: both neighbors (col 1, col 3) have height 13
+        // → rotation through East or West is blocked → South not reachable
+        assert!(!placements
+            .iter()
+            .any(|p| p.col == 2 && p.orientation == Orientation::South));
+
+        // North at col 2 should still be allowed
+        assert!(placements
+            .iter()
+            .any(|p| p.col == 2 && p.orientation == Orientation::North));
+    }
+
+    #[test]
+    fn test_south_allowed_when_one_neighbor_height_13() {
+        let mut board = Board::new();
+        // Fill only col 1 to height 13, col 3 is low
+        for _ in 0..13 {
+            board.drop_puyo(1, PuyoColor::Red);
+        }
+        let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
+        let placements = enumerate_placements(&board, &piece);
+
+        // South at col 2: col 1 blocked but col 3 is open → can rotate via East
+        assert!(placements
+            .iter()
+            .any(|p| p.col == 2 && p.orientation == Orientation::South));
+    }
+
+    #[test]
+    fn test_south_blocked_at_boundary_col0() {
+        let mut board = Board::new();
+        // Fill col 1 to height 13 → col 0 has wall on left, col 1 blocked on right
+        for _ in 0..13 {
+            board.drop_puyo(1, PuyoColor::Red);
+        }
+        let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
+        let placements = enumerate_placements(&board, &piece);
+
+        // South at col 0: left is wall (blocked), right is col 1 height 13 (blocked)
+        // But col 0 is unreachable anyway (blocked by col 1)
+        assert!(!placements
+            .iter()
+            .any(|p| p.col == 0 && p.orientation == Orientation::South));
     }
 
     #[test]
