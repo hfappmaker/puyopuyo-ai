@@ -59,18 +59,19 @@ impl Evaluator for SimulationEvaluator {
                     best_placement = *p1;
                 }
 
-                for p3 in &enumerate_placements(&board2, next_next) {
-                    let (board3, result3) = simulate_placement(&board2, next_next, p3);
-                    if board3.is_game_over() {
-                        continue;
-                    }
+                // 3手先のシミュレーションは重すぎるので省略（期待値評価だけで十分なはず）
+                // for p3 in &enumerate_placements(&board2, next_next) {
+                //     let (board3, result3) = simulate_placement(&board2, next_next, p3);
+                //     if board3.is_game_over() {
+                //         continue;
+                //     }
 
-                    let s = (result3.score as f64).max(simulate_expected_score(&board3));
-                    if s > best_score {
-                        best_score = s;
-                        best_placement = *p1;
-                    }
-                }
+                //     let s = (result3.score as f64).max(simulate_expected_score(&board3));
+                //     if s > best_score {
+                //         best_score = s;
+                //         best_placement = *p1;
+                //     }
+                // }
             }
         }
 
