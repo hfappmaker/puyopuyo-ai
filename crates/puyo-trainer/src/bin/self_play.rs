@@ -288,7 +288,7 @@ impl<'a> Evaluator for SelfPlayEvaluator<'a> {
         board: &Board,
         current: &puyo_core::piece::Piece,
         next: &puyo_core::piece::Piece,
-        _next_next: Option<&puyo_core::piece::Piece>,
+        _next_next: &puyo_core::piece::Piece,
     ) -> Option<Placement> {
         let placements = enumerate_placements(board, current);
         if placements.is_empty() {
@@ -392,7 +392,7 @@ fn select_placement(
             &session.game.board,
             &current_piece,
             &session.game.next_piece,
-            Some(&session.game.next_next_piece),
+            &session.game.next_next_piece,
         )
     }
 }

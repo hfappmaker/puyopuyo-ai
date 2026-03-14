@@ -11,7 +11,7 @@ pub trait Evaluator {
         board: &Board,
         current: &Piece,
         next: &Piece,
-        next_next: Option<&Piece>,
+        next_next: &Piece,
     ) -> Option<Placement>;
 }
 
@@ -65,7 +65,7 @@ impl Evaluator for SimulationEvaluator {
         board: &Board,
         current: &Piece,
         next: &Piece,
-        _next_next: Option<&Piece>,
+        _next_next: &Piece,
     ) -> Option<Placement> {
         let placements = enumerate_placements(board, current);
         if placements.is_empty() {
@@ -208,7 +208,7 @@ mod tests {
         let board = Board::new();
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let evaluator = SimulationEvaluator;
-        let result = evaluator.find_best_move(&board, &piece, &Piece::new(PuyoColor::Red, PuyoColor::Blue), None);
+        let result = evaluator.find_best_move(&board, &piece, &Piece::new(PuyoColor::Red, PuyoColor::Blue), &Piece::new(PuyoColor::Green, PuyoColor::Yellow));
         assert!(result.is_some());
     }
 
@@ -218,7 +218,7 @@ mod tests {
         let current = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
         let evaluator = SimulationEvaluator;
-        let result = evaluator.find_best_move(&board, &current, &next, None);
+        let result = evaluator.find_best_move(&board, &current, &next, &Piece::new(PuyoColor::Green, PuyoColor::Yellow));
         assert!(result.is_some());
     }
 
@@ -239,7 +239,7 @@ mod tests {
         let current = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
         let evaluator = SimulationEvaluator;
-        let result = evaluator.find_best_move(&board, &current, &next, None);
+        let result = evaluator.find_best_move(&board, &current, &next, &Piece::new(PuyoColor::Green, PuyoColor::Yellow));
         assert!(result.is_some());
     }
 
@@ -253,7 +253,7 @@ mod tests {
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
         let evaluator = SimulationEvaluator;
-        let result = evaluator.find_best_move(&board, &piece, &next, None);
+        let result = evaluator.find_best_move(&board, &piece, &next, &Piece::new(PuyoColor::Green, PuyoColor::Yellow));
         assert!(result.is_some());
     }
 }

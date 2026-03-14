@@ -59,7 +59,7 @@ impl Evaluator for NnEvaluator {
         board: &Board,
         current: &Piece,
         next: &Piece,
-        next_next: Option<&Piece>,
+        next_next: &Piece,
     ) -> Option<Placement> {
         let placements = enumerate_placements(board, current);
         if placements.is_empty() {
@@ -67,7 +67,7 @@ impl Evaluator for NnEvaluator {
         }
 
         // depth-3
-        if let Some(nn) = next_next {
+        {
             let mut best_score = f64::NEG_INFINITY;
             let mut best_placement = placements[0];
 
@@ -85,11 +85,11 @@ impl Evaluator for NnEvaluator {
                     if next_board.is_game_over() {
                         continue;
                     }
-                    let nn_placements = enumerate_placements(&next_board, nn);
+                    let nn_placements = enumerate_placements(&next_board, next_next);
                     let mut inner_best = f64::NEG_INFINITY;
                     for nn_placement in &nn_placements {
                         let (nn_board, _) =
-                            simulate_placement(&next_board, nn, nn_placement);
+                            simulate_placement(&next_board, next_next, nn_placement);
                         if nn_board.is_game_over() {
                             continue;
                         }

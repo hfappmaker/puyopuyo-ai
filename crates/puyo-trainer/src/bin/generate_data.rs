@@ -44,7 +44,7 @@ fn main() {
                 &game.board,
                 &current_piece,
                 &game.next_piece,
-                Some(&game.next_next_piece),
+                &game.next_next_piece,
             );
 
             match result {
