@@ -15,137 +15,63 @@ pub trait Evaluator {
     ) -> Option<Placement>;
 }
 
-/// 連鎖オーバーライド判定用の追跡構造体。
-/// evaluator最善手より大きい連鎖が見つかった場合、そちらを優先する。
-pub struct ChainTracker {
-    best_chain_count: u32,
-    best_chain_placement: Placement,
-    eval_best_chain_count: u32,
-}
-
-impl ChainTracker {
-    pub fn new(default_placement: Placement) -> Self {
-        Self {
-            best_chain_count: 0,
-            best_chain_placement: default_placement,
-            eval_best_chain_count: 0,
-        }
-    }
-
-    /// 連鎖数を更新（1手目配置に紐付ける）
-    pub fn update(&mut self, chain_count: u32, first_placement: Placement) {
-        if chain_count > self.best_chain_count {
-            self.best_chain_count = chain_count;
-            self.best_chain_placement = first_placement;
-        }
-    }
-
-    /// evaluator最善手が更新された時の連鎖数を記録
-    pub fn set_eval_best(&mut self, chain_count: u32) {
-        self.eval_best_chain_count = chain_count;
-    }
-
-    /// 連鎖オーバーライドが発動するならその配置を返す
-    pub fn override_placement(&self) -> Option<Placement> {
-        if self.best_chain_count > self.eval_best_chain_count {
-            Some(self.best_chain_placement)
-        } else {
-            None
-        }
-    }
-}
-
-/// Simulation-based evaluator: drops virtual puyos to estimate max chain potential.
+/// Simulation-based evaluator: drops virtual puyos to estimate expected chain score.
 pub struct SimulationEvaluator;
 
 impl Evaluator for SimulationEvaluator {
-    /// depth-2 + 連鎖オーバーライド、depth-1 フォールバック。
+    /// BFS順で全深度の盤面を評価し、最高スコアの1手目を返す。
     fn find_best_move(
         &self,
         board: &Board,
         current: &Piece,
         next: &Piece,
-        _next_next: &Piece,
+        next_next: &Piece,
     ) -> Option<Placement> {
         let placements = enumerate_placements(board, current);
         if placements.is_empty() {
             return None;
         }
 
-        // depth-2
-        let mut tracker = ChainTracker::new(placements[0]);
         let mut best_score = f64::NEG_INFINITY;
         let mut best_placement = placements[0];
 
-        for placement in &placements {
-            let (board_after, chain_result) = simulate_placement(board, current, placement);
-
-            if board_after.is_game_over() {
-                tracker.update(chain_result.chain_count, *placement);
+        for p1 in &placements {
+            let (board1, _) = simulate_placement(board, current, p1);
+            if board1.is_game_over() {
                 continue;
             }
 
-            let next_placements = enumerate_placements(&board_after, next);
-            let mut inner_best_score = f64::NEG_INFINITY;
-            let mut deeper_chain: u32 = 0;
+            let s = simulate_expected_score(&board1);
+            if s > best_score {
+                best_score = s;
+                best_placement = *p1;
+            }
 
-            for next_placement in &next_placements {
-                let (next_board, next_chain_result) =
-                    simulate_placement(&board_after, next, next_placement);
-                if next_chain_result.chain_count > deeper_chain {
-                    deeper_chain = next_chain_result.chain_count;
-                }
-                if next_board.is_game_over() {
+            for p2 in &enumerate_placements(&board1, next) {
+                let (board2, _) = simulate_placement(&board1, next, p2);
+                if board2.is_game_over() {
                     continue;
                 }
-                let s = simulation_evaluate(&next_board);
-                if s > inner_best_score {
-                    inner_best_score = s;
+
+                let s = simulate_expected_score(&board2);
+                if s > best_score {
+                    best_score = s;
+                    best_placement = *p1;
+                }
+
+                for p3 in &enumerate_placements(&board2, next_next) {
+                    let (board3, _) = simulate_placement(&board2, next_next, p3);
+                    if board3.is_game_over() {
+                        continue;
+                    }
+
+                    let s = simulate_expected_score(&board3);
+                    if s > best_score {
+                        best_score = s;
+                        best_placement = *p1;
+                    }
                 }
             }
-
-            let score = inner_best_score;
-            let max_chain_for_this = chain_result.chain_count.max(deeper_chain);
-            tracker.update(max_chain_for_this, *placement);
-
-            if score > best_score {
-                best_score = score;
-                best_placement = *placement;
-                tracker.set_eval_best(max_chain_for_this);
-            }
-        }
-
-        if let Some(p) = tracker.override_placement() {
-            return Some(p);
-        }
-
-        if best_score > f64::NEG_INFINITY {
-            return Some(best_placement);
-        }
-
-        // depth-1 フォールバック
-        let mut tracker = ChainTracker::new(placements[0]);
-        let mut best_score = f64::NEG_INFINITY;
-        let mut best_placement = placements[0];
-
-        for placement in &placements {
-            let (board_after, chain_result) = simulate_placement(board, current, placement);
-            tracker.update(chain_result.chain_count, *placement);
-
-            if board_after.is_game_over() {
-                continue;
-            }
-
-            let score = simulation_evaluate(&board_after);
-            if score > best_score {
-                best_score = score;
-                best_placement = *placement;
-                tracker.set_eval_best(chain_result.chain_count);
-            }
-        }
-
-        if let Some(p) = tracker.override_placement() {
-            return Some(p);
         }
 
         Some(best_placement)
@@ -166,18 +92,10 @@ const COLORS: [PuyoColor; 4] = [
     PuyoColor::Yellow,
 ];
 
-fn simulation_evaluate(board: &Board) -> f64 {
-    if board.is_game_over() {
-        return W_GAME_OVER;
-    }
-    simulate_max_chain(board) as f64
-}
-
-/// 仮想ぷよを落として最大連鎖数を推定する。
-fn simulate_max_chain(board: &Board) -> u32 {
-    let mut sim = board.clone();
-    let result = sim.resolve_chains();
-    let mut max_chain = result.chain_count;
+/// 仮想ぷよを落として連鎖スコアの期待値（全パターン平均）を推定する。
+fn simulate_expected_score(board: &Board) -> f64 {
+    let mut sum = 0 as f64;
+    let mut count = 1u32;
 
     for &color in &COLORS {
         for col in 0..COLS {
@@ -186,16 +104,22 @@ fn simulate_max_chain(board: &Board) -> u32 {
             if available == 0 {
                 continue;
             }
-            let count = VIRTUAL_PUYO_COUNT.min(available);
+            let count_puyo = VIRTUAL_PUYO_COUNT.min(available);
             let mut sim = board.clone();
-            for _ in 0..count {
+            for _ in 0..count_puyo {
                 sim.drop_puyo(col, color);
             }
             let result = sim.resolve_chains();
-            max_chain = max_chain.max(result.chain_count);
+            let pattern_score = if sim.is_game_over() {
+                W_GAME_OVER
+            } else {
+                result.score as f64
+            };
+            sum += pattern_score;
+            count += 1;
         }
     }
-    max_chain
+    sum / count as f64
 }
 
 #[cfg(test)]

@@ -8,7 +8,7 @@ use burn::optim::{AdamConfig, GradientsParams, Optimizer};
 use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 
-use puyo_ai::eval::Evaluator;
+use puyo_ai::eval::{Evaluator, W_GAME_OVER};
 use puyo_ai::placement::enumerate_placements;
 use puyo_ai::placement::simulate_placement;
 use puyo_core::board::{Board, COLS, ROWS};
@@ -270,7 +270,7 @@ struct SelfPlayEvaluator<'a> {
 impl<'a> SelfPlayEvaluator<'a> {
     fn nn_evaluate(&self, board: &Board) -> f64 {
         if board.is_game_over() {
-            return -100000.0;
+            return W_GAME_OVER;
         }
         let data = board_to_tensor_data(board);
         let tensor = Tensor::<InferBackend, 1>::from_floats(data.as_slice(), &self.device)
@@ -282,68 +282,58 @@ impl<'a> SelfPlayEvaluator<'a> {
 }
 
 impl<'a> Evaluator for SelfPlayEvaluator<'a> {
-    /// depth-2 + 連鎖オーバーライド、depth-1 フォールバック。
+    /// BFS 統一パターン: depth-1/2/3 の全盤面を評価し、最高スコアの1手目を返す。
     fn find_best_move(
         &self,
         board: &Board,
         current: &puyo_core::piece::Piece,
         next: &puyo_core::piece::Piece,
-        _next_next: &puyo_core::piece::Piece,
+        next_next: &puyo_core::piece::Piece,
     ) -> Option<Placement> {
         let placements = enumerate_placements(board, current);
         if placements.is_empty() {
             return None;
         }
 
-        // depth-2
         let mut best_score = f64::NEG_INFINITY;
         let mut best_placement = placements[0];
 
-        for placement in &placements {
-            let (board_after, _) = simulate_placement(board, current, placement);
-            if board_after.is_game_over() {
+        for p1 in &placements {
+            let (board1, _) = simulate_placement(board, current, p1);
+            if board1.is_game_over() {
                 continue;
             }
 
-            let next_placements = enumerate_placements(&board_after, next);
-            let mut inner_best_score = f64::NEG_INFINITY;
+            let s = self.nn_evaluate(&board1);
+            if s > best_score {
+                best_score = s;
+                best_placement = *p1;
+            }
 
-            for next_placement in &next_placements {
-                let (next_board, _) =
-                    simulate_placement(&board_after, next, next_placement);
-                if next_board.is_game_over() {
+            for p2 in &enumerate_placements(&board1, next) {
+                let (board2, _) = simulate_placement(&board1, next, p2);
+                if board2.is_game_over() {
                     continue;
                 }
-                let s = self.nn_evaluate(&next_board);
-                if s > inner_best_score {
-                    inner_best_score = s;
+
+                let s = self.nn_evaluate(&board2);
+                if s > best_score {
+                    best_score = s;
+                    best_placement = *p1;
                 }
-            }
 
-            if inner_best_score > best_score {
-                best_score = inner_best_score;
-                best_placement = *placement;
-            }
-        }
+                for p3 in &enumerate_placements(&board2, next_next) {
+                    let (board3, _) = simulate_placement(&board2, next_next, p3);
+                    if board3.is_game_over() {
+                        continue;
+                    }
 
-        if best_score > f64::NEG_INFINITY {
-            return Some(best_placement);
-        }
-
-        // depth-1 フォールバック
-        best_score = f64::NEG_INFINITY;
-        best_placement = placements[0];
-
-        for placement in &placements {
-            let (board_after, _) = simulate_placement(board, current, placement);
-            if board_after.is_game_over() {
-                continue;
-            }
-
-            let score = self.nn_evaluate(&board_after);
-            if score > best_score {
-                best_score = score;
-                best_placement = *placement;
+                    let s = self.nn_evaluate(&board3);
+                    if s > best_score {
+                        best_score = s;
+                        best_placement = *p1;
+                    }
+                }
             }
         }
 

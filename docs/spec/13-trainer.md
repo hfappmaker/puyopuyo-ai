@@ -251,7 +251,7 @@ for t in (0..n).rev():
 
 ### NN 評価関数
 
-`SelfPlayEvaluator` は `puyo-ai` の `Evaluator` トレイトを実装し、探索エンジンに組み込まれる。`NormParams` への参照を保持し、非正規化を委譲する。
+`SelfPlayEvaluator` は `puyo-ai` の `Evaluator` トレイトを実装し、探索エンジンに組み込まれる。`NormParams` への参照を保持し、非正規化を委譲する。`find_best_move` は `NnEvaluator` と同じ BFS 統一パターン（depth-1/2/3 の全盤面を評価し、最高スコアの1手目を返す）を採用している。
 
 ```rust
 struct SelfPlayEvaluator<'a> {

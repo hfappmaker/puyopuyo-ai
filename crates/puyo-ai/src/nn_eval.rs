@@ -53,7 +53,7 @@ impl NnEvaluator {
 }
 
 impl Evaluator for NnEvaluator {
-    /// depth-3 → depth-2 → depth-1 フォールバック、連鎖オーバーライドなし。
+    /// BFS順で全深度の盤面を評価し、最高スコアの1手目を返す。
     fn find_best_move(
         &self,
         board: &Board,
@@ -66,104 +66,45 @@ impl Evaluator for NnEvaluator {
             return None;
         }
 
-        // depth-3
-        {
-            let mut best_score = f64::NEG_INFINITY;
-            let mut best_placement = placements[0];
-
-            for placement in &placements {
-                let (board_after, _) = simulate_placement(board, current, placement);
-                if board_after.is_game_over() {
-                    continue;
-                }
-
-                let next_placements = enumerate_placements(&board_after, next);
-                let mut score = f64::NEG_INFINITY;
-                for next_placement in &next_placements {
-                    let (next_board, _) =
-                        simulate_placement(&board_after, next, next_placement);
-                    if next_board.is_game_over() {
-                        continue;
-                    }
-                    let nn_placements = enumerate_placements(&next_board, next_next);
-                    let mut inner_best = f64::NEG_INFINITY;
-                    for nn_placement in &nn_placements {
-                        let (nn_board, _) =
-                            simulate_placement(&next_board, next_next, nn_placement);
-                        if nn_board.is_game_over() {
-                            continue;
-                        }
-                        let s = self.nn_evaluate(&nn_board);
-                        if s > inner_best {
-                            inner_best = s;
-                        }
-                    }
-                    if inner_best > score {
-                        score = inner_best;
-                    }
-                }
-                let score = score;
-                if score > best_score {
-                    best_score = score;
-                    best_placement = *placement;
-                }
-            }
-
-            if best_score > f64::NEG_INFINITY {
-                return Some(best_placement);
-            }
-        }
-
-        // depth-2 フォールバック
-        {
-            let mut best_score = f64::NEG_INFINITY;
-            let mut best_placement = placements[0];
-
-            for placement in &placements {
-                let (board_after, _) = simulate_placement(board, current, placement);
-                if board_after.is_game_over() {
-                    continue;
-                }
-
-                let next_placements = enumerate_placements(&board_after, next);
-                let mut score = f64::NEG_INFINITY;
-                for next_placement in &next_placements {
-                    let (next_board, _) =
-                        simulate_placement(&board_after, next, next_placement);
-                    if next_board.is_game_over() {
-                        continue;
-                    }
-                    let s = self.nn_evaluate(&next_board);
-                    if s > score {
-                        score = s;
-                    }
-                }
-                let score = score;
-                if score > best_score {
-                    best_score = score;
-                    best_placement = *placement;
-                }
-            }
-
-            if best_score > f64::NEG_INFINITY {
-                return Some(best_placement);
-            }
-        }
-
-        // depth-1 フォールバック
         let mut best_score = f64::NEG_INFINITY;
         let mut best_placement = placements[0];
 
-        for placement in &placements {
-            let (board_after, _) = simulate_placement(board, current, placement);
-            if board_after.is_game_over() {
+        for p1 in &placements {
+            let (board1, _) = simulate_placement(board, current, p1);
+            if board1.is_game_over() {
                 continue;
             }
 
-            let score = self.nn_evaluate(&board_after);
-            if score > best_score {
-                best_score = score;
-                best_placement = *placement;
+            let s = self.nn_evaluate(&board1);
+            if s > best_score {
+                best_score = s;
+                best_placement = *p1;
+            }
+
+            for p2 in &enumerate_placements(&board1, next) {
+                let (board2, _) = simulate_placement(&board1, next, p2);
+                if board2.is_game_over() {
+                    continue;
+                }
+
+                let s = self.nn_evaluate(&board2);
+                if s > best_score {
+                    best_score = s;
+                    best_placement = *p1;
+                }
+
+                for p3 in &enumerate_placements(&board2, next_next) {
+                    let (board3, _) = simulate_placement(&board2, next_next, p3);
+                    if board3.is_game_over() {
+                        continue;
+                    }
+
+                    let s = self.nn_evaluate(&board3);
+                    if s > best_score {
+                        best_score = s;
+                        best_placement = *p1;
+                    }
+                }
             }
         }
 

@@ -2,7 +2,7 @@
 
 ## 概要
 
-現在のぷよ組と次のぷよ組の2手先まで読み、最も評価の高い配置を「次の一手」として提示する。
+現在のぷよ組・次のぷよ組・次々のぷよ組の最大3手先まで読み、最も評価の高い配置を「次の一手」として提示する。
 
 ## 探索結果
 
@@ -57,25 +57,26 @@ East/West 配置では軸列・衛星列の両方が到達可能でなければ�
 
 ## find_best_move
 
-`find_best_move` は `Evaluator` トレイトの唯一のメソッド。各評価器が評価関数・探索深度・連鎖オーバーライドを含む探索戦略を完全に実装する。
+`find_best_move` は `Evaluator` トレイトの唯一のメソッド。各評価器が評価関数・探索深度を含む探索戦略を完全に実装する。
 
 ```rust
 fn find_best_move(&self, board: &Board, current: &Piece, next: &Piece, next_next: &Piece) -> Option<Placement>
 ```
 
-| Evaluator | 探索深度 | 連鎖オーバーライド |
-|-----------|----------|-------------------|
-| `SimulationEvaluator` | depth-2 → depth-1 | あり |
-| `NnEvaluator` | depth-3 → depth-2 → depth-1 | なし |
+| Evaluator | 探索深度 |
+|-----------|----------|
+| `SimulationEvaluator` | depth-1〜3 を BFS 順で統一評価 |
+| `NnEvaluator` | depth-1〜3 を BFS 順で統一評価 |
 
 ## 探索の流れ
 
 1. 現在のぷよ組の全配置パターンを列挙する
 2. 各配置に対して盤面をシミュレーション（設置 + 連鎖解決）する
 3. ゲームオーバーになる配置はスキップする
-4. 残りのピースがあればインラインのネストループで探索、なければ評価関数で採点する
-5. 全1手目配置の中で最高評価のものを「次の一手」として返す
-6. （連鎖オーバーライド有効時）最大連鎖がevaluator最善手を上回ればオーバーライド
+4. BFS 順（depth-1 → depth-2 → depth-3）で全深度の盤面を評価し、単一の `best_score` / `best_placement` を更新する
+5. 全深度を通じて最高評価を得た1手目の配置を返す
+
+フォールバック分岐は不要。depth-3 で有効な盤面がなくても、depth-1 や depth-2 の評価結果がすでに `best_score` に反映されているため、自然に浅い深度の最良手が選ばれる。
 
 ### 計算量
 
@@ -86,11 +87,5 @@ fn find_best_move(&self, board: &Board, current: &Piece, next: &Piece, next_next
 
 - `simulate_placement(board, piece, placement)`: 配置シミュレーション。一時的な `GameState` でピースを設置し連鎖解決。結果の盤面と `ChainResult` を返す。元の盤面は変更されない
 - `enumerate_placements(board, piece)`: 盤面上の全合法配置を列挙する
-
-## 連鎖オーバーライド（eval.rs）
-
-`ChainTracker` 構造体で連鎖オーバーライドを管理する。全配置のシミュレーション完了後、実際に発生した最大連鎖数と、evaluatorが選んだ最善手の連鎖数を比較する。最大連鎖の方が大きければ、evaluatorの判断をオーバーライドしてその配置を選択する。
-
-`SimulationEvaluator` は連鎖オーバーライドを使用し、`NnEvaluator` は使用しない（NNスコアを信頼するため）。
 
 2手目以降の探索は各 Evaluator が `find_best_move` 内にインラインで実装する（共通の再帰関数は使用しない）。
