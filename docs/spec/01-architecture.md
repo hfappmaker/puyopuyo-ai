@@ -9,7 +9,7 @@ Rust でゲームロジックとAIを実装し、WASM 経由でブラウザ上�
 | レイヤー | クレート/ディレクトリ | 役割 |
 |----------|---------------------|------|
 | puyo-core | `crates/puyo-core/` | 盤面（`Board`、連鎖解決を含む）・ぷよ組（`Piece`, `FallingPiece`）・スコア（`score`）・ゲーム進行（`GameState`）・乱数（`Rng`） |
-| puyo-ai | `crates/puyo-ai/` | 盤面評価（`eval`）・配置列挙（`placement`）・最善手探索（`search`） |
+| puyo-ai | `crates/puyo-ai/` | 盤面評価（`eval`）・配置列挙（`placement`）・NN評価（`nn_eval`） |
 | puyo-nn | `crates/puyo-nn/` | CNN 価値ネットワーク（`PuyoValueNet`）・盤面テンソルエンコーディング（`encoding`） |
 | puyo-trainer | `crates/puyo-trainer/` | 訓練データ生成（`generate-data`）・教師あり学習（`train`）・自己対戦強化学習（`self-play`） |
 | puyo-wasm | `crates/puyo-wasm/` | `wasm-bindgen` による Rust ↔ JS ブリッジ（`WasmGame`） |
@@ -36,7 +36,7 @@ puyo-trainer (バイナリ)
 
 1. プレイヤーがキー入力を行う（移動・回転・ドロップ・AI操作・リスタート）
 2. フロントエンドが WASM ブリッジ経由で `GameState` を操作する
-3. AI操作の場合、`search::find_best_move` が2手先読みで全配置を評価し最善手を返す（全配置がゲームオーバーとなる場合は1手先読みにフォールバックする）
+3. AI操作の場合、`Evaluator::find_best_move` が3手先読み（BFS順）で全配置を評価し最善手を返す
 4. ピース設置後、連鎖処理（`resolve_chains`）が自動実行される
 5. フロントエンドが盤面・ネクスト・スコアを Canvas に描画する
 
@@ -45,7 +45,7 @@ puyo-trainer (バイナリ)
 `puyo-trainer` の3つのバイナリを順番に実行して NN モデルを生成する。
 
 ```bash
-cargo run --bin generate-data   # Phase 1: ヒューリスティック AI でデータ生成
+cargo run --bin generate-data   # Phase 1: SimulationEvaluator AI でデータ生成
 cargo run --bin train            # Phase 2: 教師あり学習
 cargo run --bin self-play        # Phase 3: 自己対戦強化学習
 ```

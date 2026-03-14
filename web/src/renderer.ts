@@ -21,6 +21,7 @@ const PUPIL_OFFSET_X = 1;
 const HIDDEN_AREA_ALPHA = 0.5;
 const CURRENT_PIECE_ALPHA = 0.9;
 const GHOST_ALPHA = 0.25;
+const PLACEMENT_PREVIEW_ALPHA = 0.4;
 
 // Board background colors
 const BG_HIDDEN = "#080812";
@@ -212,6 +213,62 @@ export class Renderer {
     const cx = NEXT_NEXT_PREVIEW_SIZE / 2;
     this.drawPuyo(ctx, cx, 15, data[1], NEXT_NEXT_SCALE);
     this.drawPuyo(ctx, cx, 42, data[0], NEXT_NEXT_SCALE);
+  }
+
+  renderWithPlacementPreview(game: WasmGame, col: number, orientation: number): void {
+    this.render(game);
+    this.drawPlacementPreview(game, col, orientation);
+  }
+
+  private drawPlacementPreview(game: WasmGame, col: number, orientation: number): void {
+    const piece = parsePieceData(game.get_current_piece());
+    if (!piece) return;
+
+    const board = game.get_board();
+    const [dc, dr] = ORIENTATION_OFFSETS[orientation];
+
+    const getHeight = (c: number): number => {
+      for (let r = ROWS - 1; r >= 0; r--) {
+        if (board[c * ROWS + r] !== COLOR_EMPTY) return r + 1;
+      }
+      return 0;
+    };
+
+    const satCol = col + dc;
+    if (satCol < 0 || satCol >= COLS) return;
+
+    let axisRow: number;
+    let satRow: number;
+
+    if (dc === 0) {
+      const h = getHeight(col);
+      if (dr > 0) {
+        axisRow = h;
+        satRow = h + 1;
+      } else {
+        satRow = h;
+        axisRow = h + 1;
+      }
+    } else {
+      axisRow = getHeight(col);
+      satRow = getHeight(satCol);
+    }
+
+    const ctx = this.ctx;
+    ctx.globalAlpha = PLACEMENT_PREVIEW_ALPHA;
+    this.drawPuyo(ctx, cellCenterX(col), cellCenterY(axisRow), piece.axisColor, 1.0);
+    this.drawPuyo(ctx, cellCenterX(satCol), cellCenterY(satRow), piece.satColor, 1.0);
+    ctx.globalAlpha = 1.0;
+
+    // Draw outline to distinguish from normal ghost
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cellCenterX(col), cellCenterY(axisRow), PUYO_RADIUS, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cellCenterX(satCol), cellCenterY(satRow), PUYO_RADIUS, 0, Math.PI * 2);
+    ctx.stroke();
   }
 
   private drawPuyo(

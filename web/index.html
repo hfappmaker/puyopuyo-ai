@@ -33,7 +33,7 @@
       display: flex;
       flex-direction: column;
       gap: 16px;
-      min-width: 160px;
+      width: 160px;
     }
     .panel {
       background: #16213e;
@@ -60,6 +60,27 @@
       font-size: 11px;
       color: #666;
       line-height: 1.6;
+    }
+    #placement-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .placement-btn {
+      background: #1a1a2e;
+      color: #ccc;
+      border: 1px solid #444;
+      border-radius: 4px;
+      padding: 2px 6px;
+      cursor: pointer;
+      font-size: 11px;
+      font-family: monospace;
+    }
+    .placement-btn:hover,
+    .placement-btn.active {
+      background: #e94560;
+      color: #fff;
+      border-color: #e94560;
     }
     #game-over-overlay {
       display: none;
@@ -129,6 +150,17 @@
           <option value="nn">ニューラルネット</option>
         </select>
         <div id="ai-mode-status" style="font-size:11px;color:#888;margin-top:4px;"></div>
+      </div>
+      <div class="panel" id="ai-eval-panel" style="display:none;">
+        <h3>AI評価</h3>
+        <div style="font-size:12px;">
+          <div>スコア: <span id="ai-score-display" style="color:#e94560;font-weight:bold;">-</span></div>
+          <div>最善手: <span id="ai-best-display" style="color:#e94560;font-weight:bold;">-</span></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>配置一覧</h3>
+        <div id="placement-list" style="max-height:200px;overflow-y:auto;font-size:12px;"></div>
       </div>
       <div id="controls" class="panel">
         <h3>操作</h3>

@@ -5,6 +5,8 @@ import { InputHandler } from "./input";
 import { UI } from "./ui";
 import { PHASE_GAME_OVER } from "./constants";
 
+const ORIENTATION_NAMES = ["N", "E", "S", "W"];
+
 export class GameLoop {
   private game: WasmGame;
   private renderer: Renderer;
@@ -14,6 +16,10 @@ export class GameLoop {
 
   private gameOver: boolean = false;
   private aiPreviewing: boolean = false;
+  private placementListEl: HTMLElement | null = null;
+  private aiEvalPanel: HTMLElement | null = null;
+  private aiScoreDisplay: HTMLElement | null = null;
+  private aiBestDisplay: HTMLElement | null = null;
 
   constructor(
     game: WasmGame,
@@ -28,11 +34,16 @@ export class GameLoop {
     this.createGame = createGame;
 
     this.input.onAction = (action) => this.handleAction(action);
+    this.placementListEl = document.getElementById("placement-list");
+    this.aiEvalPanel = document.getElementById("ai-eval-panel");
+    this.aiScoreDisplay = document.getElementById("ai-score-display");
+    this.aiBestDisplay = document.getElementById("ai-best-display");
   }
 
   start(): void {
     this.ui.update(this.game);
     this.renderer.render(this.game);
+    this.updatePlacementList();
   }
 
   getGame(): WasmGame {
@@ -119,6 +130,12 @@ export class GameLoop {
     const targetCol = bestMove[0];
     const targetOri = bestMove[1];
 
+    if (bestMove.length >= 10) {
+      const dataView = new DataView(bestMove.buffer, bestMove.byteOffset, bestMove.byteLength);
+      const score = dataView.getFloat64(2, true);
+      this.showAiEval(score, targetCol, targetOri);
+    }
+
     const currentPiece = this.game.get_current_piece();
     if (currentPiece.length === 0) return;
     const currentOri = currentPiece[5];
@@ -155,19 +172,36 @@ export class GameLoop {
     }
   }
 
+  private showAiEval(score: number, col: number, ori: number): void {
+    if (this.aiEvalPanel) this.aiEvalPanel.style.display = "";
+    if (this.aiScoreDisplay) this.aiScoreDisplay.textContent = score.toFixed(1);
+    if (this.aiBestDisplay) this.aiBestDisplay.textContent = `${col}${ORIENTATION_NAMES[ori]}`;
+  }
+
+  private hideAiEval(): void {
+    if (this.aiEvalPanel) this.aiEvalPanel.style.display = "none";
+    if (this.aiScoreDisplay) this.aiScoreDisplay.textContent = "-";
+    if (this.aiBestDisplay) this.aiBestDisplay.textContent = "-";
+  }
+
   private onPieceLanded(): void {
+    this.hideAiEval();
     this.ui.update(this.game);
     this.renderer.render(this.game);
 
     if (this.game.get_phase() === PHASE_GAME_OVER) {
       this.gameOver = true;
       this.ui.showGameOver(this.game);
+      this.clearPlacementList();
       return;
     }
+
+    this.updatePlacementList();
   }
 
   private restart(): void {
     this.aiPreviewing = false;
+    this.hideAiEval();
 
     const seed = BigInt(Date.now());
     this.game.free();
@@ -176,5 +210,43 @@ export class GameLoop {
     this.ui.hideGameOver();
     this.ui.update(this.game);
     this.renderer.render(this.game);
+    this.updatePlacementList();
+  }
+
+  private updatePlacementList(): void {
+    if (!this.placementListEl) return;
+    this.clearPlacementList();
+
+    const data = this.game.enumerate_placements();
+    for (let i = 0; i < data.length; i += 2) {
+      const col = data[i];
+      const ori = data[i + 1];
+      const btn = document.createElement("button");
+      btn.className = "placement-btn";
+      btn.textContent = `${col}${ORIENTATION_NAMES[ori]}`;
+      btn.addEventListener("click", () => {
+        this.placementListEl!.querySelectorAll(".placement-btn").forEach((b) =>
+          b.classList.remove("active")
+        );
+        btn.classList.add("active");
+        this.renderer.renderWithPlacementPreview(this.game, col, ori);
+      });
+      btn.addEventListener("mouseenter", () => {
+        this.renderer.renderWithPlacementPreview(this.game, col, ori);
+      });
+      btn.addEventListener("mouseleave", () => {
+        if (!btn.classList.contains("active")) {
+          this.renderer.render(this.game);
+        }
+      });
+      this.placementListEl.appendChild(btn);
+    }
+  }
+
+  private clearPlacementList(): void {
+    if (!this.placementListEl) return;
+    while (this.placementListEl.firstChild) {
+      this.placementListEl.removeChild(this.placementListEl.firstChild);
+    }
   }
 }

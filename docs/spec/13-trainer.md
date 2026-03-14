@@ -2,7 +2,7 @@
 
 ## 概要
 
-ヒューリスティック AI の対戦データを元に CNN 価値ネットワークを訓練し、さらに自己対戦で強化するパイプライン。
+SimulationEvaluator AI の対戦データを元に CNN 価値ネットワークを訓練し、さらに自己対戦で強化するパイプライン。
 
 ## クレート構成
 
@@ -23,7 +23,7 @@ crates/puyo-trainer/
 | クレート | 用途 |
 |---------|------|
 | `puyo-core` | ゲームロジック |
-| `puyo-ai` | ヒューリスティック評価・探索 |
+| `puyo-ai` | シミュレーション評価・探索 |
 | `puyo-nn` | CNN モデル・エンコーディング |
 | `burn` | NN フレームワーク（ndarray, autodiff, train） |
 | `serde` / `bincode` | データのシリアライズ |
@@ -34,7 +34,7 @@ crates/puyo-trainer/
 
 ```rust
 pub struct Sample {
-    pub board_data: Vec<f32>,  // エンコード済み盤面 (840 floats)
+    pub board_data: Vec<f32>,  // エンコード済み盤面 (504 floats)
     pub target: f32,           // 目標値: 割引済み将来スコア
 }
 ```
@@ -51,7 +51,7 @@ pub struct Dataset {
 
 ## Phase 1: データ生成 (`generate-data`)
 
-ヒューリスティック AI に自動対戦させ、訓練データを収集する。
+SimulationEvaluator AI に自動対戦させ、訓練データを収集する。
 
 ### パラメータ
 
@@ -221,7 +221,7 @@ for t in (0..n).rev():
 2. ターゲットネットワーク（凍結コピー）を用意
 3. 各ステップで ε-greedy 方策を使用:
    - 確率 ε: ランダム配置
-   - 確率 1-ε: ターゲットネットワーク評価 + 2手先読み探索で最善手を選択
+   - 確率 1-ε: ターゲットネットワーク評価 + 3手先読み探索（BFS順）で最善手を選択
 4. `game.apply_placement()` でピース配置 + 連鎖解決を一括実行
 5. 遷移をバッファに追加:
    - **ゲームオーバー**: `reward=-1, terminal=true` → バッファを即座に消化

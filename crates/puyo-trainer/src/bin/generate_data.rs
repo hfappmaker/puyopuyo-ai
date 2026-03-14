@@ -48,7 +48,7 @@ fn main() {
             );
 
             match result {
-                Some(placement) => {
+                Some((placement, _score)) => {
                     let chain_result = game.apply_placement(&placement);
                     game_max_chain = game_max_chain.max(chain_result.chain_count);
                     game_moves.push((board_data, chain_result.score));

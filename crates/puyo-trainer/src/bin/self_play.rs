@@ -289,7 +289,7 @@ impl<'a> Evaluator for SelfPlayEvaluator<'a> {
         current: &puyo_core::piece::Piece,
         next: &puyo_core::piece::Piece,
         next_next: &puyo_core::piece::Piece,
-    ) -> Option<Placement> {
+    ) -> Option<(Placement, f64)> {
         let placements = enumerate_placements(board, current);
         if placements.is_empty() {
             return None;
@@ -337,7 +337,7 @@ impl<'a> Evaluator for SelfPlayEvaluator<'a> {
             }
         }
 
-        Some(best_placement)
+        Some((best_placement, best_score))
     }
 }
 
@@ -378,12 +378,14 @@ fn select_placement(
             device: infer_device.clone(),
             norm,
         };
-        evaluator.find_best_move(
-            &session.game.board,
-            &current_piece,
-            &session.game.next_piece,
-            &session.game.next_next_piece,
-        )
+        evaluator
+            .find_best_move(
+                &session.game.board,
+                &current_piece,
+                &session.game.next_piece,
+                &session.game.next_next_piece,
+            )
+            .map(|(p, _)| p)
     }
 }
 

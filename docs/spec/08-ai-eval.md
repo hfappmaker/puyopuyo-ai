@@ -8,15 +8,15 @@
 
 ```rust
 pub trait Evaluator {
-    fn find_best_move(&self, board, current, next, next_next) -> Option<SearchResult>;
+    fn find_best_move(&self, board, current, next, next_next) -> Option<(Placement, f64)>;
 }
 ```
 
-唯一のメソッド `find_best_move()` で、各 Evaluator が評価関数と探索戦略の両方を実装する。探索深度、連鎖オーバーライドの有無、評価ロジックは各実装が決定する。
+唯一のメソッド `find_best_move()` で、各 Evaluator が評価関数と探索戦略の両方を実装する。戻り値は最善配置と評価スコアのタプル。探索深度、評価ロジックは各実装が決定する。
 
 | Evaluator | 探索深度 | 評価関数 |
 |-----------|----------|---------|
-| `SimulationEvaluator` | depth-3 → depth-2 → depth-1 | 仮想ぷよシミュレーション |
+| `SimulationEvaluator` | depth-1〜3 を BFS 順で統一評価 | 仮想ぷよシミュレーション |
 | `NnEvaluator` | depth-1〜3 を BFS 順で統一評価 | CNN forward pass |
 
 ## 共通定数
@@ -29,23 +29,24 @@ pub trait Evaluator {
 
 ### 評価の流れ
 
-1. ゲームオーバー判定 → ゲームオーバーなら `W_GAME_OVER` を返す
-2. まず現状の盤面で連鎖を解決し、ベースラインスコアを取得
-3. 4色 × 6列 = 24パターンの仮想ぷよ（同色を各列に最大3個縦積み）をシミュレーションし、各パターンの連鎖スコアを取得
-4. ベースライン + 全パターンのスコア合計を、パターン数+1 で割った期待値（平均スコア）を `f64` として返す
+1. 4色それぞれについて同色2個の `Piece` を作成
+2. `enumerate_placements()` で合法配置を列挙（同色Pieceなので最大11配置/色）
+3. 各配置に対して `simulate_placement()` → 連鎖解決でスコアを計算
+4. 全パターンのスコア合計を配置数で割った期待値（平均スコア）を `f64` として返す
+5. 合法配置が1つもない場合（盤面が満杯）は `W_GAME_OVER` を返す
 
 ### 仮想ぷよのルール
 
 - 色: Red, Green, Blue, Yellow の4色
-- 各パターンで同色ぷよを最大 `VIRTUAL_PUYO_COUNT`（3）個、同一列に縦積みする
-- 列の空きが3未満の場合は入る分だけ積む（空き0ならその列はスキップ）
-- row 13 に孤立ぷよがある列は、空きスロット数を `ROWS - 1 - column_height` として計算（孤立ぷよの分を差し引く）
+- 各色について同色2個の `Piece::new(color, color)` を作成
+- `enumerate_placements()` により合法配置のみを評価対象とする（実際のゲーム操作と一致）
+- 同色Pieceのため、回転による重複配置は自動的に排除される
 - 連鎖解決後にゲームオーバーとなるパターンは、連鎖スコアの代わりに `W_GAME_OVER` をスコアとして加算する
 
 ### 計算量
 
-- 24回のシミュレーション / 盤面評価
-- depth-3 探索と組み合わせた場合: ~10,648盤面 × 24 ≈ 255,552 シミュレーション / 手
+- 最大44回（4色 × 最大11配置）のシミュレーション / 盤面評価
+- depth-3 探索と組み合わせた場合: ~10,648盤面 × 44 ≈ 468,512 シミュレーション / 手
 
 ### 用途
 

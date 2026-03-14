@@ -6,7 +6,7 @@
 
 ## 探索結果
 
-`find_best_move` は `Option<Placement>` を返す。配置不能な場合は `None`。
+`find_best_move` は `Option<(Placement, f64)>` を返す。最善配置と評価スコアのタプル。配置不能な場合は `None`。
 
 ## 配置列挙
 
@@ -60,7 +60,7 @@ East/West 配置では軸列・衛星列の両方が到達可能でなければ�
 `find_best_move` は `Evaluator` トレイトの唯一のメソッド。各評価器が評価関数・探索深度を含む探索戦略を完全に実装する。
 
 ```rust
-fn find_best_move(&self, board: &Board, current: &Piece, next: &Piece, next_next: &Piece) -> Option<Placement>
+fn find_best_move(&self, board: &Board, current: &Piece, next: &Piece, next_next: &Piece) -> Option<(Placement, f64)>
 ```
 
 | Evaluator | 探索深度 |

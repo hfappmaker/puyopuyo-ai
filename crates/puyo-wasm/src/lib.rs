@@ -6,6 +6,7 @@ use burn::record::{BinBytesRecorder, FullPrecisionSettings, Recorder};
 
 use puyo_ai::eval::{Evaluator, SimulationEvaluator};
 use puyo_ai::nn_eval::NnEvaluator;
+use puyo_ai::placement::enumerate_placements;
 use puyo_core::game::{GamePhase, GameState};
 use puyo_nn::model::{PuyoValueNet, PuyoValueNetConfig};
 
@@ -180,11 +181,13 @@ impl WasmGame {
         );
 
         match result {
-            Some(placement) => {
-                vec![
+            Some((placement, score)) => {
+                let mut bytes = vec![
                     placement.col as u8,
                     placement.orientation.as_u8(),
-                ]
+                ];
+                bytes.extend_from_slice(&score.to_le_bytes());
+                bytes
             }
             None => vec![],
         }
@@ -211,12 +214,30 @@ impl WasmGame {
         );
 
         match result {
-            Some(placement) => {
+            Some((placement, _score)) => {
                 let chain_result = self.state.apply_placement(&placement);
                 chain_result.chain_count
             }
             None => 0,
         }
+    }
+
+    /// Enumerate all legal placements for the current piece.
+    /// Returns a flat Vec<u8> of [col, orientation, col, orientation, ...].
+    #[wasm_bindgen]
+    pub fn enumerate_placements(&self) -> Vec<u8> {
+        let current_piece = match &self.state.current_piece {
+            Some(fp) => fp.piece,
+            None => return vec![],
+        };
+
+        let placements = enumerate_placements(&self.state.board, &current_piece);
+        let mut result = Vec::with_capacity(placements.len() * 2);
+        for p in &placements {
+            result.push(p.col as u8);
+            result.push(p.orientation.as_u8());
+        }
+        result
     }
 
     /// Restart the game.

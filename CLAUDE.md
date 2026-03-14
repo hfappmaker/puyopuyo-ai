@@ -27,7 +27,7 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 | クレート | 役割 |
 |---------|------|
 | `puyo-core` | ゲームエンジン（Board（連鎖解決含む）, GameState, Piece, Score, RNG） |
-| `puyo-ai` | AI探索・評価（Evaluator trait, search_depth1/depth2/depth3, find_best_move） |
+| `puyo-ai` | AI探索・評価（Evaluator trait, SimulationEvaluator, NnEvaluator, find_best_move） |
 | `puyo-nn` | CNN評価ネットワーク（PuyoValueNet, one-hot encoding） |
 | `puyo-trainer` | 学習パイプライン（3つのバイナリ: generate-data, train, self-play） |
 | `puyo-wasm` | WASMブリッジ（wasm-bindgen, WasmGame struct） |
@@ -37,9 +37,9 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 ## アーキテクチャの要点
 
 ### Evaluator trait（多態性の中心）
-`puyo-ai/src/eval.rs`の`Evaluator`トレイト（`evaluate(&Board) -> f64`）がAIの核。
-- `HeuristicEvaluator`: 7つの重み付き特徴量（連鎖スコア、高さペナルティ、連結度など）
-- `NnEvaluator`（`puyo-ai/src/nn_eval.rs`、`nn` feature flag有効時のみ）: CNNで盤面評価
+`puyo-ai/src/eval.rs`の`Evaluator`トレイト（`find_best_move(&Board, &Piece, &Piece, &Piece) -> Option<(Placement, f64)>`）がAIの核。
+- `SimulationEvaluator`: 仮想ぷよシミュレーションで盤面を評価（3手先読みBFS）
+- `NnEvaluator`（`puyo-ai/src/nn_eval.rs`、`nn` feature flag有効時のみ）: CNNで盤面評価（3手先読みBFS）
 
 ### Feature flag `nn`
 `puyo-ai`の`nn`フィーチャーフラグでNN依存を制御。`puyo-wasm`は`nn`を有効にしてビルド。
@@ -53,10 +53,10 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 
 ### WASMブリッジ
 `WasmGame`構造体が`GameState`と`Box<dyn Evaluator>`を保持。
-`load_nn_model()`でNNモデルをバイト列から読み込み（`BinBytesRecorder`使用）、`use_heuristic()`でヒューリスティックに切替。
+`load_nn_model()`でNNモデルをバイト列から読み込み（`BinBytesRecorder`使用）、`use_heuristic()`で`SimulationEvaluator`に切替。
 
 ### 学習パイプライン
-- `generate-data`: ヒューリスティックAIで~10Kゲーム → ~1Mサンプル（`data/training_data.bin`）
+- `generate-data`: SimulationEvaluator AIで~10Kゲーム → ~1Mサンプル（`data/training_data.bin`）
 - `train`: 教師あり学習、MSE損失、z-score正規化（スコア予測）
 - `self-play`: TD(λ) + ターゲットネットワークで強化学習
 - 正規化パラメータ: `artifacts/norm_params.txt`
@@ -94,7 +94,7 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 | `crates/puyo-core/src/game.rs` | `docs/spec/06-game.md`, `docs/spec/01-architecture.md` |
 | `crates/puyo-core/src/rng.rs` | `docs/spec/07-rng.md`, `docs/spec/01-architecture.md` |
 | `crates/puyo-ai/src/eval.rs`, `crates/puyo-ai/src/nn_eval.rs` | `docs/spec/08-ai-eval.md` |
-| `crates/puyo-ai/src/search.rs`, `crates/puyo-ai/src/placement.rs` | `docs/spec/09-ai-search.md` |
+| `crates/puyo-ai/src/placement.rs` | `docs/spec/09-ai-search.md` |
 | `crates/puyo-wasm/src/lib.rs` | `docs/spec/10-wasm-bridge.md` |
 | `web/src/*.ts` | `docs/spec/11-frontend.md` |
 | `crates/puyo-nn/src/*.rs` | `docs/spec/12-nn.md` |
