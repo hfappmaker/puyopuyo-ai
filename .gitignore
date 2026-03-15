@@ -10,6 +10,9 @@ web/wasm-pkg/
 # Vite build output
 web/dist/
 
+# トレーニングデータ（data/training_data.bin のコピー）
+web/data/
+
 # ブラウザ用モデルデプロイ先（artifacts/からupdate-model.shで生成）
 web/public/models/
 
