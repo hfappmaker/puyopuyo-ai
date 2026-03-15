@@ -93,18 +93,18 @@ impl Evaluator for NnEvaluator {
                     best_placement = *p1;
                 }
 
-                for p3 in &enumerate_placements(&board2, next_next) {
-                    let (board3, _) = simulate_placement(&board2, next_next, p3);
-                    if board3.is_game_over() {
-                        continue;
-                    }
+                // for p3 in &enumerate_placements(&board2, next_next) {
+                //     let (board3, _) = simulate_placement(&board2, next_next, p3);
+                //     if board3.is_game_over() {
+                //         continue;
+                //     }
 
-                    let s = self.nn_evaluate(&board3);
-                    if s > best_score {
-                        best_score = s;
-                        best_placement = *p1;
-                    }
-                }
+                //     let s = self.nn_evaluate(&board3);
+                //     if s > best_score {
+                //         best_score = s;
+                //         best_placement = *p1;
+                //     }
+                // }
             }
         }
 
