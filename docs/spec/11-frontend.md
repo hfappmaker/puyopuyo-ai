@@ -89,12 +89,11 @@ AIプレビュー実行時に、サイドバーの「AI評価」パネルに評�
 
 ## NN モデルの読み込み
 
-`model-loader.ts` は以下の URL からリソースを並列 fetch し、`game.load_nn_model()` に渡す。
+`model-loader.ts` は以下の URL からモデル本体を fetch し、`game.load_nn_model()` に渡す。
 
 | リソース | URL |
 |---------|-----|
 | モデル本体 | `/models/puyo_model_selfplay.bin` |
-| 正規化パラメータ | `/models/norm_params.txt` |
 
-`norm_params.txt` は `mean` と `std_dev` を改行区切りで2行記載したテキストファイル。
+Policy Network への移行に伴い、`norm_params.txt`（z-score 正規化パラメータ）の読み込みは不要となった。`load_nn_model()` にはモデルバイト列のみを渡す。
 fetch に失敗した場合や、リソースが存在しない場合は `console.warn` を出力してヒューリスティックにフォールバックする。

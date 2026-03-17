@@ -1,6 +1,7 @@
 use puyo_ai::eval::{Evaluator, SimulationEvaluator};
+use puyo_ai::placement::placement_to_index;
 use puyo_core::game::{GamePhase, GameState};
-use puyo_nn::encoding::board_to_tensor_data;
+use puyo_nn::encoding::{board_to_tensor_data, pieces_to_tensor_data};
 use puyo_trainer::data::{Dataset, Sample};
 
 const NUM_GAMES: u64 = 10_000;
@@ -18,7 +19,7 @@ fn main() {
 
     for seed in 0..NUM_GAMES {
         let mut game = GameState::new(seed);
-        let mut game_moves: Vec<(Vec<f32>, u32)> = Vec::new();
+        let mut move_count = 0usize;
         let mut game_max_chain = 0u32;
 
         while game.phase != GamePhase::GameOver {
@@ -26,7 +27,7 @@ fn main() {
                 break;
             }
 
-            if game_moves.len() >= MAX_MOVES_PER_GAME {
+            if move_count >= MAX_MOVES_PER_GAME {
                 println!("Game {} reached max moves limit ({})", seed, MAX_MOVES_PER_GAME);
                 break;
             }
@@ -36,8 +37,14 @@ fn main() {
                 None => break,
             };
 
-            // Record board state BEFORE placement
+            // Encode board and pieces BEFORE placement
             let board_data = board_to_tensor_data(&game.board).to_vec();
+            let piece_data = pieces_to_tensor_data(
+                &current_piece,
+                &game.next_piece,
+                &game.next_next_piece,
+            )
+            .to_vec();
 
             // Find and apply best move
             let result = evaluator.find_best_move(
@@ -49,36 +56,19 @@ fn main() {
 
             match result {
                 Some((placement, _score)) => {
+                    let action_index = placement_to_index(&placement) as u8;
                     let chain_result = game.apply_placement(&placement);
                     game_max_chain = game_max_chain.max(chain_result.chain_count);
-                    game_moves.push((board_data, chain_result.score));
+
+                    dataset.samples.push(Sample {
+                        board_data,
+                        piece_data,
+                        action_index,
+                    });
+                    move_count += 1;
                 }
                 None => break,
             }
-        }
-
-        // Now create training samples.
-        // For each move, the target is the score achieved on that move.
-        // We also add a discounted future score to encourage setup.
-        let gamma = 0.95f32;
-        let num_moves = game_moves.len();
-        if num_moves == 0 {
-            continue;
-        }
-
-        // Compute discounted future scores (backwards)
-        let mut future_values = vec![0.0f32; num_moves];
-        future_values[num_moves - 1] = game_moves[num_moves - 1].1 as f32;
-        for i in (0..num_moves - 1).rev() {
-            let immediate = game_moves[i].1 as f32;
-            future_values[i] = immediate + gamma * future_values[i + 1];
-        }
-
-        for (i, (board_data, _)) in game_moves.iter().enumerate() {
-            dataset.samples.push(Sample {
-                board_data: board_data.clone(),
-                target: future_values[i],
-            });
         }
 
         total_max_chain = total_max_chain.max(game.max_chain);
@@ -95,7 +85,7 @@ fn main() {
                 games_done,
                 NUM_GAMES,
                 dataset.samples.len(),
-                num_moves,
+                move_count,
                 game_max_chain,
                 total_max_chain,
                 avg_chain,

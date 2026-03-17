@@ -1,12 +1,14 @@
 use serde::{Deserialize, Serialize};
 
-/// A single training sample: board state + target value.
+/// A single training sample: board state + piece info + chosen action.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Sample {
     /// Encoded board state (NUM_CHANNELS × 14 rows × 6 cols floats).
     pub board_data: Vec<f32>,
-    /// Target value: discounted cumulative score from this board state.
-    pub target: f32,
+    /// Encoded piece data (3 pieces × 2 colors × 4 one-hot = 24 floats).
+    pub piece_data: Vec<f32>,
+    /// Action index chosen by the teacher evaluator (0-23).
+    pub action_index: u8,
 }
 
 /// Dataset of training samples.

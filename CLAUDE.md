@@ -39,7 +39,7 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 ### Evaluator trait（多態性の中心）
 `puyo-ai/src/eval.rs`の`Evaluator`トレイト（`find_best_move(&Board, &Piece, &Piece, &Piece) -> Option<(Placement, f64)>`）がAIの核。
 - `SimulationEvaluator`: 仮想ぷよシミュレーションで盤面を評価（3手先読みBFS）
-- `NnEvaluator`（`puyo-ai/src/nn_eval.rs`、`nn` feature flag有効時のみ）: CNNで盤面評価（3手先読みBFS）
+- `NnEvaluator`（`puyo-ai/src/nn_eval.rs`、`nn` feature flag有効時のみ）: Policy Networkで配置確率を直接出力（探索なし、1回推論）
 
 ### Feature flag `nn`
 `puyo-ai`の`nn`フィーチャーフラグでNN依存を制御。`puyo-wasm`は`nn`を有効にしてビルド。
@@ -47,8 +47,10 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 
 ### ボード表現とCNN
 - ボード: 6列×14行、`PuyoColor` enum（Empty, Red, Green, Blue, Yellow）
-- エンコーディング: one-hot 4ch + occupancy 1ch + adjacency 1ch = 6チャンネル × 14行 × 6列 = 504 floats → `[batch, 6, 14, 6]` テンソル
-- PuyoValueNet: Conv2d(6→64)→ResidualBlock(64)×6→Conv2d(64→128,1×1)→AdaptiveAvgPool2d([4,3])→Linear(1536→128)→Linear(128→1)
+- 盤面エンコーディング: one-hot 4ch + occupancy 1ch + adjacency 1ch = 6チャンネル × 14行 × 6列 = 504 floats → `[batch, 6, 14, 6]` テンソル
+- ツモエンコーディング: 3ツモ × (axis_one_hot[4] + satellite_one_hot[4]) = 24 floats → `[batch, 24]` テンソル
+- PuyoPolicyNet（FiLM Conditioning）: ツモ→FiLMジェネレータ(24→64→128→gamma[64]+beta[64]) → stem(6ch→64ch) → FiLMResidualBlock(64)×6(gamma*x+beta) → head_conv(64→128) → Pool([4,3]) → Linear(1536→256) → Linear(256→24) → logits
+- 出力: 24次元（6列×4方向）の配置logits、マスク付きargmaxで最善手選択
 - Burn 0.16、NdArrayバックエンド（CPU/WASM対応）
 
 ### WASMブリッジ
@@ -56,11 +58,9 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 `load_nn_model()`でNNモデルをバイト列から読み込み（`BinBytesRecorder`使用）、`use_heuristic()`で`SimulationEvaluator`に切替。
 
 ### 学習パイプライン
-- `generate-data`: SimulationEvaluator AIで~10Kゲーム → ~1Mサンプル（`data/training_data.bin`）
-- `train`: 教師あり学習、MSE損失、z-score正規化（スコア予測）
-- `self-play`: TD(λ) + ターゲットネットワークで強化学習
-- 正規化パラメータ: `artifacts/norm_params.txt`
-- 評価値 = 割引累積スコア（連鎖スコアをγ=0.95で割引）
+- `generate-data`: SimulationEvaluator AIで~10Kゲーム → 盤面+ツモ+選択手インデックスを記録（`data/training_data.bin`）
+- `train`: 教師あり学習、Cross-Entropy損失（配置分類タスク）
+- `self-play`: プレースホルダー（Policy Network向けRL未実装）
 
 ### フロントエンド（web/src/）
 - `main.ts`: エントリポイント、AI モード切替（heuristic/NN）

@@ -106,6 +106,39 @@ pub fn enumerate_placements(board: &Board, piece: &Piece) -> Vec<Placement> {
     placements
 }
 
+/// Total number of possible placement indices (6 cols × 4 orientations).
+pub const NUM_ACTIONS: usize = 24;
+
+/// Convert a Placement to a flat index: col * 4 + orientation.as_u8().
+pub fn placement_to_index(p: &Placement) -> usize {
+    p.col * 4 + p.orientation.as_u8() as usize
+}
+
+/// Convert a flat index back to a Placement.
+/// Panics if index >= 24.
+pub fn index_to_placement(index: usize) -> Placement {
+    assert!(index < NUM_ACTIONS, "index out of range: {}", index);
+    let col = index / 4;
+    let ori = match index % 4 {
+        0 => Orientation::North,
+        1 => Orientation::East,
+        2 => Orientation::South,
+        3 => Orientation::West,
+        _ => unreachable!(),
+    };
+    Placement::new(col, ori)
+}
+
+/// Compute a valid-action mask from enumerate_placements.
+/// Returns [bool; 24] where true = valid placement.
+pub fn compute_valid_mask(board: &Board, piece: &Piece) -> [bool; NUM_ACTIONS] {
+    let mut mask = [false; NUM_ACTIONS];
+    for p in enumerate_placements(board, piece) {
+        mask[placement_to_index(&p)] = true;
+    }
+    mask
+}
+
 /// Normalize a placement for deduplication when both colors are the same.
 /// Returns (min_col, max_col, is_vertical).
 fn normalize_placement(p: &Placement) -> (usize, usize, bool) {
@@ -393,5 +426,40 @@ mod tests {
         assert!(!placements
             .iter()
             .any(|p| p.col == 3 && p.orientation == Orientation::East));
+    }
+
+    #[test]
+    fn test_placement_to_index_roundtrip() {
+        for col in 0..6 {
+            for ori in [
+                Orientation::North,
+                Orientation::East,
+                Orientation::South,
+                Orientation::West,
+            ] {
+                let p = Placement::new(col, ori);
+                let idx = placement_to_index(&p);
+                let p2 = index_to_placement(idx);
+                assert_eq!(p, p2);
+            }
+        }
+    }
+
+    #[test]
+    fn test_compute_valid_mask_empty_board() {
+        let board = Board::new();
+        let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
+        let mask = compute_valid_mask(&board, &piece);
+        let count = mask.iter().filter(|&&v| v).count();
+        assert_eq!(count, 22); // same as enumerate_placements
+    }
+
+    #[test]
+    fn test_compute_valid_mask_same_color() {
+        let board = Board::new();
+        let piece = Piece::new(PuyoColor::Red, PuyoColor::Red);
+        let mask = compute_valid_mask(&board, &piece);
+        let count = mask.iter().filter(|&&v| v).count();
+        assert_eq!(count, 11); // deduped
     }
 }

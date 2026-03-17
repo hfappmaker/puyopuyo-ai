@@ -3,18 +3,26 @@ use burn::nn::pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig};
 use burn::nn::{Linear, LinearConfig, PaddingConfig2d, Relu};
 use burn::prelude::*;
 
-use crate::encoding::NUM_CHANNELS;
+use crate::encoding::{NUM_CHANNELS, PIECE_TENSOR_SIZE};
 
 const RESIDUAL_CHANNELS: usize = 64;
 const NUM_RESIDUAL_BLOCKS: usize = 6;
 const HEAD_CHANNELS: usize = 128;
 const POOL_H: usize = 4;
 const POOL_W: usize = 3;
-const HIDDEN_SIZE: usize = 128;
+const HIDDEN_SIZE: usize = 256;
+const NUM_ACTIONS: usize = 24; // 6 cols × 4 orientations
 
-/// Residual block: Conv → ReLU → Conv, then add input (skip connection) → ReLU.
+/// FiLM parameters generated from piece information.
+/// gamma and beta are used to modulate feature maps: y = gamma * x + beta.
+const FILM_HIDDEN: usize = 64;
+/// FiLM output size: gamma (RESIDUAL_CHANNELS) + beta (RESIDUAL_CHANNELS).
+const FILM_OUTPUT: usize = RESIDUAL_CHANNELS * 2;
+
+/// Residual block with FiLM conditioning.
 ///
-/// Both convolutions preserve spatial dimensions (padding=Same) and channel count.
+/// Conv → ReLU → Conv → FiLM(gamma, beta) → add skip → ReLU.
+/// FiLM applies channel-wise affine transform: y = gamma * x + beta.
 #[derive(Module, Debug)]
 pub struct ResidualBlock<B: Backend> {
     conv1: Conv2d<B>,
@@ -42,46 +50,69 @@ impl ResidualBlockConfig {
 }
 
 impl<B: Backend> ResidualBlock<B> {
-    /// Forward pass: y = ReLU(Conv(ReLU(Conv(x))) + x)
-    pub fn forward(&self, x: Tensor<B, 4>) -> Tensor<B, 4> {
+    /// Forward pass with FiLM conditioning.
+    /// gamma, beta: [batch, channels] — broadcast over spatial dims.
+    pub fn forward(
+        &self,
+        x: Tensor<B, 4>,
+        gamma: Tensor<B, 2>,
+        beta: Tensor<B, 2>,
+    ) -> Tensor<B, 4> {
         let residual = x.clone();
         let x = self.conv1.forward(x);
         let x = self.activation.forward(x);
         let x = self.conv2.forward(x);
+
+        // FiLM: reshape [batch, channels] → [batch, channels, 1, 1] for broadcast
+        let gamma_dims = gamma.dims();
+        let gamma = gamma.reshape([gamma_dims[0], gamma_dims[1], 1, 1]);
+        let beta_dims = beta.dims();
+        let beta = beta.reshape([beta_dims[0], beta_dims[1], 1, 1]);
+        let x = x * gamma + beta;
+
         self.activation.forward(x + residual)
     }
 }
 
-/// CNN value network for Puyo Puyo board evaluation with residual connections.
+/// CNN policy network for Puyo Puyo with FiLM conditioning.
 ///
 /// Architecture:
-///   stem (6ch → 64ch) → ResidualBlock ×6 (64ch) → head_conv (64ch → 128ch)
-///   → AdaptiveAvgPool → Linear(768→128) → Linear(128→1)
+///   FiLM generator: pieces(24) → Linear(24→64) → ReLU → Linear(64→128) → split(gamma, beta)
+///   stem (6ch → 64ch) → FiLMResidualBlock ×6 (64ch) → head_conv (64ch → 128ch)
+///   → AdaptiveAvgPool → Linear(1536→256) → Linear(256→24)
 ///
-/// Input: [batch, 6, 14, 6] (color one-hot 4ch + occupancy 1ch + adjacency 1ch)
-/// Output: [batch, 1] (scalar evaluation value)
+/// Board input: [batch, 6, 14, 6]
+/// Piece input: [batch, 24]
+/// Output: [batch, 24] (logits for each placement)
 #[derive(Module, Debug)]
-pub struct PuyoValueNet<B: Backend> {
+pub struct PuyoPolicyNet<B: Backend> {
+    // FiLM generator
+    film_fc1: Linear<B>,
+    film_fc2: Linear<B>,
+    // CNN backbone
     stem: Conv2d<B>,
     res_blocks: Vec<ResidualBlock<B>>,
     head_conv: Conv2d<B>,
     pool: AdaptiveAvgPool2d,
+    // Policy head
     linear1: Linear<B>,
     linear2: Linear<B>,
     activation: Relu,
 }
 
 #[derive(Config, Debug)]
-pub struct PuyoValueNetConfig {}
+pub struct PuyoPolicyNetConfig {}
 
-impl PuyoValueNetConfig {
-    pub fn init<B: Backend>(&self, device: &B::Device) -> PuyoValueNet<B> {
+impl PuyoPolicyNetConfig {
+    pub fn init<B: Backend>(&self, device: &B::Device) -> PuyoPolicyNet<B> {
         let res_block_config = ResidualBlockConfig::new(RESIDUAL_CHANNELS);
         let res_blocks = (0..NUM_RESIDUAL_BLOCKS)
             .map(|_| res_block_config.init(device))
             .collect();
 
-        PuyoValueNet {
+        PuyoPolicyNet {
+            film_fc1: LinearConfig::new(PIECE_TENSOR_SIZE, FILM_HIDDEN).init(device),
+            film_fc2: LinearConfig::new(FILM_HIDDEN, FILM_OUTPUT).init(device),
             stem: Conv2dConfig::new([NUM_CHANNELS, RESIDUAL_CHANNELS], [3, 3])
                 .with_padding(PaddingConfig2d::Same)
                 .init(device),
@@ -89,29 +120,38 @@ impl PuyoValueNetConfig {
             head_conv: Conv2dConfig::new([RESIDUAL_CHANNELS, HEAD_CHANNELS], [1, 1]).init(device),
             pool: AdaptiveAvgPool2dConfig::new([POOL_H, POOL_W]).init(),
             linear1: LinearConfig::new(HEAD_CHANNELS * POOL_H * POOL_W, HIDDEN_SIZE).init(device),
-            linear2: LinearConfig::new(HIDDEN_SIZE, 1).init(device),
+            linear2: LinearConfig::new(HIDDEN_SIZE, NUM_ACTIONS).init(device),
             activation: Relu::new(),
         }
     }
 }
 
-impl<B: Backend> PuyoValueNet<B> {
+impl<B: Backend> PuyoPolicyNet<B> {
     /// Forward pass.
-    /// Input shape: [batch, NUM_CHANNELS, ROWS, COLS] = [batch, 6, 14, 6]
-    /// Output shape: [batch, 1]
-    pub fn forward(&self, x: Tensor<B, 4>) -> Tensor<B, 2> {
-        let batch_size = x.dims()[0];
+    /// board: [batch, 6, 14, 6], pieces: [batch, 24]
+    /// Output: [batch, 24] (logits)
+    pub fn forward(&self, board: Tensor<B, 4>, pieces: Tensor<B, 2>) -> Tensor<B, 2> {
+        let batch_size = board.dims()[0];
 
-        // Stem: project input channels to residual channels
-        let mut x = self.stem.forward(x);
+        // FiLM generator: pieces → gamma, beta
+        let film = self.film_fc1.forward(pieces);
+        let film = self.activation.forward(film);
+        let film = self.film_fc2.forward(film); // [batch, 128]
+
+        // Split into gamma [batch, 64] and beta [batch, 64]
+        let gamma = film.clone().slice([0..batch_size, 0..RESIDUAL_CHANNELS]);
+        let beta = film.slice([0..batch_size, RESIDUAL_CHANNELS..FILM_OUTPUT]);
+
+        // Stem
+        let mut x = self.stem.forward(board);
         x = self.activation.forward(x);
 
-        // Residual blocks
+        // Residual blocks with FiLM
         for block in &self.res_blocks {
-            x = block.forward(x);
+            x = block.forward(x, gamma.clone(), beta.clone());
         }
 
-        // Head: expand channels and pool
+        // Head
         let x = self.head_conv.forward(x);
         let x = self.activation.forward(x);
 

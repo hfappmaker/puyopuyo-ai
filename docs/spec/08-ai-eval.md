@@ -2,7 +2,7 @@
 
 ## 概要
 
-盤面の「良さ」をスコア（`f64`）として数値化する。AIが配置を比較・選択するための判断基準。
+盤面の「良さ」をスコア（`f64`）として数値化する、または最善の配置を直接選択する。AIが配置を比較・選択するための判断基準。
 
 ## Evaluator トレイト
 
@@ -14,14 +14,14 @@ pub trait Evaluator {
 
 唯一のメソッド `find_best_move()` で、各 Evaluator が評価関数と探索戦略の両方を実装する。戻り値は最善配置と評価スコアのタプル。探索深度、評価ロジックは各実装が決定する。
 
-| Evaluator | 探索深度 | 評価関数 |
+| Evaluator | 探索方式 | 評価関数 |
 |-----------|----------|---------|
 | `SimulationEvaluator` | depth-1〜3 を BFS 順で統一評価 | max(実連鎖スコア, 仮想ぷよシミュレーション期待値) |
-| `NnEvaluator` | depth-1〜3 を BFS 順で統一評価 | CNN forward pass |
+| `NnEvaluator` | 探索なし、NN 1回推論で直接選択 | Policy Network（マスク付き argmax） |
 
 ## 共通定数
 
-- `W_GAME_OVER`（`-100000.0`）: ゲームオーバー状態の盤面に割り当てるスコア。`SimulationEvaluator` と `NnEvaluator` の両方で使用
+- `W_GAME_OVER`（`-100000.0`）: ゲームオーバー状態の盤面に割り当てるスコア。`SimulationEvaluator` で使用
 
 ## SimulationEvaluator（仮想ぷよシミュレーション評価）
 
@@ -62,14 +62,32 @@ pub trait Evaluator {
 
 `generate-data` バイナリで教師データ生成時に使用。仮想ぷよを落とすことで連鎖の布石をより直接的に評価できる。
 
-## NnEvaluator（CNN 評価）
+## NnEvaluator（Policy Network 評価）
 
-CNN（`PuyoValueNet`）で盤面を直接評価する。詳細は `docs/spec/12-nn.md` を参照。
+Policy Network（`PuyoPolicyNet`）で盤面と3ツモ情報から最善配置を直接選択する。探索ループは不要。詳細は `docs/spec/12-nn.md` を参照。
 
 ### 評価の流れ
 
-1. ゲームオーバー判定 → ゲームオーバーなら `W_GAME_OVER` を返す
-2. 盤面を one-hot エンコーディング（6ch × 14行 × 6列）に変換
-3. CNN forward pass で正規化済みスコアを取得
-4. z-score 逆変換（`normalized * std_dev + mean`）で生スコアに復元
-5. テンソル変換に失敗した場合も `W_GAME_OVER` を返す（安全なフォールバック）
+1. 盤面を one-hot エンコーディング（6ch × 14行 × 6列）に変換
+2. 3ツモ（current, next, next_next）を `pieces_to_tensor_data()` で24次元ベクトルに変換
+3. Policy Network の forward pass で24次元の配置 logits を取得
+4. `compute_valid_mask()` で合法配置のマスクを生成
+5. 不正な配置の logits を `-inf` でマスクし、argmax で最善配置インデックスを選択
+6. `index_to_placement()` でインデックスを `Placement`（col, orientation）に変換
+
+### 配置インデックス体系
+
+`placement.rs` に定義された、配置と整数インデックス間の双方向マッピング。
+
+| 関数 | 説明 |
+|------|------|
+| `placement_to_index(placement) -> u8` | `Placement` を 0〜23 のインデックスに変換 |
+| `index_to_placement(index) -> Placement` | インデックスを `Placement` に逆変換 |
+| `compute_valid_mask(board, piece) -> [bool; 24]` | 合法配置に対応するインデックスを `true` にしたマスク配列を返す |
+
+出力次元は24（6列 × 4方向）で、各インデックスは `col * 4 + orientation` に対応する。
+
+### 特徴
+
+- **探索不要**: 1回の NN 推論で直接最善手を選択するため、`SimulationEvaluator` と比べて計算コストが大幅に低い
+- **mean/std_dev パラメータ不要**: Value Network 時代の z-score 正規化は廃止

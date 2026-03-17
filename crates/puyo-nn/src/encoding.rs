@@ -1,4 +1,5 @@
 use puyo_core::board::{Board, COLS, ROWS};
+use puyo_core::piece::Piece;
 
 /// Number of input channels:
 /// 0-3: one-hot per color (Red, Green, Blue, Yellow) — Empty is implicit (all zero)
@@ -53,10 +54,32 @@ pub fn board_to_tensor_data(board: &Board) -> [f32; TENSOR_SIZE] {
     data
 }
 
+/// Number of floats for piece encoding: 3 pieces × 2 colors × 4 one-hot = 24.
+pub const PIECE_TENSOR_SIZE: usize = 24;
+
+/// Convert three pieces (current, next, next_next) to a flat f32 array.
+/// Each piece encodes axis_color and satellite_color as 4-dim one-hot vectors.
+/// Layout: [current_axis(4), current_sat(4), next_axis(4), next_sat(4), nn_axis(4), nn_sat(4)]
+pub fn pieces_to_tensor_data(current: &Piece, next: &Piece, next_next: &Piece) -> [f32; PIECE_TENSOR_SIZE] {
+    let mut data = [0.0f32; PIECE_TENSOR_SIZE];
+    let pieces = [current, next, next_next];
+    for (i, piece) in pieces.iter().enumerate() {
+        let base = i * 8;
+        // axis_color one-hot (Red=0, Green=1, Blue=2, Yellow=3)
+        let axis_ch = piece.axis_color as u8 as usize - 1;
+        data[base + axis_ch] = 1.0;
+        // satellite_color one-hot
+        let sat_ch = piece.satellite_color as u8 as usize - 1;
+        data[base + 4 + sat_ch] = 1.0;
+    }
+    data
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use puyo_core::board::PuyoColor;
+    use puyo_core::piece::Piece;
 
     #[test]
     fn test_empty_board_encoding() {
@@ -116,6 +139,33 @@ mod tests {
         assert!((data[ch5 + 1 * COLS + 0] - 0.5).abs() < 1e-6);
         // row 2 (top): 1 same-color neighbor below → 1/4 = 0.25
         assert!((data[ch5 + 2 * COLS + 0] - 0.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_piece_tensor_size() {
+        assert_eq!(PIECE_TENSOR_SIZE, 24);
+    }
+
+    #[test]
+    fn test_pieces_encoding() {
+        let current = Piece::new(PuyoColor::Red, PuyoColor::Blue);
+        let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
+        let next_next = Piece::new(PuyoColor::Blue, PuyoColor::Red);
+        let data = pieces_to_tensor_data(&current, &next, &next_next);
+
+        // current: axis=Red(0), sat=Blue(2)
+        assert_eq!(data[0], 1.0); // Red
+        assert_eq!(data[1], 0.0);
+        assert_eq!(data[4 + 2], 1.0); // Blue
+        assert_eq!(data[4 + 0], 0.0);
+
+        // next: axis=Green(1), sat=Yellow(3)
+        assert_eq!(data[8 + 1], 1.0); // Green
+        assert_eq!(data[8 + 4 + 3], 1.0); // Yellow
+
+        // next_next: axis=Blue(2), sat=Red(0)
+        assert_eq!(data[16 + 2], 1.0); // Blue
+        assert_eq!(data[16 + 4 + 0], 1.0); // Red
     }
 
     #[test]
