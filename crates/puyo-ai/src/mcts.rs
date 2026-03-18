@@ -6,6 +6,8 @@ use puyo_core::piece::Piece;
 use puyo_nn::encoding::{context_to_tensor_data, board_to_tensor_data, CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
 use puyo_nn::model::PuyoNet;
 
+use puyo_nn::value_transform::value_inverse_transform;
+
 use crate::placement::{compute_valid_mask, index_to_placement, simulate_placement, NUM_ACTIONS};
 
 type InferBackend = NdArray;
@@ -237,7 +239,8 @@ impl MctsTree {
 
         let logits_vec = logits.into_data().to_vec::<f32>().unwrap_or_default();
         let value_scalar = value.into_data().to_vec::<f32>().unwrap_or_default();
-        let v = if value_scalar.is_empty() { 0.0 } else { value_scalar[0] };
+        let v_raw = if value_scalar.is_empty() { 0.0 } else { value_scalar[0] };
+        let v = value_inverse_transform(v_raw);
 
         // Compute masked softmax for priors
         let mask = compute_valid_mask(&self.nodes[node_id].state.board, &self.nodes[node_id].state.current);

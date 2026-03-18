@@ -12,6 +12,7 @@ use burn::tensor::backend::AutodiffBackend;
 use puyo_core::board::{COLS, ROWS};
 use puyo_nn::encoding::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS, TENSOR_SIZE};
 use puyo_nn::model::PuyoNetConfig;
+use puyo_nn::value_transform::value_transform;
 use puyo_trainer::data::{AlphaZeroDataset, Dataset};
 
 #[cfg(feature = "gpu")]
@@ -305,8 +306,12 @@ fn train_alphazero() {
             // Policy loss: cross-entropy with soft MCTS targets
             let policy_loss = cross_entropy_loss_soft(logits, &policy_targets, &device);
 
-            // Value loss: MSE
-            let value_target_tensor = Tensor::<TrainBackend, 1>::from_floats(value_targets.as_slice(), &device)
+            // Value loss: MSE on transformed targets (MuZero invertible value transform)
+            let transformed_targets: Vec<f32> = value_targets
+                .iter()
+                .map(|&v| value_transform(v))
+                .collect();
+            let value_target_tensor = Tensor::<TrainBackend, 1>::from_floats(transformed_targets.as_slice(), &device)
                 .reshape([batch_size, 1]);
             let value_diff = value - value_target_tensor;
             let value_loss = value_diff.clone().mul(value_diff).mean();

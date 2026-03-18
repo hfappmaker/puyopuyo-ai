@@ -95,7 +95,7 @@ SimulationEvaluator AI に自動対戦させ、訓練データを収集する。
 
 ## Phase 2: 教師あり学習 (`train`)
 
-生成データで Dual Head Network（`PuyoNet`）を学習する。`--alphazero` フラグで AlphaZero モード（Policy CE + Value MSE）と教師ありモード（Policy CE のみ）を切り替える。バックエンドは `NdArray`（CPU）または `CudaJit`（GPU、`gpu` feature flag）+ `Autodiff`。
+生成データで Dual Head Network（`PuyoNet`）を学習する。`--alphazero` フラグで AlphaZero モード（Policy CE + Value MSE）と教師ありモード（Policy CE のみ）を切り替える。AlphaZero モードでは value_target に MuZero Invertible Value Transform（`value_transform()`）を適用してから MSE 損失を計算する（詳細は `docs/spec/12-nn.md` の Value Transform セクション参照）。バックエンドは `NdArray`（CPU）または `CudaJit`（GPU、`gpu` feature flag）+ `Autodiff`。
 
 ### パラメータ
 
@@ -125,7 +125,7 @@ Validation loss が `EARLY_STOPPING_PATIENCE` エポック連続で改善しな�
 1. データを `TRAIN_SPLIT_RATIO`（0.9）で訓練/検証に分割
 2. エポックごとに Cosine Annealing で学習率を計算
 3. LCG（PCG family パラメータ: `6364136223846793005`, `1`）ベースのシャッフル → ミニバッチ学習
-4. 損失関数: Cross-Entropy（action_index を正解ラベルとして使用）
+4. 損失関数: Policy は Cross-Entropy（action_index を正解ラベルとして使用）
 5. 最適化: Adam
 6. Validation loss 改善時にベストモデルを `BinFileRecorder` で保存
 7. Early Stopping 判定（patience=5）
@@ -143,7 +143,7 @@ MCTS ベースの AlphaZero self-play ループ。Dual Head Network（`PuyoNet`�
    value_target[t] = Σ_{k=0}^{T-t-1} γ^k × score[t+k]  （γ = 0.99）
    ```
 4. `AlphaZeroSample`（board_data, context_data, mcts_policy, value_target）を生成し、`data/alphazero_data.bin` に保存
-5. 生成データは `train --alphazero` で Policy Head（Cross-Entropy 損失）と Value Head（MSE 損失）を同時に学習
+5. 生成データは `train --alphazero` で Policy Head（Cross-Entropy 損失）と Value Head（MSE 損失、MuZero Invertible Value Transform 適用）を同時に学習
 
 ## 実行順序
 
