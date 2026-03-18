@@ -166,6 +166,22 @@ cargo run --bin self-play                # Phase 3: 自己対戦データ生成
 cargo run --bin train -- --alphazero     # Phase 3: AlphaZero 学習（Policy CE + Value MSE）
 ```
 
+## 自動化ループ (`scripts/alphazero-loop.sh`)
+
+self-play → git commit → train --alphazero → git commit を無限ループで繰り返すスクリプト。
+
+```bash
+# デフォルト設定で実行
+bash scripts/alphazero-loop.sh
+
+# パラメータをオーバーライド
+GAMES=200 SIMULATIONS=50 bash scripts/alphazero-loop.sh
+```
+
+- イテレーション番号は `artifacts/iteration.txt` に永続化（中断・再開に対応）
+- ログは `artifacts/alphazero-loop.log` に記録
+- `--seed-offset` は `iteration * games` で自動計算（イテレーションごとに異なるデータ）
+
 ## 成果物
 
 | ファイル | 説明 |
