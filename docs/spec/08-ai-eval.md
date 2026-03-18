@@ -22,7 +22,7 @@ pub trait Evaluator {
 
 ## 共通定数
 
-- `W_GAME_OVER`（`-100000.0`）: ゲームオーバー状態の盤面に割り当てるスコア。`SimulationEvaluator` で使用
+- `W_GAME_OVER`（`-1000000.0`）: ゲームオーバー状態の盤面に割り当てるスコア。`SimulationEvaluator` で使用
 
 ## SimulationEvaluator（仮想ぷよシミュレーション評価）
 

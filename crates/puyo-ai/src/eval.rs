@@ -79,7 +79,7 @@ impl Evaluator for SimulationEvaluator {
     }
 }
 
-pub const W_GAME_OVER: f64 = -100000.0;
+pub const W_GAME_OVER: f64 = -1000000.0;
 
 // ---------------------------------------------------------------------------
 // シミュレーション評価
