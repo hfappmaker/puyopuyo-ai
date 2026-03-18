@@ -32,6 +32,8 @@ struct MctsNode {
     total_value: f32,
     /// Prior probability from the policy network.
     prior: f32,
+    /// NN policy priors for each action (set when expanded).
+    priors: [f32; NUM_ACTIONS],
     /// Children indexed by action (0-23). None = not yet expanded for this action.
     children: [Option<usize>; NUM_ACTIONS],
     /// Whether this node has been expanded (network evaluated).
@@ -65,6 +67,7 @@ impl MctsTree {
             visit_count: 0,
             total_value: 0.0,
             prior: 1.0,
+            priors: [0.0; NUM_ACTIONS],
             children: [None; NUM_ACTIONS],
             expanded: false,
             terminal: state.board.is_game_over(),
@@ -140,7 +143,8 @@ impl MctsTree {
                 continue;
             }
 
-            let (q, n, prior) = match node.children[action] {
+            let prior = node.priors[action];
+            let (q, n) = match node.children[action] {
                 Some(child_id) => {
                     let child = &self.nodes[child_id];
                     let q = if child.visit_count > 0 {
@@ -148,12 +152,9 @@ impl MctsTree {
                     } else {
                         0.0
                     };
-                    (q, child.visit_count as f32, child.prior)
+                    (q, child.visit_count as f32)
                 }
-                None => {
-                    // Unexpanded child: use parent's prior estimate
-                    (0.0, 0.0, self.get_prior(node_id, action))
-                }
+                None => (0.0, 0.0),
             };
 
             let puct = q + c_puct * prior * sqrt_parent / (1.0 + n);
@@ -164,20 +165,6 @@ impl MctsTree {
         }
 
         best_action
-    }
-
-    /// Get the prior probability for an action at a given node.
-    fn get_prior(&self, node_id: usize, action: usize) -> f32 {
-        // If node is expanded, we stored priors in children or as a default
-        // For unexpanded actions, return uniform over valid actions
-        let node = &self.nodes[node_id];
-        let mask = compute_valid_mask(&node.state.board, &node.state.current);
-        let valid_count = mask.iter().filter(|&&v| v).count() as f32;
-        if valid_count > 0.0 && mask[action] {
-            1.0 / valid_count
-        } else {
-            0.0
-        }
     }
 
     /// Create a child node by simulating an action.
@@ -211,7 +198,8 @@ impl MctsTree {
         let child = MctsNode {
             visit_count: 0,
             total_value: 0.0,
-            prior: self.get_prior(parent_id, action),
+            prior: self.nodes[parent_id].priors[action],
+            priors: [0.0; NUM_ACTIONS],
             children: [None; NUM_ACTIONS],
             expanded: false,
             terminal,
@@ -260,21 +248,17 @@ impl MctsTree {
         let mask = compute_valid_mask(&self.nodes[node_id].state.board, &self.nodes[node_id].state.current);
         let priors = masked_softmax(&logits_vec, &mask);
 
-        // Store priors in existing children, create placeholders for the rest
+        // Store priors in the node for use by select_action and create_child
+        self.nodes[node_id].priors = priors;
+
+        // Update priors of already-created children
         for action in 0..NUM_ACTIONS {
             if let Some(child_id) = self.nodes[node_id].children[action] {
                 self.nodes[child_id].prior = priors[action];
             }
         }
 
-        // Store priors for later use (when children are created)
-        // We mark the node as expanded — priors will be read via get_prior override
         self.nodes[node_id].expanded = true;
-
-        // Override get_prior to use network priors: store them in a side channel
-        // For simplicity, we store the priors by pre-creating children with just priors set
-        // Actually, let's update get_prior to check expanded status and use stored data
-        // We'll store priors directly by updating children's prior when they're created
 
         v
     }
