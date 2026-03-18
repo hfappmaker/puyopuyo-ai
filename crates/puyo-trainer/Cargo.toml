@@ -22,7 +22,7 @@ cpu = ["burn/ndarray"]
 
 [dependencies]
 puyo-core = { path = "../puyo-core" }
-puyo-ai = { path = "../puyo-ai" }
+puyo-ai = { path = "../puyo-ai", features = ["nn"] }
 puyo-nn = { path = "../puyo-nn" }
 burn = { version = "0.16", features = ["autodiff", "train"] }
 rand = "0.8"

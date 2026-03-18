@@ -83,13 +83,22 @@ fn main() {
 
     let device: <InferBackend as Backend>::Device = Default::default();
 
-    // Load model
+    // Load model (fall back to random initialization if no model exists)
     let config = PuyoNetConfig::new();
     let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
-    let model = config
+    let model = match config
         .init::<InferBackend>(&device)
         .load_file(MODEL_PATH, &recorder, &device)
-        .expect("Failed to load model. Run 'train' first.");
+    {
+        Ok(m) => {
+            println!("Loaded existing model from {}", MODEL_PATH);
+            m
+        }
+        Err(_) => {
+            println!("No existing model found, initializing random weights");
+            config.init::<InferBackend>(&device)
+        }
+    };
 
     let mut dataset = AlphaZeroDataset::new();
     let mut total_max_chain = 0u32;
