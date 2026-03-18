@@ -363,16 +363,22 @@ fn train_alphazero() {
         let avg_p = epoch_policy_loss / num_batches as f32;
         let avg_v = epoch_value_loss / num_batches as f32;
         let avg_total = avg_p + avg_v;
+
+        let val_model = model.valid();
+        let val_device: <InnerBackend as Backend>::Device = Default::default();
+        let (val_p, val_v) = compute_val_loss_alphazero(&val_model, val_samples, &val_device);
+        let val_total = val_p + val_v;
+
         println!(
-            "Epoch {}/{}: policy_loss={:.6}, value_loss={:.6}, total={:.6}, lr={:.6}",
-            epoch + 1, NUM_EPOCHS, avg_p, avg_v, avg_total, cosine_lr(epoch, NUM_EPOCHS),
+            "Epoch {}/{}: train(p={:.6}, v={:.6}, t={:.6}), val(p={:.6}, v={:.6}, t={:.6}), lr={:.6}",
+            epoch + 1, NUM_EPOCHS, avg_p, avg_v, avg_total, val_p, val_v, val_total, cosine_lr(epoch, NUM_EPOCHS),
         );
 
-        if avg_total < best_val_loss {
-            best_val_loss = avg_total;
+        if val_total < best_val_loss {
+            best_val_loss = val_total;
             patience_counter = 0;
             model.valid().save_file(MODEL_PATH, &BinFileRecorder::<FullPrecisionSettings>::new()).expect("Failed to save model");
-            println!("  -> Best model saved (total_loss={:.6})", avg_total);
+            println!("  -> Best model saved (val_loss={:.6})", val_total);
         } else {
             patience_counter += 1;
             println!("  -> No improvement ({}/{})", patience_counter, EARLY_STOPPING_PATIENCE);
@@ -383,7 +389,60 @@ fn train_alphazero() {
         }
     }
 
-    println!("AlphaZero training complete. Best total_loss={:.6}", best_val_loss);
+    println!("AlphaZero training complete. Best val_loss={:.6}", best_val_loss);
+}
+
+fn compute_val_loss_alphazero(
+    model: &puyo_nn::model::PuyoNet<InnerBackend>,
+    val_samples: &[puyo_trainer::data::AlphaZeroSample],
+    device: &<InnerBackend as Backend>::Device,
+) -> (f32, f32) {
+    let mut total_policy_loss = 0.0f32;
+    let mut total_value_loss = 0.0f32;
+    let mut num_batches = 0;
+
+    for batch_start in (0..val_samples.len()).step_by(BATCH_SIZE) {
+        let batch_end = (batch_start + BATCH_SIZE).min(val_samples.len());
+        let batch_size = batch_end - batch_start;
+        if batch_size == 0 { break; }
+
+        let mut board_data = Vec::with_capacity(batch_size * TENSOR_SIZE);
+        let mut context_data = Vec::with_capacity(batch_size * CONTEXT_TENSOR_SIZE);
+        let mut policy_targets = Vec::with_capacity(batch_size * NUM_ACTIONS);
+        let mut value_targets = Vec::with_capacity(batch_size);
+
+        for sample in &val_samples[batch_start..batch_end] {
+            board_data.extend_from_slice(&sample.board_data);
+            context_data.extend_from_slice(&sample.context_data);
+            policy_targets.extend_from_slice(&sample.mcts_policy);
+            value_targets.push(sample.value_target);
+        }
+
+        let board_inputs = Tensor::<InnerBackend, 1>::from_floats(board_data.as_slice(), device)
+            .reshape([batch_size, NUM_CHANNELS, ROWS, COLS]);
+        let context_inputs = Tensor::<InnerBackend, 1>::from_floats(context_data.as_slice(), device)
+            .reshape([batch_size, CONTEXT_TENSOR_SIZE]);
+
+        let (logits, value) = model.forward(board_inputs, context_inputs);
+
+        let policy_loss = cross_entropy_loss_soft(logits, &policy_targets, device);
+        total_policy_loss += policy_loss.into_data().to_vec::<f32>().unwrap()[0];
+
+        let transformed_targets: Vec<f32> = value_targets
+            .iter()
+            .map(|&v| value_transform(v))
+            .collect();
+        let value_target_tensor = Tensor::<InnerBackend, 1>::from_floats(transformed_targets.as_slice(), device)
+            .reshape([batch_size, 1]);
+        let value_diff = value - value_target_tensor;
+        let value_loss = value_diff.clone().mul(value_diff).mean();
+        total_value_loss += value_loss.into_data().to_vec::<f32>().unwrap()[0];
+
+        num_batches += 1;
+    }
+
+    let n = num_batches.max(1) as f32;
+    (total_policy_loss / n, total_value_loss / n)
 }
 
 // ---------------------------------------------------------------------------
