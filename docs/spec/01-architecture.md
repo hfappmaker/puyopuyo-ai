@@ -61,17 +61,6 @@ puyo-trainer (バイナリ)
 ## 学習パイプラインと成果物
 
 `puyo-trainer` の3つのバイナリを順番に実行して NN モデルを生成する。
-
-```bash
-cargo run --bin generate-data   # Phase 1: SimulationEvaluator AI でデータ生成
-cargo run --bin train            # Phase 2: 教師あり学習
-cargo run --bin self-play        # Phase 3: 自己対戦強化学習
-```
-
-| 成果物 | 説明 |
-|-------|------|
-| `data/training_data.bin` | Phase 1 の訓練データ（bincode） |
-| `data/alphazero_data.bin` | Phase 3 の self-play データ（bincode） |
-| `artifacts/puyo_model` | Phase 2/3 の学習済みモデル |
+実行コマンド・パラメータ・成果物の詳細は [13-trainer.md](./13-trainer.md) を参照。
 
 ブラウザで NN AI を使用する場合は学習済みモデルを `web/public/models/` にコピーして配置する。

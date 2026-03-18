@@ -25,28 +25,11 @@ AI が算出した「次の一手」を見ながら、連鎖の構築パター�
 ## ビルド・起動
 
 ```bash
-# WASM ビルド（テスト実行 → WASM コンパイル → npm install）
-./scripts/build-wasm.sh
-
-# 開発サーバー起動
-cd web
-npm run dev
+./scripts/build-wasm.sh   # WASM ビルド（テスト → コンパイル → npm install）
+cd web && npm run dev      # 開発サーバー起動
 ```
 
-### 手動でビルドする場合
-
-```bash
-# ※ ワークスペースルートから実行し、out-dir で web/wasm-pkg に出力する
-wasm-pack build crates/puyo-wasm --target web --out-dir ../../web/wasm-pkg
-
-# Web 依存インストール＆開発サーバー起動
-cd web
-npm install
-npm run dev
-```
-
-> **注意**: Rust 側のコードを変更した場合は `wasm-pack build` を再実行し、
-> Vite のキャッシュが残っている場合は `rm -rf node_modules/.vite` でクリアしてください。
+その他のビルドコマンド（テスト、手動ビルド、学習パイプライン等）は [CLAUDE.md](CLAUDE.md) を参照。
 
 ## 操作方法
 
