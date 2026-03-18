@@ -67,23 +67,65 @@ fn find_best_move(&self, board: &Board, current: &Piece, next: &Piece, next_next
 
 | Evaluator | 探索深度 |
 |-----------|----------|
-| `SimulationEvaluator` | depth-1〜3 を BFS 順で統一評価 |
-| `NnEvaluator` | depth-1〜3 を BFS 順で統一評価 |
+| `SimulationEvaluator` | depth-1〜2 を BFS 順で統一評価 |
+| `NnEvaluator`（Policy-only） | 探索なし、NN 1回推論で直接選択 |
+| `NnEvaluator`（MCTS） | MCTS（PUCT探索） |
 
 ## 探索の流れ
 
 1. 現在のぷよ組の全配置パターンを列挙する
 2. 各配置に対して盤面をシミュレーション（設置 + 連鎖解決）する
 3. ゲームオーバーになる配置はスキップする
-4. BFS 順（depth-1 → depth-2 → depth-3）で全深度の盤面を評価し、単一の `best_score` / `best_placement` を更新する
+4. BFS 順（depth-1 → depth-2）で全深度の盤面を評価し、単一の `best_score` / `best_placement` を更新する
 5. 全深度を通じて最高評価を得た1手目の配置を返す
 
-フォールバック分岐は不要。depth-3 で有効な盤面がなくても、depth-1 や depth-2 の評価結果がすでに `best_score` に反映されているため、自然に浅い深度の最良手が選ばれる。
+フォールバック分岐は不要。depth-2 で有効な盤面がなくても、depth-1 の評価結果がすでに `best_score` に反映されているため、自然に浅い深度の最良手が選ばれる。
 
 ### 計算量
 
 - depth-2: 最大 22 × 22 = 484 盤面の評価
-- depth-3: 最大 22 × 22 × 22 = 10,648 盤面の評価
+
+## MCTS 探索（mcts.rs）
+
+PUCT（Predictor Upper Confidence bounds applied to Trees）に基づくモンテカルロ木探索。`NnEvaluator` の MCTSモードで使用される。
+
+### 構造体
+
+| 構造体 | 説明 |
+|--------|------|
+| `MctsTree` | 探索木全体を管理。ルートノードから探索を実行 |
+| `MctsNode` | 探索木の各ノード。訪問回数・累積価値・子ノード等を保持 |
+
+### ランダムツモの扱い
+
+3手先以降のツモが不明な場合、決定論的なハッシュ関数（`sample_piece`）でランダムツモを生成する。ノードIDとアクションIDをシードとして使用するため、同じ探索状態では常に同じツモが生成される。
+
+### 探索の流れ
+
+1. ルートノードから PUCT で最も有望な子ノードを選択（Selection）
+2. 未展開ノードに到達したら、`PuyoNet` の forward pass で (policy_logits, value) を取得（Expansion + Evaluation）
+3. Policy logits を事前確率として子ノードを初期化
+4. Value を探索パスに沿って逆伝播（Backpropagation）
+5. 規定回数の反復後、ルート直下の訪問回数分布を返す
+
+### API
+
+```rust
+pub fn mcts_search(
+    board: &Board,
+    current: &Piece,
+    next: &Piece,
+    next_next: &Piece,
+    model: &PuyoNet<NdArray>,
+    device: &<NdArray as Backend>::Device,
+    num_simulations: usize,
+    c_puct: f32,
+    temperature: f32,
+) -> [f32; 24]
+```
+
+- **入力**: 盤面、3ツモ（current, next, next_next）、NNモデル、デバイス、探索パラメータ（シミュレーション回数、PUCT定数、温度）
+- **出力**: 24次元の確率分布（各配置の訪問回数に基づく）
 
 ## 共通ユーティリティ（placement.rs）
 

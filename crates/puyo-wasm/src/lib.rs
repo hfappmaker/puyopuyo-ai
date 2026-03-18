@@ -8,7 +8,7 @@ use puyo_ai::eval::{Evaluator, SimulationEvaluator};
 use puyo_ai::nn_eval::NnEvaluator;
 use puyo_ai::placement::enumerate_placements;
 use puyo_core::game::{GamePhase, GameState};
-use puyo_nn::model::{PuyoPolicyNet, PuyoPolicyNetConfig};
+use puyo_nn::model::{PuyoNet, PuyoNetConfig};
 
 type InferBackend = NdArray;
 
@@ -28,16 +28,16 @@ impl WasmGame {
         }
     }
 
-    /// Load NN policy model weights from bytes.
+    /// Load NN model weights from bytes.
     /// model_bytes: binary model data (BinBytesRecorder format)
     #[wasm_bindgen]
     pub fn load_nn_model(&mut self, model_bytes: &[u8]) {
         let device: <InferBackend as Backend>::Device = Default::default();
-        let config = PuyoPolicyNetConfig::new();
+        let config = PuyoNetConfig::new();
         let record = BinBytesRecorder::<FullPrecisionSettings>::default()
             .load(model_bytes.to_vec(), &device)
             .expect("Failed to load model record");
-        let model: PuyoPolicyNet<InferBackend> = config.init(&device).load_record(record);
+        let model: PuyoNet<InferBackend> = config.init(&device).load_record(record);
         self.evaluator = Box::new(NnEvaluator::new(model, device));
     }
 

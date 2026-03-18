@@ -57,6 +57,9 @@ pub fn board_to_tensor_data(board: &Board) -> [f32; TENSOR_SIZE] {
 /// Number of floats for piece encoding: 3 pieces × 2 colors × 4 one-hot = 24.
 pub const PIECE_TENSOR_SIZE: usize = 24;
 
+/// Context tensor size (same as piece encoding).
+pub const CONTEXT_TENSOR_SIZE: usize = PIECE_TENSOR_SIZE;
+
 /// Convert three pieces (current, next, next_next) to a flat f32 array.
 /// Each piece encodes axis_color and satellite_color as 4-dim one-hot vectors.
 /// Layout: [current_axis(4), current_sat(4), next_axis(4), next_sat(4), nn_axis(4), nn_sat(4)]
@@ -73,6 +76,16 @@ pub fn pieces_to_tensor_data(current: &Piece, next: &Piece, next_next: &Piece) -
         data[base + 4 + sat_ch] = 1.0;
     }
     data
+}
+
+/// Convert pieces to context tensor for FiLM conditioning.
+/// Alias for `pieces_to_tensor_data` — exists for API consistency with the network.
+pub fn context_to_tensor_data(
+    current: &Piece,
+    next: &Piece,
+    next_next: &Piece,
+) -> [f32; CONTEXT_TENSOR_SIZE] {
+    pieces_to_tensor_data(current, next, next_next)
 }
 
 #[cfg(test)]
@@ -144,6 +157,24 @@ mod tests {
     #[test]
     fn test_piece_tensor_size() {
         assert_eq!(PIECE_TENSOR_SIZE, 24);
+    }
+
+    #[test]
+    fn test_context_tensor_size() {
+        assert_eq!(CONTEXT_TENSOR_SIZE, 24);
+    }
+
+    #[test]
+    fn test_context_encoding() {
+        let current = Piece::new(PuyoColor::Red, PuyoColor::Blue);
+        let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
+        let next_next = Piece::new(PuyoColor::Blue, PuyoColor::Red);
+        let data = context_to_tensor_data(&current, &next, &next_next);
+
+        // Same as pieces_to_tensor_data
+        assert_eq!(data[0], 1.0); // current axis=Red
+        assert_eq!(data[4 + 2], 1.0); // current sat=Blue
+        assert_eq!(data[8 + 1], 1.0); // next axis=Green
     }
 
     #[test]

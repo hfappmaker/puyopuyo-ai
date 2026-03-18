@@ -1,7 +1,7 @@
 use puyo_ai::eval::{Evaluator, SimulationEvaluator};
 use puyo_ai::placement::placement_to_index;
 use puyo_core::game::{GamePhase, GameState};
-use puyo_nn::encoding::{board_to_tensor_data, pieces_to_tensor_data};
+use puyo_nn::encoding::{board_to_tensor_data, context_to_tensor_data};
 use puyo_trainer::data::{Dataset, Sample};
 
 const NUM_GAMES: u64 = 10_000;
@@ -37,9 +37,9 @@ fn main() {
                 None => break,
             };
 
-            // Encode board and pieces BEFORE placement
+            // Encode board and context BEFORE placement
             let board_data = board_to_tensor_data(&game.board).to_vec();
-            let piece_data = pieces_to_tensor_data(
+            let context_data = context_to_tensor_data(
                 &current_piece,
                 &game.next_piece,
                 &game.next_next_piece,
@@ -62,7 +62,7 @@ fn main() {
 
                     dataset.samples.push(Sample {
                         board_data,
-                        piece_data,
+                        context_data,
                         action_index,
                     });
                     move_count += 1;

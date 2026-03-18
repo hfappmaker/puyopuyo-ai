@@ -27,8 +27,8 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 | クレート | 役割 |
 |---------|------|
 | `puyo-core` | ゲームエンジン（Board（連鎖解決含む）, GameState, Piece, Score, RNG） |
-| `puyo-ai` | AI探索・評価（Evaluator trait, SimulationEvaluator, NnEvaluator, find_best_move） |
-| `puyo-nn` | CNN評価ネットワーク（PuyoValueNet, one-hot encoding） |
+| `puyo-ai` | AI探索・評価（Evaluator trait, SimulationEvaluator, NnEvaluator, MCTS, find_best_move） |
+| `puyo-nn` | CNN Dual Head ネットワーク（PuyoNet: Policy + Value, one-hot encoding） |
 | `puyo-trainer` | 学習パイプライン（3つのバイナリ: generate-data, train, self-play） |
 | `puyo-wasm` | WASMブリッジ（wasm-bindgen, WasmGame struct） |
 
@@ -38,8 +38,8 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 
 ### Evaluator trait（多態性の中心）
 `puyo-ai/src/eval.rs`の`Evaluator`トレイト（`find_best_move(&Board, &Piece, &Piece, &Piece) -> Option<(Placement, f64)>`）がAIの核。
-- `SimulationEvaluator`: 仮想ぷよシミュレーションで盤面を評価（3手先読みBFS）
-- `NnEvaluator`（`puyo-ai/src/nn_eval.rs`、`nn` feature flag有効時のみ）: Policy Networkで配置確率を直接出力（探索なし、1回推論）
+- `SimulationEvaluator`: 仮想ぷよシミュレーションで盤面を評価（2手先読みBFS）
+- `NnEvaluator`（`puyo-ai/src/nn_eval.rs`、`nn` feature flag有効時のみ）: Dual Head Network（Policy + Value）で評価。MCTSモード（`MctsConfig`付き、PUCT探索）とPolicy-onlyモード（WASM用、1回推論）の2モード
 
 ### Feature flag `nn`
 `puyo-ai`の`nn`フィーチャーフラグでNN依存を制御。`puyo-wasm`は`nn`を有効にしてビルド。
@@ -48,9 +48,11 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 ### ボード表現とCNN
 - ボード: 6列×14行、`PuyoColor` enum（Empty, Red, Green, Blue, Yellow）
 - 盤面エンコーディング: one-hot 4ch + occupancy 1ch + adjacency 1ch = 6チャンネル × 14行 × 6列 = 504 floats → `[batch, 6, 14, 6]` テンソル
-- ツモエンコーディング: 3ツモ × (axis_one_hot[4] + satellite_one_hot[4]) = 24 floats → `[batch, 24]` テンソル
-- PuyoPolicyNet（FiLM Conditioning）: ツモ→FiLMジェネレータ(24→64→128→gamma[64]+beta[64]) → stem(6ch→64ch) → FiLMResidualBlock(64)×6(gamma*x+beta) → head_conv(64→128) → Pool([4,3]) → Linear(1536→256) → Linear(256→24) → logits
-- 出力: 24次元（6列×4方向）の配置logits、マスク付きargmaxで最善手選択
+- コンテキストエンコーディング: 3ツモ × 2色 × 4 one-hot = 24 floats → `[batch, 24]` テンソル（`CONTEXT_TENSOR_SIZE = 24`）
+- PuyoNet（Dual Head, FiLM Conditioning）: コンテキスト→FiLMジェネレータ(24→64→128→gamma[64]+beta[64]) → stem(6ch→64ch) → FiLMResidualBlock(64)×6(gamma*x+beta) → head_conv(64→128) → Pool([4,3]) → flatten(1536)
+  - Policy Head: Linear(1536→256) → ReLU → Linear(256→24) → policy_logits
+  - Value Head: Linear(1536→256) → ReLU → Linear(256→1) → value（tanhなし、累積割引報酬を出力）
+- forward() 返り値: `(Tensor<B,2>, Tensor<B,2>)`（policy_logits, value）
 - Burn 0.16、NdArrayバックエンド（CPU/WASM対応）
 
 ### WASMブリッジ
@@ -58,9 +60,9 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 `load_nn_model()`でNNモデルをバイト列から読み込み（`BinBytesRecorder`使用）、`use_heuristic()`で`SimulationEvaluator`に切替。
 
 ### 学習パイプライン
-- `generate-data`: SimulationEvaluator AIで~10Kゲーム → 盤面+ツモ+選択手インデックスを記録（`data/training_data.bin`）
+- `generate-data`: SimulationEvaluator AIで~10Kゲーム → 盤面+コンテキスト(3ツモ)+選択手インデックスを記録（`data/training_data.bin`）
 - `train`: 教師あり学習、Cross-Entropy損失（配置分類タスク）
-- `self-play`: プレースホルダー（Policy Network向けRL未実装）
+- `self-play`: MCTSベースのAlphaZero self-playループ。ゲーム終了後に累積割引報酬(γ=0.99)を逆算してvalue_targetを計算。`AlphaZeroSample`（board_data, context_data, mcts_policy, value_target）を生成
 
 ### フロントエンド（web/src/）
 - `main.ts`: エントリポイント、AI モード切替（heuristic/NN）
@@ -94,7 +96,7 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 | `crates/puyo-core/src/game.rs` | `docs/spec/06-game.md`, `docs/spec/01-architecture.md` |
 | `crates/puyo-core/src/rng.rs` | `docs/spec/07-rng.md`, `docs/spec/01-architecture.md` |
 | `crates/puyo-ai/src/eval.rs`, `crates/puyo-ai/src/nn_eval.rs` | `docs/spec/08-ai-eval.md` |
-| `crates/puyo-ai/src/placement.rs` | `docs/spec/09-ai-search.md` |
+| `crates/puyo-ai/src/placement.rs`, `crates/puyo-ai/src/mcts.rs` | `docs/spec/09-ai-search.md` |
 | `crates/puyo-wasm/src/lib.rs` | `docs/spec/10-wasm-bridge.md` |
 | `web/src/*.ts` | `docs/spec/11-frontend.md` |
 | `crates/puyo-nn/src/*.rs` | `docs/spec/12-nn.md` |

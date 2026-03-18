@@ -10,7 +10,7 @@ Rust でゲームロジックとAIを実装し、WASM 経由でブラウザ上�
 |----------|---------------------|------|
 | puyo-core | `crates/puyo-core/` | 盤面（`Board`、連鎖解決を含む）・ぷよ組（`Piece`, `FallingPiece`）・スコア（`score`）・ゲーム進行（`GameState`）・乱数（`Rng`） |
 | puyo-ai | `crates/puyo-ai/` | 盤面評価（`eval`）・配置列挙（`placement`）・NN評価（`nn_eval`） |
-| puyo-nn | `crates/puyo-nn/` | CNN 価値ネットワーク（`PuyoValueNet`）・盤面テンソルエンコーディング（`encoding`） |
+| puyo-nn | `crates/puyo-nn/` | CNN Dual Head ネットワーク（`PuyoNet`: Policy + Value）・盤面テンソルエンコーディング（`encoding`） |
 | puyo-trainer | `crates/puyo-trainer/` | 訓練データ生成（`generate-data`）・教師あり学習（`train`）・自己対戦強化学習（`self-play`） |
 | puyo-wasm | `crates/puyo-wasm/` | `wasm-bindgen` による Rust ↔ JS ブリッジ（`WasmGame`） |
 | web | `web/` | TypeScript + Vite によるフロントエンド（Canvas 描画・入力処理・ゲームループ・UI） |
@@ -53,8 +53,7 @@ cargo run --bin self-play        # Phase 3: 自己対戦強化学習
 | 成果物 | 説明 |
 |-------|------|
 | `data/training_data.bin` | Phase 1 の訓練データ（bincode） |
-| `artifacts/norm_params.txt` | 正規化パラメータ（mean, std_dev の2行） |
-| `artifacts/puyo_model` | Phase 2 の教師あり学習済みモデル |
-| `artifacts/puyo_model_selfplay` | Phase 3 の自己対戦強化学習済みモデル |
+| `data/alphazero_data.bin` | Phase 3 の self-play データ（bincode） |
+| `artifacts/puyo_model` | Phase 2/3 の学習済みモデル |
 
-ブラウザで NN AI を使用する場合は `artifacts/puyo_model_selfplay` と `artifacts/norm_params.txt` を `web/public/models/` にコピーして配置する。
+ブラウザで NN AI を使用する場合は学習済みモデルを `web/public/models/` にコピーして配置する。

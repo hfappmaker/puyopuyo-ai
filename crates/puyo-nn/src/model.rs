@@ -3,7 +3,7 @@ use burn::nn::pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig};
 use burn::nn::{Linear, LinearConfig, PaddingConfig2d, Relu};
 use burn::prelude::*;
 
-use crate::encoding::{NUM_CHANNELS, PIECE_TENSOR_SIZE};
+use crate::encoding::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
 
 const RESIDUAL_CHANNELS: usize = 64;
 const NUM_RESIDUAL_BLOCKS: usize = 6;
@@ -12,9 +12,9 @@ const POOL_H: usize = 4;
 const POOL_W: usize = 3;
 const HIDDEN_SIZE: usize = 256;
 const NUM_ACTIONS: usize = 24; // 6 cols × 4 orientations
+const BACKBONE_OUTPUT: usize = HEAD_CHANNELS * POOL_H * POOL_W; // 1536
 
-/// FiLM parameters generated from piece information.
-/// gamma and beta are used to modulate feature maps: y = gamma * x + beta.
+/// FiLM parameters generated from context (pieces).
 const FILM_HIDDEN: usize = 64;
 /// FiLM output size: gamma (RESIDUAL_CHANNELS) + beta (RESIDUAL_CHANNELS).
 const FILM_OUTPUT: usize = RESIDUAL_CHANNELS * 2;
@@ -74,18 +74,20 @@ impl<B: Backend> ResidualBlock<B> {
     }
 }
 
-/// CNN policy network for Puyo Puyo with FiLM conditioning.
+/// Dual-head CNN for Puyo Puyo with FiLM conditioning (AlphaZero-style).
 ///
 /// Architecture:
-///   FiLM generator: pieces(24) → Linear(24→64) → ReLU → Linear(64→128) → split(gamma, beta)
-///   stem (6ch → 64ch) → FiLMResidualBlock ×6 (64ch) → head_conv (64ch → 128ch)
-///   → AdaptiveAvgPool → Linear(1536→256) → Linear(256→24)
+///   FiLM generator: context(24) → Linear(24→64) → ReLU → Linear(64→128) → split(gamma, beta)
+///   Backbone: stem (6ch → 64ch) → FiLMResidualBlock ×6 (64ch) → head_conv (64ch → 128ch)
+///     → AdaptiveAvgPool → flatten [1536]
+///   Policy Head: Linear(1536→256) → ReLU → Linear(256→24)
+///   Value Head:  Linear(1536→256) → ReLU → Linear(256→1)
 ///
 /// Board input: [batch, 6, 14, 6]
-/// Piece input: [batch, 24]
-/// Output: [batch, 24] (logits for each placement)
+/// Context input: [batch, 24] (pieces one-hot encoding)
+/// Output: (policy_logits [batch, 24], value [batch, 1])
 #[derive(Module, Debug)]
-pub struct PuyoPolicyNet<B: Backend> {
+pub struct PuyoNet<B: Backend> {
     // FiLM generator
     film_fc1: Linear<B>,
     film_fc2: Linear<B>,
@@ -95,23 +97,26 @@ pub struct PuyoPolicyNet<B: Backend> {
     head_conv: Conv2d<B>,
     pool: AdaptiveAvgPool2d,
     // Policy head
-    linear1: Linear<B>,
-    linear2: Linear<B>,
+    policy_fc1: Linear<B>,
+    policy_fc2: Linear<B>,
+    // Value head
+    value_fc1: Linear<B>,
+    value_fc2: Linear<B>,
     activation: Relu,
 }
 
 #[derive(Config, Debug)]
-pub struct PuyoPolicyNetConfig {}
+pub struct PuyoNetConfig {}
 
-impl PuyoPolicyNetConfig {
-    pub fn init<B: Backend>(&self, device: &B::Device) -> PuyoPolicyNet<B> {
+impl PuyoNetConfig {
+    pub fn init<B: Backend>(&self, device: &B::Device) -> PuyoNet<B> {
         let res_block_config = ResidualBlockConfig::new(RESIDUAL_CHANNELS);
         let res_blocks = (0..NUM_RESIDUAL_BLOCKS)
             .map(|_| res_block_config.init(device))
             .collect();
 
-        PuyoPolicyNet {
-            film_fc1: LinearConfig::new(PIECE_TENSOR_SIZE, FILM_HIDDEN).init(device),
+        PuyoNet {
+            film_fc1: LinearConfig::new(CONTEXT_TENSOR_SIZE, FILM_HIDDEN).init(device),
             film_fc2: LinearConfig::new(FILM_HIDDEN, FILM_OUTPUT).init(device),
             stem: Conv2dConfig::new([NUM_CHANNELS, RESIDUAL_CHANNELS], [3, 3])
                 .with_padding(PaddingConfig2d::Same)
@@ -119,22 +124,28 @@ impl PuyoPolicyNetConfig {
             res_blocks,
             head_conv: Conv2dConfig::new([RESIDUAL_CHANNELS, HEAD_CHANNELS], [1, 1]).init(device),
             pool: AdaptiveAvgPool2dConfig::new([POOL_H, POOL_W]).init(),
-            linear1: LinearConfig::new(HEAD_CHANNELS * POOL_H * POOL_W, HIDDEN_SIZE).init(device),
-            linear2: LinearConfig::new(HIDDEN_SIZE, NUM_ACTIONS).init(device),
+            policy_fc1: LinearConfig::new(BACKBONE_OUTPUT, HIDDEN_SIZE).init(device),
+            policy_fc2: LinearConfig::new(HIDDEN_SIZE, NUM_ACTIONS).init(device),
+            value_fc1: LinearConfig::new(BACKBONE_OUTPUT, HIDDEN_SIZE).init(device),
+            value_fc2: LinearConfig::new(HIDDEN_SIZE, 1).init(device),
             activation: Relu::new(),
         }
     }
 }
 
-impl<B: Backend> PuyoPolicyNet<B> {
+impl<B: Backend> PuyoNet<B> {
     /// Forward pass.
-    /// board: [batch, 6, 14, 6], pieces: [batch, 24]
-    /// Output: [batch, 24] (logits)
-    pub fn forward(&self, board: Tensor<B, 4>, pieces: Tensor<B, 2>) -> Tensor<B, 2> {
+    /// board: [batch, 6, 14, 6], context: [batch, 24]
+    /// Returns: (policy_logits [batch, 24], value [batch, 1])
+    pub fn forward(
+        &self,
+        board: Tensor<B, 4>,
+        context: Tensor<B, 2>,
+    ) -> (Tensor<B, 2>, Tensor<B, 2>) {
         let batch_size = board.dims()[0];
 
-        // FiLM generator: pieces → gamma, beta
-        let film = self.film_fc1.forward(pieces);
+        // FiLM generator: context → gamma, beta
+        let film = self.film_fc1.forward(context);
         let film = self.activation.forward(film);
         let film = self.film_fc2.forward(film); // [batch, 128]
 
@@ -151,16 +162,22 @@ impl<B: Backend> PuyoPolicyNet<B> {
             x = block.forward(x, gamma.clone(), beta.clone());
         }
 
-        // Head
+        // Backbone head
         let x = self.head_conv.forward(x);
         let x = self.activation.forward(x);
-
         let x = self.pool.forward(x);
-        let x = x.reshape([batch_size, HEAD_CHANNELS * POOL_H * POOL_W]);
+        let backbone = x.reshape([batch_size, BACKBONE_OUTPUT]);
 
-        let x = self.linear1.forward(x);
-        let x = self.activation.forward(x);
+        // Policy head
+        let p = self.policy_fc1.forward(backbone.clone());
+        let p = self.activation.forward(p);
+        let policy_logits = self.policy_fc2.forward(p);
 
-        self.linear2.forward(x)
+        // Value head (outputs discounted cumulative reward, no activation)
+        let v = self.value_fc1.forward(backbone);
+        let v = self.activation.forward(v);
+        let value = self.value_fc2.forward(v);
+
+        (policy_logits, value)
     }
 }

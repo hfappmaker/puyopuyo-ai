@@ -1,42 +1,229 @@
-//! Self-play reinforcement learning for the policy network.
+//! AlphaZero-style self-play for Puyo Puyo.
 //!
-//! NOTE: This is a placeholder for future RL training.
-//! Currently, supervised learning (train binary) is the primary training method.
-//! This binary compiles but the RL loop is not yet adapted to the policy network.
+//! Plays games using MCTS + neural network, collects training data,
+//! and saves it for the training binary.
 
-#[cfg(not(feature = "gpu"))]
 use burn::backend::ndarray::NdArray;
-use burn::backend::Autodiff;
-#[cfg(feature = "gpu")]
-use burn::backend::CudaJit;
 use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 
-use puyo_nn::model::PuyoPolicyNetConfig;
+use puyo_ai::mcts::mcts_search;
+use puyo_ai::placement::NUM_ACTIONS;
+use puyo_core::game::{GamePhase, GameState};
+use puyo_nn::encoding::{board_to_tensor_data, context_to_tensor_data};
+use puyo_nn::model::PuyoNetConfig;
+use puyo_trainer::data::{AlphaZeroDataset, AlphaZeroSample};
 
-#[cfg(feature = "gpu")]
-type TrainBackend = Autodiff<CudaJit<f32>>;
-#[cfg(not(feature = "gpu"))]
-type TrainBackend = Autodiff<NdArray>;
+// MCTS uses NdArray backend (CPU) for inference during self-play.
+type InferBackend = NdArray;
 
 const MODEL_PATH: &str = "artifacts/puyo_model";
+const OUTPUT_PATH: &str = "data/alphazero_data.bin";
+const MAX_TURNS: u32 = 50;
+const GAMMA: f32 = 0.99;
+
+struct Args {
+    num_games: u64,
+    num_simulations: usize,
+    c_puct: f32,
+    temperature: f32,
+}
+
+fn parse_args() -> Args {
+    let args: Vec<String> = std::env::args().collect();
+    let mut result = Args {
+        num_games: 100,
+        num_simulations: 200,
+        c_puct: 1.5,
+        temperature: 1.0,
+    };
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--games" => {
+                i += 1;
+                result.num_games = args[i].parse().expect("--games requires integer");
+            }
+            "--simulations" => {
+                i += 1;
+                result.num_simulations = args[i].parse().expect("--simulations requires integer");
+            }
+            "--c-puct" => {
+                i += 1;
+                result.c_puct = args[i].parse().expect("--c-puct requires float");
+            }
+            "--temperature" => {
+                i += 1;
+                result.temperature = args[i].parse().expect("--temperature requires float");
+            }
+            other => eprintln!("Unknown option: {} (ignoring)", other),
+        }
+        i += 1;
+    }
+    result
+}
+
+/// Record from a single move during self-play.
+struct MoveRecord {
+    board_data: Vec<f32>,
+    context_data: Vec<f32>,
+    mcts_policy: Vec<f32>,
+    reward: f32, // game score for this move
+}
 
 fn main() {
-    #[cfg(feature = "gpu")]
-    println!("Backend: CUDA (GPU)");
-    #[cfg(not(feature = "gpu"))]
-    println!("Backend: NdArray (CPU)");
+    let args = parse_args();
 
-    let device: <TrainBackend as Backend>::Device = Default::default();
+    println!("Backend: NdArray (CPU) — MCTS self-play");
 
-    let config = PuyoPolicyNetConfig::new();
+    println!(
+        "games={}, simulations={}, c_puct={}, temperature={}",
+        args.num_games, args.num_simulations, args.c_puct, args.temperature
+    );
+
+    let device: <InferBackend as Backend>::Device = Default::default();
+
+    // Load model
+    let config = PuyoNetConfig::new();
     let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
-
-    let _model = config
-        .init::<TrainBackend>(&device)
+    let model = config
+        .init::<InferBackend>(&device)
         .load_file(MODEL_PATH, &recorder, &device)
         .expect("Failed to load model. Run 'train' first.");
 
-    println!("Self-play RL for policy network is not yet implemented.");
-    println!("Use 'cargo run --bin train -p puyo-trainer' for supervised learning.");
+    let mut dataset = AlphaZeroDataset::new();
+    let mut total_max_chain = 0u32;
+    let mut total_chain_sum = 0u64;
+    let start_time = std::time::Instant::now();
+
+    for game_idx in 0..args.num_games {
+        let seed = 200_000 + game_idx;
+        let mut game = GameState::new(seed);
+        let mut move_records: Vec<MoveRecord> = Vec::new();
+        let mut move_count = 0u32;
+
+        while game.phase != GamePhase::GameOver {
+            if game.phase != GamePhase::Falling {
+                break;
+            }
+            if move_count >= MAX_TURNS {
+                break;
+            }
+
+            let current_piece = match &game.current_piece {
+                Some(fp) => fp.piece,
+                None => break,
+            };
+
+            // Encode state
+            let board_data = board_to_tensor_data(&game.board).to_vec();
+            let context_data = context_to_tensor_data(
+                &current_piece,
+                &game.next_piece,
+                &game.next_next_piece,
+            )
+            .to_vec();
+
+            // Run MCTS
+            let mcts_policy = mcts_search(
+                &game.board,
+                &current_piece,
+                &game.next_piece,
+                &game.next_next_piece,
+                &model,
+                &device,
+                args.num_simulations,
+                args.c_puct,
+                args.temperature,
+            );
+
+            // Select action: sample from MCTS policy
+            let action = select_from_policy(&mcts_policy, seed + move_count as u64);
+
+            let placement = puyo_ai::placement::index_to_placement(action);
+            let chain_result = game.apply_placement(&placement);
+
+            move_records.push(MoveRecord {
+                board_data,
+                context_data,
+                mcts_policy: mcts_policy.to_vec(),
+                reward: chain_result.score as f32,
+            });
+
+            move_count += 1;
+        }
+
+        // Compute discounted cumulative rewards (backwards)
+        let num_moves = move_records.len();
+        if num_moves > 0 {
+            let mut value_targets = vec![0.0f32; num_moves];
+            value_targets[num_moves - 1] = move_records[num_moves - 1].reward;
+            for i in (0..num_moves - 1).rev() {
+                value_targets[i] =
+                    move_records[i].reward + GAMMA * value_targets[i + 1];
+            }
+
+            for (i, record) in move_records.into_iter().enumerate() {
+                dataset.samples.push(AlphaZeroSample {
+                    board_data: record.board_data,
+                    context_data: record.context_data,
+                    mcts_policy: record.mcts_policy,
+                    value_target: value_targets[i],
+                });
+            }
+        }
+
+        total_max_chain = total_max_chain.max(game.max_chain);
+        total_chain_sum += game.max_chain as u64;
+
+        if (game_idx + 1) % 10 == 0 {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            let done = game_idx + 1;
+            let games_per_sec = done as f64 / elapsed;
+            let eta = (args.num_games - done) as f64 / games_per_sec;
+            let avg_chain = total_chain_sum as f64 / done as f64;
+            println!(
+                "[{:>4}/{}] samples: {:>6} | chain(game/max/avg): {}/{}/{:.1} | {:.2} games/s | ETA: {:.0}s",
+                done, args.num_games, dataset.samples.len(),
+                game.max_chain, total_max_chain, avg_chain,
+                games_per_sec, eta,
+            );
+        }
+    }
+
+    println!(
+        "Self-play complete: {} games, {} samples, max chain: {}",
+        args.num_games,
+        dataset.samples.len(),
+        total_max_chain
+    );
+
+    std::fs::create_dir_all("data").expect("Failed to create data directory");
+    dataset.save(OUTPUT_PATH).expect("Failed to save dataset");
+    println!("Saved to {}", OUTPUT_PATH);
+}
+
+/// Select an action by sampling from the MCTS policy.
+fn select_from_policy(policy: &[f32; NUM_ACTIONS], seed: u64) -> usize {
+    // Deterministic sampling using hash
+    let mut x = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+    x = (x ^ (x >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94D049BB133111EB);
+    x = x ^ (x >> 31);
+
+    let r = (x as f64) / (u64::MAX as f64);
+    let mut cumulative = 0.0;
+    for i in 0..NUM_ACTIONS {
+        cumulative += policy[i] as f64;
+        if r < cumulative {
+            return i;
+        }
+    }
+    // Fallback: return the action with highest probability
+    policy
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+        .map(|(i, _)| i)
+        .unwrap_or(0)
 }

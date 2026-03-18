@@ -16,8 +16,9 @@ pub trait Evaluator {
 
 | Evaluator | 探索方式 | 評価関数 |
 |-----------|----------|---------|
-| `SimulationEvaluator` | depth-1〜3 を BFS 順で統一評価 | max(実連鎖スコア, 仮想ぷよシミュレーション期待値) |
-| `NnEvaluator` | 探索なし、NN 1回推論で直接選択 | Policy Network（マスク付き argmax） |
+| `SimulationEvaluator` | depth-1〜2 を BFS 順で統一評価 | max(実連鎖スコア, 仮想ぷよシミュレーション期待値) |
+| `NnEvaluator`（Policy-only） | 探索なし、NN 1回推論で直接選択 | Dual Head Network の Policy Head（マスク付き argmax） |
+| `NnEvaluator`（MCTS） | MCTS（PUCT探索） | Dual Head Network の Policy + Value Head |
 
 ## 共通定数
 
@@ -46,11 +47,11 @@ pub trait Evaluator {
 ### 計算量
 
 - 最大44回（4色 × 最大11配置）のシミュレーション / 盤面評価
-- depth-3 探索と組み合わせた場合: ~10,648盤面 × 44 ≈ 468,512 シミュレーション / 手
+- depth-2 探索と組み合わせた場合: ~484盤面 × 44 ≈ 21,296 シミュレーション / 手
 
 ### 探索時の評価値
 
-`find_best_move` の各深度（depth-1〜3）では、`simulate_placement()` が返す実連鎖スコア（`ChainResult.score`）と `simulate_expected_score()` の期待値の大きい方を評価値として採用する:
+`find_best_move` の各深度（depth-1〜2）では、`simulate_placement()` が返す実連鎖スコア（`ChainResult.score`）と `simulate_expected_score()` の期待値の大きい方を評価値として採用する:
 
 ```
 評価値 = max(result.score as f64, simulate_expected_score(&board))
@@ -62,18 +63,35 @@ pub trait Evaluator {
 
 `generate-data` バイナリで教師データ生成時に使用。仮想ぷよを落とすことで連鎖の布石をより直接的に評価できる。
 
-## NnEvaluator（Policy Network 評価）
+## NnEvaluator（Dual Head Network 評価）
 
-Policy Network（`PuyoPolicyNet`）で盤面と3ツモ情報から最善配置を直接選択する。探索ループは不要。詳細は `docs/spec/12-nn.md` を参照。
+Dual Head Network（`PuyoNet`）で盤面とコンテキスト情報（3ツモ）から最善配置を選択する。2つの動作モードを持つ。詳細は `docs/spec/12-nn.md` を参照。
 
-### 評価の流れ
+### 動作モード
+
+| モード | 有効化方法 | 探索方式 | 用途 |
+|--------|-----------|----------|------|
+| Policy-only | デフォルト | 探索なし、1回推論で直接選択 | WASM（ブラウザ） |
+| MCTS | `with_mcts(config)` | PUCT探索（Chance Node付き） | self-play、強い推論 |
+
+### 設定メソッド
+
+- `with_mcts(config: MctsConfig)`: MCTSモードを有効化。`MctsConfig` で探索パラメータを指定
+
+### Policy-only モードの評価の流れ
 
 1. 盤面を one-hot エンコーディング（6ch × 14行 × 6列）に変換
-2. 3ツモ（current, next, next_next）を `pieces_to_tensor_data()` で24次元ベクトルに変換
-3. Policy Network の forward pass で24次元の配置 logits を取得
+2. 3ツモを `context_to_tensor_data()` で24次元ベクトルに変換
+3. Dual Head Network の forward pass で (policy_logits, value) を取得
 4. `compute_valid_mask()` で合法配置のマスクを生成
 5. 不正な配置の logits を `-inf` でマスクし、argmax で最善配置インデックスを選択
 6. `index_to_placement()` でインデックスを `Placement`（col, orientation）に変換
+
+### MCTS モードの評価の流れ
+
+1. `mcts_search()` を呼び出し、PUCT探索で配置確率分布 `[f32; 24]` を取得
+2. 確率分布から最善配置を選択
+3. 詳細は `docs/spec/09-ai-search.md` の MCTS 探索セクションを参照
 
 ### 配置インデックス体系
 
@@ -81,7 +99,7 @@ Policy Network（`PuyoPolicyNet`）で盤面と3ツモ情報から最善配置�
 
 | 関数 | 説明 |
 |------|------|
-| `placement_to_index(placement) -> u8` | `Placement` を 0〜23 のインデックスに変換 |
+| `placement_to_index(placement) -> usize` | `Placement` を 0〜23 のインデックスに変換 |
 | `index_to_placement(index) -> Placement` | インデックスを `Placement` に逆変換 |
 | `compute_valid_mask(board, piece) -> [bool; 24]` | 合法配置に対応するインデックスを `true` にしたマスク配列を返す |
 
@@ -89,5 +107,5 @@ Policy Network（`PuyoPolicyNet`）で盤面と3ツモ情報から最善配置�
 
 ### 特徴
 
-- **探索不要**: 1回の NN 推論で直接最善手を選択するため、`SimulationEvaluator` と比べて計算コストが大幅に低い
+- **2モード対応**: WASM向けの軽量Policy-onlyモードと、self-play向けの高精度MCTSモード
 - **mean/std_dev パラメータ不要**: Value Network 時代の z-score 正規化は廃止
