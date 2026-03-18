@@ -94,7 +94,7 @@ PUCT（Predictor Upper Confidence bounds applied to Trees）に基づくモン�
 | 構造体 | 説明 |
 |--------|------|
 | `MctsTree` | 探索木全体を管理。ルートノードから探索を実行 |
-| `MctsNode` | 探索木の各ノード。訪問回数・累積価値・子ノード等を保持 |
+| `MctsNode` | 探索木の各ノード。訪問回数・累積価値・prior・子ノード等を保持。`priors: [f32; 24]` にNN展開時のpolicy出力を保存し、PUCT選択・子ノード作成時に参照する |
 
 ### ランダムツモの扱い
 
@@ -102,9 +102,9 @@ PUCT（Predictor Upper Confidence bounds applied to Trees）に基づくモン�
 
 ### 探索の流れ
 
-1. ルートノードから PUCT で最も有望な子ノードを選択（Selection）
+1. ルートノードから PUCT で最も有望な子ノードを選択（Selection）。各ノードの `priors` フィールドに保存されたNN policy出力を事前確率として使用
 2. 未展開ノードに到達したら、`PuyoNet` の forward pass で (policy_logits, value) を取得（Expansion + Evaluation）
-3. Policy logits を事前確率として子ノードを初期化
+3. Policy logits を masked softmax でアクション確率に変換し、ノードの `priors` フィールドに保存。既存の子ノードの `prior` も更新
 4. Value を探索パスに沿って逆伝播（Backpropagation）
 5. 規定回数の反復後、ルート直下の訪問回数分布を返す
 
