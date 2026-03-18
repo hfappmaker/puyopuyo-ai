@@ -117,10 +117,12 @@ fn main() {
 
             // Encode state
             let board_data = board_to_tensor_data(&game.board).to_vec();
+            let remaining_ratio = (MAX_TURNS - move_count) as f32 / MAX_TURNS as f32;
             let context_data = context_to_tensor_data(
                 &current_piece,
                 &game.next_piece,
                 &game.next_next_piece,
+                remaining_ratio,
             )
             .to_vec();
 
@@ -135,6 +137,7 @@ fn main() {
                 args.num_simulations,
                 args.c_puct,
                 args.temperature,
+                MAX_TURNS,
             );
 
             // Select action: sample from MCTS policy

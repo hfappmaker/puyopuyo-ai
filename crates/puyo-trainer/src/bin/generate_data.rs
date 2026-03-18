@@ -39,10 +39,12 @@ fn main() {
 
             // Encode board and context BEFORE placement
             let board_data = board_to_tensor_data(&game.board).to_vec();
+            let remaining_ratio = (MAX_MOVES_PER_GAME - move_count) as f32 / MAX_MOVES_PER_GAME as f32;
             let context_data = context_to_tensor_data(
                 &current_piece,
                 &game.next_piece,
                 &game.next_next_piece,
+                remaining_ratio,
             )
             .to_vec();
 

@@ -40,17 +40,21 @@ struct MctsNode {
     terminal: bool,
     /// Game state at this node.
     state: GameSnapshot,
+    /// Depth from root (root = 0).
+    depth: u32,
 }
 
 /// MCTS tree.
 pub struct MctsTree {
     nodes: Vec<MctsNode>,
     root: usize,
+    max_turns: u32,
 }
 
 impl MctsTree {
     /// Create a new MCTS tree rooted at the given game state.
-    pub fn new(board: &Board, current: &Piece, next: &Piece, next_next: &Piece) -> Self {
+    /// `max_turns` is the total turn budget (e.g., 50) used to compute remaining_turns_ratio.
+    pub fn new(board: &Board, current: &Piece, next: &Piece, next_next: &Piece, max_turns: u32) -> Self {
         let state = GameSnapshot {
             board: board.clone(),
             current: *current,
@@ -65,10 +69,12 @@ impl MctsTree {
             expanded: false,
             terminal: state.board.is_game_over(),
             state,
+            depth: 0,
         };
         MctsTree {
             nodes: vec![root],
             root: 0,
+            max_turns,
         }
     }
 
@@ -201,6 +207,7 @@ impl MctsTree {
             next_next: new_next_next,
         };
 
+        let parent_depth = self.nodes[parent_id].depth;
         let child = MctsNode {
             visit_count: 0,
             total_value: 0.0,
@@ -209,6 +216,7 @@ impl MctsTree {
             expanded: false,
             terminal,
             state: child_state,
+            depth: parent_depth + 1,
         };
 
         let child_id = self.nodes.len();
@@ -224,10 +232,16 @@ impl MctsTree {
         device: &<InferBackend as Backend>::Device,
     ) -> f32 {
         let state = &self.nodes[node_id].state;
+        let depth = self.nodes[node_id].depth;
+        let remaining_ratio = if self.max_turns > 0 {
+            (self.max_turns.saturating_sub(depth)) as f32 / self.max_turns as f32
+        } else {
+            1.0
+        };
 
         let board_data = board_to_tensor_data(&state.board);
         let context_data = context_to_tensor_data(
-            &state.current, &state.next, &state.next_next,
+            &state.current, &state.next, &state.next_next, remaining_ratio,
         );
 
         let board_tensor = Tensor::<InferBackend, 1>::from_floats(board_data.as_slice(), device)
@@ -356,6 +370,7 @@ fn sample_piece(seed1: u64, seed2: u64) -> Piece {
 }
 
 /// Run MCTS search and return the policy (visit count distribution).
+/// `max_turns` is the total turn budget used to compute remaining_turns_ratio for the context.
 pub fn mcts_search(
     board: &Board,
     current: &Piece,
@@ -366,8 +381,9 @@ pub fn mcts_search(
     num_simulations: usize,
     c_puct: f32,
     temperature: f32,
+    max_turns: u32,
 ) -> [f32; NUM_ACTIONS] {
-    let mut tree = MctsTree::new(board, current, next, next_next);
+    let mut tree = MctsTree::new(board, current, next, next_next, max_turns);
 
     for _ in 0..num_simulations {
         tree.run_one_simulation(model, device, c_puct);
@@ -419,7 +435,7 @@ mod tests {
         let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
         let next_next = Piece::new(PuyoColor::Blue, PuyoColor::Red);
 
-        let tree = MctsTree::new(&board, &current, &next, &next_next);
+        let tree = MctsTree::new(&board, &current, &next, &next_next, 50);
         assert_eq!(tree.nodes.len(), 1);
         assert!(!tree.nodes[0].expanded);
         assert!(!tree.nodes[0].terminal);

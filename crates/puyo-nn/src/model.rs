@@ -77,14 +77,14 @@ impl<B: Backend> ResidualBlock<B> {
 /// Dual-head CNN for Puyo Puyo with FiLM conditioning (AlphaZero-style).
 ///
 /// Architecture:
-///   FiLM generator: context(24) → Linear(24→64) → ReLU → Linear(64→128) → split(gamma, beta)
+///   FiLM generator: context(25) → Linear(25→64) → ReLU → Linear(64→128) → split(gamma, beta)
 ///   Backbone: stem (6ch → 64ch) → FiLMResidualBlock ×6 (64ch) → head_conv (64ch → 128ch)
 ///     → AdaptiveAvgPool → flatten [1536]
 ///   Policy Head: Linear(1536→256) → ReLU → Linear(256→24)
 ///   Value Head:  Linear(1536→256) → ReLU → Linear(256→1)
 ///
 /// Board input: [batch, 6, 14, 6]
-/// Context input: [batch, 24] (pieces one-hot encoding)
+/// Context input: [batch, 25] (pieces one-hot encoding + remaining turns ratio)
 /// Output: (policy_logits [batch, 24], value [batch, 1])
 #[derive(Module, Debug)]
 pub struct PuyoNet<B: Backend> {
@@ -135,7 +135,7 @@ impl PuyoNetConfig {
 
 impl<B: Backend> PuyoNet<B> {
     /// Forward pass.
-    /// board: [batch, 6, 14, 6], context: [batch, 24]
+    /// board: [batch, 6, 14, 6], context: [batch, 25]
     /// Returns: (policy_logits [batch, 24], value [batch, 1])
     pub fn forward(
         &self,

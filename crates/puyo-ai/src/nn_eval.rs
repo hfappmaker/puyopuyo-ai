@@ -80,6 +80,7 @@ impl Evaluator for NnEvaluator {
 
         // MCTS mode: use tree search
         if let Some(ref mcts_config) = self.mcts_config {
+            // MCTS mode uses max_turns=0 to indicate no turn limit (remaining_ratio=1.0)
             let policy = mcts_search(
                 board,
                 current,
@@ -90,6 +91,7 @@ impl Evaluator for NnEvaluator {
                 mcts_config.num_simulations,
                 mcts_config.c_puct,
                 mcts_config.temperature,
+                0,
             );
 
             let mut best_index = 0;
@@ -105,7 +107,8 @@ impl Evaluator for NnEvaluator {
 
         // Policy-only mode (fast, for WASM)
         let board_data = board_to_tensor_data(board);
-        let context_data = context_to_tensor_data(current, next, next_next);
+        // Policy-only mode has no turn limit; use 1.0 (full remaining turns)
+        let context_data = context_to_tensor_data(current, next, next_next, 1.0);
 
         let board_tensor =
             Tensor::<InferBackend, 1>::from_floats(board_data.as_slice(), &self.device)

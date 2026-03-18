@@ -35,7 +35,7 @@ crates/puyo-trainer/
 ```rust
 pub struct Sample {
     pub board_data: Vec<f32>,    // エンコード済み盤面 (504 floats)
-    pub context_data: Vec<f32>,  // コンテキストエンコーディング (24 floats: 3ツモ × 2色 × 4 one-hot)
+    pub context_data: Vec<f32>,  // コンテキストエンコーディング (25 floats: ツモ one-hot 24 + 残り手数比率 1)
     pub action_index: u8,        // SimulationEvaluator が選択した配置インデックス (0〜23)
 }
 ```
@@ -55,7 +55,7 @@ MCTS self-play で生成されるサンプル。Policy と Value の両方の教
 ```rust
 pub struct AlphaZeroSample {
     pub board_data: Vec<f32>,     // エンコード済み盤面 (504 floats)
-    pub context_data: Vec<f32>,   // コンテキストエンコーディング (24 floats)
+    pub context_data: Vec<f32>,   // コンテキストエンコーディング (25 floats)
     pub mcts_policy: Vec<f32>,    // MCTS 探索による配置確率分布 (24 floats)
     pub value_target: f32,        // 累積割引報酬（γ=0.99 で逆算）
 }
