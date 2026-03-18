@@ -134,6 +134,18 @@ Validation loss が `EARLY_STOPPING_PATIENCE` エポック連続で改善しな�
 
 MCTS ベースの AlphaZero self-play ループ。Dual Head Network（`PuyoNet`）の Policy Head と Value Head を使った MCTS 探索でゲームをプレイし、訓練データを生成する。
 
+### CLI引数
+
+| 引数 | 型 | デフォルト | 説明 |
+|------|-----|----------|------|
+| `--games` | 整数 | 100 | 自己対戦ゲーム数 |
+| `--simulations` | 整数 | 25 | MCTS シミュレーション回数/手 |
+| `--c-puct` | 小数 | 1.5 | PUCT 探索定数 |
+| `--temperature` | 小数 | 1.0 | Policy の温度パラメータ |
+| `--seed-offset` | 整数 | 200,000 | RNG シードオフセット（seed = seed_offset + game_idx） |
+
+`--seed-offset` により、複数回の self-play 実行で異なるゲームデータを生成できる。
+
 ### 手順
 
 1. 現在のモデルを使って MCTS 探索でゲームをプレイ

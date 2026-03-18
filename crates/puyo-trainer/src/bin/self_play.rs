@@ -27,6 +27,7 @@ struct Args {
     num_simulations: usize,
     c_puct: f32,
     temperature: f32,
+    seed_offset: u64,
 }
 
 fn parse_args() -> Args {
@@ -36,6 +37,7 @@ fn parse_args() -> Args {
         num_simulations: 25,
         c_puct: 1.5,
         temperature: 1.0,
+        seed_offset: 200_000,
     };
     let mut i = 1;
     while i < args.len() {
@@ -55,6 +57,10 @@ fn parse_args() -> Args {
             "--temperature" => {
                 i += 1;
                 result.temperature = args[i].parse().expect("--temperature requires float");
+            }
+            "--seed-offset" => {
+                i += 1;
+                result.seed_offset = args[i].parse().expect("--seed-offset requires integer");
             }
             other => eprintln!("Unknown option: {} (ignoring)", other),
         }
@@ -77,8 +83,8 @@ fn main() {
     println!("Backend: NdArray (CPU) — MCTS self-play");
 
     println!(
-        "games={}, simulations={}, c_puct={}, temperature={}",
-        args.num_games, args.num_simulations, args.c_puct, args.temperature
+        "games={}, simulations={}, c_puct={}, temperature={}, seed_offset={}",
+        args.num_games, args.num_simulations, args.c_puct, args.temperature, args.seed_offset
     );
 
     let device: <InferBackend as Backend>::Device = Default::default();
@@ -121,7 +127,7 @@ fn main() {
     let start_time = std::time::Instant::now();
 
     for game_idx in 0..args.num_games {
-        let seed = 200_000 + game_idx;
+        let seed = args.seed_offset + game_idx;
         let mut game = GameState::new(seed);
         let mut move_records: Vec<MoveRecord> = Vec::new();
         let mut move_count = 0u32;
