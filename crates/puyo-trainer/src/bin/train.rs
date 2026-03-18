@@ -31,6 +31,7 @@ const LR_MIN: f64 = 1e-5;
 const EARLY_STOPPING_PATIENCE: usize = 5;
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
 const NUM_ACTIONS: usize = 24;
+const VALUE_LOSS_WEIGHT: f32 = 0.01;
 
 fn cosine_lr(epoch: usize, total_epochs: usize) -> f64 {
     LR_MIN
@@ -335,10 +336,10 @@ fn train_alphazero() {
             let value_diff = value - value_target_tensor;
             let value_loss = value_diff.clone().mul(value_diff).mean();
 
-            // Total loss
+            // Total loss (value loss weighted to balance with policy loss)
             let p_loss_val = policy_loss.clone().into_data().to_vec::<f32>().unwrap()[0];
             let v_loss_val = value_loss.clone().into_data().to_vec::<f32>().unwrap()[0];
-            let total_loss = policy_loss + value_loss;
+            let total_loss = policy_loss + value_loss * VALUE_LOSS_WEIGHT;
 
             epoch_policy_loss += p_loss_val;
             epoch_value_loss += v_loss_val;
@@ -362,12 +363,12 @@ fn train_alphazero() {
 
         let avg_p = epoch_policy_loss / num_batches as f32;
         let avg_v = epoch_value_loss / num_batches as f32;
-        let avg_total = avg_p + avg_v;
+        let avg_total = avg_p + avg_v * VALUE_LOSS_WEIGHT;
 
         let val_model = model.valid();
         let val_device: <InnerBackend as Backend>::Device = Default::default();
         let (val_p, val_v) = compute_val_loss_alphazero(&val_model, val_samples, &val_device);
-        let val_total = val_p + val_v;
+        let val_total = val_p + val_v * VALUE_LOSS_WEIGHT;
 
         println!(
             "Epoch {}/{}: train(p={:.6}, v={:.6}, t={:.6}), val(p={:.6}, v={:.6}, t={:.6}), lr={:.6}",
