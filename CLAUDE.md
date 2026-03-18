@@ -45,31 +45,7 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 `puyo-ai`の`nn`フィーチャーフラグでNN依存を制御。`puyo-wasm`は`nn`を有効にしてビルド。
 `nn`無しでは`nn_eval`モジュールと`burn`依存がコンパイルから除外される。
 
-### ボード表現とCNN
-- ボード: 6列×14行、`PuyoColor` enum（Empty, Red, Green, Blue, Yellow）
-- 盤面エンコーディング: one-hot 4ch + occupancy 1ch + adjacency 1ch = 6チャンネル × 14行 × 6列 = 504 floats → `[batch, 6, 14, 6]` テンソル
-- コンテキストエンコーディング: 3ツモ × 2色 × 4 one-hot = 24 floats → `[batch, 24]` テンソル（`CONTEXT_TENSOR_SIZE = 24`）
-- PuyoNet（Dual Head, FiLM Conditioning）: コンテキスト→FiLMジェネレータ(24→64→128→gamma[64]+beta[64]) → stem(6ch→64ch) → FiLMResidualBlock(64)×6(gamma*x+beta) → head_conv(64→128) → Pool([4,3]) → flatten(1536)
-  - Policy Head: Linear(1536→256) → ReLU → Linear(256→24) → policy_logits
-  - Value Head: Linear(1536→256) → ReLU → Linear(256→1) → value（tanhなし、累積割引報酬を出力）
-- forward() 返り値: `(Tensor<B,2>, Tensor<B,2>)`（policy_logits, value）
-- Burn 0.16、NdArrayバックエンド（CPU/WASM対応）
-
-### WASMブリッジ
-`WasmGame`構造体が`GameState`と`Box<dyn Evaluator>`を保持。
-`load_nn_model()`でNNモデルをバイト列から読み込み（`BinBytesRecorder`使用）、`use_heuristic()`で`SimulationEvaluator`に切替。
-
-### 学習パイプライン
-- `generate-data`: SimulationEvaluator AIで~10Kゲーム → 盤面+コンテキスト(3ツモ)+選択手インデックスを記録（`data/training_data.bin`）
-- `train`: 教師あり学習、Cross-Entropy損失（配置分類タスク）
-- `self-play`: MCTSベースのAlphaZero self-playループ。ゲーム終了後に累積割引報酬(γ=0.99)を逆算してvalue_targetを計算。`AlphaZeroSample`（board_data, context_data, mcts_policy, value_target）を生成
-
-### フロントエンド（web/src/）
-- `main.ts`: エントリポイント、AI モード切替（heuristic/NN）
-- `game-loop.ts`: ゲームループ管理（入力・描画・状態管理）
-- `renderer.ts`: Canvas描画（目付きぷよ・ゴースト・落下アニメ）
-- `model-loader.ts`: NNモデル読み込み（`web/public/models/`から）
-- `wasm.ts` / `types.ts`: WASMモジュールローダーと型定義
+詳細は仕様書を参照: NN → `docs/spec/12-nn.md`、WASM → `docs/spec/10-wasm-bridge.md`、学習 → `docs/spec/13-trainer.md`、フロントエンド → `docs/spec/11-frontend.md`
 
 ## コーディングルール
 
