@@ -33,7 +33,7 @@ fn parse_args() -> Args {
     let args: Vec<String> = std::env::args().collect();
     let mut result = Args {
         num_games: 100,
-        num_simulations: 200,
+        num_simulations: 25,
         c_puct: 1.5,
         temperature: 1.0,
     };
