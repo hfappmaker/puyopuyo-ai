@@ -250,17 +250,36 @@ fn train_alphazero() {
     println!("Train: {}, Val: {}", train_samples.len(), val_samples.len());
 
     let config = PuyoNetConfig::new();
-    let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
 
     // Try to load existing model, otherwise init fresh
-    let mut model = match config.init::<TrainBackend>(&device).load_file(MODEL_PATH, &recorder, &device) {
-        Ok(m) => {
-            println!("Loaded existing model from {}", MODEL_PATH);
-            m
-        }
-        Err(_) => {
-            println!("No existing model found, initializing fresh");
-            config.init::<TrainBackend>(&device)
+    // Use catch_unwind because burn may panic on incompatible model files
+    let mut model = {
+        let device_clone = device.clone();
+        let load_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
+            config
+                .init::<TrainBackend>(&device_clone)
+                .load_file(MODEL_PATH, &recorder, &device_clone)
+        }));
+        match load_result {
+            Ok(Ok(m)) => {
+                println!("Loaded existing model from {}", MODEL_PATH);
+                m
+            }
+            Ok(Err(e)) => {
+                println!(
+                    "Failed to load model from {}: {}. Initializing fresh",
+                    MODEL_PATH, e
+                );
+                config.init::<TrainBackend>(&device)
+            }
+            Err(_) => {
+                println!(
+                    "Model file {} is incompatible with current architecture. Initializing fresh",
+                    MODEL_PATH
+                );
+                config.init::<TrainBackend>(&device)
+            }
         }
     };
 

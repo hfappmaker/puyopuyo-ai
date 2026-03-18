@@ -83,20 +83,35 @@ fn main() {
 
     let device: <InferBackend as Backend>::Device = Default::default();
 
-    // Load model (fall back to random initialization if no model exists)
+    // Load model (fall back to random initialization if no model exists or load fails)
     let config = PuyoNetConfig::new();
-    let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
-    let model = match config
-        .init::<InferBackend>(&device)
-        .load_file(MODEL_PATH, &recorder, &device)
-    {
-        Ok(m) => {
-            println!("Loaded existing model from {}", MODEL_PATH);
-            m
-        }
-        Err(_) => {
-            println!("No existing model found, initializing random weights");
-            config.init::<InferBackend>(&device)
+    let model = {
+        let device_clone = device.clone();
+        let load_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
+            config
+                .init::<InferBackend>(&device_clone)
+                .load_file(MODEL_PATH, &recorder, &device_clone)
+        }));
+        match load_result {
+            Ok(Ok(m)) => {
+                println!("Loaded existing model from {}", MODEL_PATH);
+                m
+            }
+            Ok(Err(e)) => {
+                println!(
+                    "Failed to load model from {}: {}. Initializing random weights",
+                    MODEL_PATH, e
+                );
+                config.init::<InferBackend>(&device)
+            }
+            Err(_) => {
+                println!(
+                    "Model file {} is incompatible with current architecture. Initializing random weights",
+                    MODEL_PATH
+                );
+                config.init::<InferBackend>(&device)
+            }
         }
     };
 
