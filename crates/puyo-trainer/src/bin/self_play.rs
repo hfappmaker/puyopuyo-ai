@@ -151,6 +151,7 @@ fn main() {
             .to_vec();
 
             // Run MCTS
+            let move_start = std::time::Instant::now();
             let mcts_policy = mcts_search(
                 &game.board,
                 &current_piece,
@@ -162,6 +163,13 @@ fn main() {
                 args.c_puct,
                 args.temperature,
                 MAX_TURNS,
+            );
+
+            println!(
+                "  game {} move {}: MCTS {:.2}s",
+                game_idx + 1,
+                move_count + 1,
+                move_start.elapsed().as_secs_f64(),
             );
 
             // Select action: sample from MCTS policy
