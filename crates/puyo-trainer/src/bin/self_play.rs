@@ -203,7 +203,7 @@ fn main() {
         total_max_chain = total_max_chain.max(game.max_chain);
         total_chain_sum += game.max_chain as u64;
 
-        if (game_idx + 1) % 10 == 0 {
+        {
             let elapsed = start_time.elapsed().as_secs_f64();
             let done = game_idx + 1;
             let games_per_sec = done as f64 / elapsed;
