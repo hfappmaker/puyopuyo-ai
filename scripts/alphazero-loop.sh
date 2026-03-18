@@ -7,7 +7,9 @@ cd "$PROJECT_ROOT"
 
 # 設定（環境変数でオーバーライド可能）
 GAMES="${GAMES:-100}"
-SIMULATIONS="${SIMULATIONS:-25}"
+SIMS_BASE="${SIMS_BASE:-25}"       # シミュレーション初期値
+SIMS_STEP="${SIMS_STEP:-5}"        # イテレーションごとの増加量
+SIMS_MAX="${SIMS_MAX:-200}"        # シミュレーション上限
 C_PUCT="${C_PUCT:-1.5}"
 TEMPERATURE="${TEMPERATURE:-1.0}"
 LOG_FILE="artifacts/alphazero-loop.log"
@@ -26,17 +28,23 @@ log() {
     echo "$msg" >> "$LOG_FILE"
 }
 
-log "=== AlphaZero Loop Start (iteration=$ITERATION, games=$GAMES, sims=$SIMULATIONS) ==="
+log "=== AlphaZero Loop Start (iteration=$ITERATION, games=$GAMES, sims=$SIMS_BASE+$SIMS_STEP/iter, max=$SIMS_MAX) ==="
 
 while true; do
-    log "--- Iteration $ITERATION ---"
+    # シミュレーション数: SIMS_BASE + (ITERATION - 1) * SIMS_STEP（上限 SIMS_MAX）
+    SIMS=$((SIMS_BASE + (ITERATION - 1) * SIMS_STEP))
+    if [ "$SIMS" -gt "$SIMS_MAX" ]; then
+        SIMS=$SIMS_MAX
+    fi
+
+    log "--- Iteration $ITERATION (sims=$SIMS) ---"
     SEED_OFFSET=$((ITERATION * GAMES))
 
     # 1. Self-play
     log "Self-play start (seed_offset=$SEED_OFFSET)"
     cargo run --release -p puyo-trainer --bin self-play -- \
         --games "$GAMES" \
-        --simulations "$SIMULATIONS" \
+        --simulations "$SIMS" \
         --c-puct "$C_PUCT" \
         --temperature "$TEMPERATURE" \
         --seed-offset "$SEED_OFFSET" \
@@ -44,7 +52,7 @@ while true; do
 
     # 2. Git commit self-play data
     git add data/alphazero_data.bin
-    git commit -m "alphazero: iter $ITERATION self-play (games=$GAMES, sims=$SIMULATIONS)"
+    git commit -m "alphazero: iter $ITERATION self-play (games=$GAMES, sims=$SIMS)"
 
     # 3. Train (GPU)
     log "Train start (AlphaZero mode)"
