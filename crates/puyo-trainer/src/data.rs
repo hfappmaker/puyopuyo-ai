@@ -45,6 +45,17 @@ impl AlphaZeroDataset {
         let dataset: AlphaZeroDataset = bincode::deserialize(&bytes).expect("Failed to deserialize dataset");
         Ok(dataset)
     }
+
+    /// Load and merge multiple dataset files into one.
+    pub fn load_multiple(paths: &[String]) -> std::io::Result<Self> {
+        let mut merged = Self::new();
+        for path in paths {
+            let ds = Self::load(path)?;
+            println!("  Loaded {} samples from {}", ds.samples.len(), path);
+            merged.samples.extend(ds.samples);
+        }
+        Ok(merged)
+    }
 }
 
 /// Dataset of training samples.

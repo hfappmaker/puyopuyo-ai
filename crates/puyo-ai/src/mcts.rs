@@ -300,6 +300,34 @@ impl MctsTree {
         counts
     }
 
+    /// Apply Dirichlet noise to root node priors for exploration diversity.
+    /// `P'(a) = (1 - epsilon) * P(a) + epsilon * Dir(alpha)`
+    pub fn apply_root_dirichlet_noise(&mut self, alpha: f32, epsilon: f32, seed: u64) {
+        let root = self.root;
+        if !self.nodes[root].expanded {
+            return;
+        }
+        let mask = compute_valid_mask(
+            &self.nodes[root].state.board,
+            &self.nodes[root].state.current,
+        );
+        let num_valid = mask.iter().filter(|&&v| v).count();
+        if num_valid == 0 {
+            return;
+        }
+
+        let noise = sample_dirichlet(alpha, num_valid, seed);
+        let mut noise_idx = 0;
+        for action in 0..NUM_ACTIONS {
+            if mask[action] {
+                let p = self.nodes[root].priors[action];
+                self.nodes[root].priors[action] =
+                    (1.0 - epsilon) * p + epsilon * noise[noise_idx];
+                noise_idx += 1;
+            }
+        }
+    }
+
     /// Get the MCTS policy (normalized visit counts) with temperature.
     pub fn get_policy(&self, temperature: f32) -> [f32; NUM_ACTIONS] {
         let counts = self.root_visit_counts();
@@ -362,6 +390,76 @@ fn masked_softmax(logits: &[f32], mask: &[bool; NUM_ACTIONS]) -> [f32; NUM_ACTIO
     result
 }
 
+/// Sample from a Dirichlet distribution with concentration parameter `alpha`.
+/// Returns a vector of `n` values summing to 1.0.
+/// Uses Marsaglia-Tsang method for Gamma sampling with a simple xorshift64 PRNG.
+fn sample_dirichlet(alpha: f32, n: usize, seed: u64) -> Vec<f32> {
+    let mut rng_state = seed.wrapping_add(1); // avoid 0
+
+    let mut samples = Vec::with_capacity(n);
+    for i in 0..n {
+        let g = sample_gamma(alpha, &mut rng_state, i as u64);
+        samples.push(g);
+    }
+    let sum: f32 = samples.iter().sum();
+    if sum > 0.0 {
+        for s in &mut samples {
+            *s /= sum;
+        }
+    } else {
+        // Fallback: uniform
+        let u = 1.0 / n as f32;
+        for s in &mut samples {
+            *s = u;
+        }
+    }
+    samples
+}
+
+/// Sample from Gamma(alpha, 1) using Marsaglia-Tsang method.
+/// For alpha < 1, uses the boost: Gamma(alpha) = Gamma(alpha+1) * U^(1/alpha).
+fn sample_gamma(alpha: f32, rng: &mut u64, extra_seed: u64) -> f32 {
+    let alpha = alpha as f64;
+    let (alpha_use, boost) = if alpha < 1.0 {
+        let u = xorshift64_f64(rng, extra_seed);
+        (alpha + 1.0, u.powf(1.0 / alpha))
+    } else {
+        (alpha, 1.0)
+    };
+
+    let d = alpha_use - 1.0 / 3.0;
+    let c = 1.0 / (9.0 * d).sqrt();
+
+    loop {
+        // Generate normal using Box-Muller
+        let u1 = xorshift64_f64(rng, 0).max(1e-15);
+        let u2 = xorshift64_f64(rng, 1);
+        let n = (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos();
+
+        let v = (1.0 + c * n).powi(3);
+        if v <= 0.0 {
+            continue;
+        }
+        let u = xorshift64_f64(rng, 2);
+        // Acceptance test
+        if u < 1.0 - 0.0331 * n * n * n * n
+            || u.ln() < 0.5 * n * n + d * (1.0 - v + v.ln())
+        {
+            return (d * v * boost) as f32;
+        }
+    }
+}
+
+/// Simple xorshift64-based PRNG returning f64 in [0, 1).
+fn xorshift64_f64(state: &mut u64, mix: u64) -> f64 {
+    let mut s = (*state).wrapping_add(mix.wrapping_mul(2654435761));
+    s ^= s << 13;
+    s ^= s >> 7;
+    s ^= s << 17;
+    *state = s;
+    (s >> 11) as f64 / ((1u64 << 53) as f64)
+}
+
 /// Sample a random piece deterministically from node_id and action.
 fn sample_piece(seed1: u64, seed2: u64) -> Piece {
     // Simple hash for deterministic "random" piece
@@ -378,9 +476,16 @@ fn sample_piece(seed1: u64, seed2: u64) -> Piece {
     )
 }
 
+/// Dirichlet noise configuration for root exploration.
+pub struct DirichletConfig {
+    pub alpha: f32,
+    pub epsilon: f32,
+}
+
 /// Run MCTS search and return the policy (visit count distribution).
 /// `max_turns` is the total turn budget used to compute remaining_turns_ratio for the context.
 /// `current_move` is the current move number in the game (0-based).
+/// `dirichlet` adds Dirichlet noise to root priors for exploration (used in self-play).
 pub fn mcts_search(
     board: &Board,
     current: &Piece,
@@ -393,10 +498,25 @@ pub fn mcts_search(
     temperature: f32,
     max_turns: u32,
     current_move: u32,
+    dirichlet: Option<&DirichletConfig>,
 ) -> [f32; NUM_ACTIONS] {
     let mut tree = MctsTree::new(board, current, next, next_next, max_turns, current_move);
 
-    for _ in 0..num_simulations {
+    // Run first simulation to expand root node
+    if num_simulations > 0 {
+        tree.run_one_simulation(model, device, c_puct);
+    }
+
+    // Apply Dirichlet noise to root priors after root expansion
+    if let Some(dir) = dirichlet {
+        let seed = (current_move as u64)
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(board.columns[0].len() as u64);
+        tree.apply_root_dirichlet_noise(dir.alpha, dir.epsilon, seed);
+    }
+
+    // Remaining simulations
+    for _ in 1..num_simulations {
         tree.run_one_simulation(model, device, c_puct);
     }
 

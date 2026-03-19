@@ -7,7 +7,7 @@ use puyo_nn::encoding::{board_to_tensor_data, context_to_tensor_data, CONTEXT_TE
 use puyo_nn::model::PuyoNet;
 
 use crate::eval::Evaluator;
-use crate::mcts::mcts_search;
+use crate::mcts::{mcts_search, DirichletConfig};
 use crate::placement::{compute_valid_mask, index_to_placement, NUM_ACTIONS};
 
 type InferBackend = NdArray;
@@ -81,6 +81,7 @@ impl Evaluator for NnEvaluator {
         // MCTS mode: use tree search
         if let Some(ref mcts_config) = self.mcts_config {
             // MCTS mode uses max_turns=0 to indicate no turn limit (remaining_ratio=1.0)
+            // No Dirichlet noise during inference (only used in self-play training)
             let policy = mcts_search(
                 board,
                 current,
@@ -93,6 +94,7 @@ impl Evaluator for NnEvaluator {
                 mcts_config.temperature,
                 0,
                 0,
+                None,
             );
 
             let mut best_index = 0;

@@ -7,7 +7,7 @@ use burn::backend::ndarray::NdArray;
 use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 
-use puyo_ai::mcts::mcts_search;
+use puyo_ai::mcts::{mcts_search, DirichletConfig};
 use puyo_ai::placement::NUM_ACTIONS;
 use puyo_core::game::{GamePhase, GameState};
 use puyo_nn::encoding::{board_to_tensor_data, context_to_tensor_data};
@@ -18,7 +18,7 @@ use puyo_trainer::data::{AlphaZeroDataset, AlphaZeroSample};
 type InferBackend = NdArray;
 
 const MODEL_PATH: &str = "artifacts/puyo_model";
-const OUTPUT_PATH: &str = "data/alphazero_data.bin";
+const DEFAULT_OUTPUT_PATH: &str = "data/alphazero_data.bin";
 const MAX_TURNS: u32 = 50;
 const GAMMA: f32 = 0.99;
 
@@ -28,6 +28,10 @@ struct Args {
     c_puct: f32,
     temperature: f32,
     seed_offset: u64,
+    dirichlet_alpha: f32,
+    dirichlet_epsilon: f32,
+    temp_threshold: u32,
+    output_path: String,
 }
 
 fn parse_args() -> Args {
@@ -38,6 +42,10 @@ fn parse_args() -> Args {
         c_puct: 1.5,
         temperature: 1.0,
         seed_offset: 200_000,
+        dirichlet_alpha: 0.4,
+        dirichlet_epsilon: 0.25,
+        temp_threshold: 15,
+        output_path: DEFAULT_OUTPUT_PATH.to_string(),
     };
     let mut i = 1;
     while i < args.len() {
@@ -62,6 +70,22 @@ fn parse_args() -> Args {
                 i += 1;
                 result.seed_offset = args[i].parse().expect("--seed-offset requires integer");
             }
+            "--dirichlet-alpha" => {
+                i += 1;
+                result.dirichlet_alpha = args[i].parse().expect("--dirichlet-alpha requires float");
+            }
+            "--dirichlet-epsilon" => {
+                i += 1;
+                result.dirichlet_epsilon = args[i].parse().expect("--dirichlet-epsilon requires float");
+            }
+            "--temp-threshold" => {
+                i += 1;
+                result.temp_threshold = args[i].parse().expect("--temp-threshold requires integer");
+            }
+            "--output" => {
+                i += 1;
+                result.output_path = args[i].clone();
+            }
             other => eprintln!("Unknown option: {} (ignoring)", other),
         }
         i += 1;
@@ -83,9 +107,15 @@ fn main() {
     println!("Backend: NdArray (CPU) — MCTS self-play");
 
     println!(
-        "games={}, simulations={}, c_puct={}, temperature={}, seed_offset={}",
-        args.num_games, args.num_simulations, args.c_puct, args.temperature, args.seed_offset
+        "games={}, simulations={}, c_puct={}, temperature={}, seed_offset={}, dirichlet_alpha={}, dirichlet_epsilon={}",
+        args.num_games, args.num_simulations, args.c_puct, args.temperature, args.seed_offset,
+        args.dirichlet_alpha, args.dirichlet_epsilon
     );
+
+    let dirichlet = DirichletConfig {
+        alpha: args.dirichlet_alpha,
+        epsilon: args.dirichlet_epsilon,
+    };
 
     let device: <InferBackend as Backend>::Device = Default::default();
 
@@ -156,7 +186,12 @@ fn main() {
             )
             .to_vec();
 
-            // Run MCTS
+            // Run MCTS with temperature schedule: high exploration early, greedy later
+            let temperature = if move_count < args.temp_threshold {
+                args.temperature
+            } else {
+                0.1
+            };
             let move_start = std::time::Instant::now();
             let mcts_policy = mcts_search(
                 &game.board,
@@ -167,9 +202,10 @@ fn main() {
                 &device,
                 args.num_simulations,
                 args.c_puct,
-                args.temperature,
+                temperature,
                 MAX_TURNS,
                 move_count,
+                Some(&dirichlet),
             );
 
             println!(
@@ -241,8 +277,8 @@ fn main() {
     );
 
     std::fs::create_dir_all("data").expect("Failed to create data directory");
-    dataset.save(OUTPUT_PATH).expect("Failed to save dataset");
-    println!("Saved to {}", OUTPUT_PATH);
+    dataset.save(&args.output_path).expect("Failed to save dataset");
+    println!("Saved to {}", args.output_path);
 }
 
 /// Select an action by sampling from the MCTS policy.

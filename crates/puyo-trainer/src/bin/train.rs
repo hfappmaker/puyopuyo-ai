@@ -29,6 +29,12 @@ const NUM_EPOCHS: usize = 50;
 const LR_MAX: f64 = 5e-4;
 const LR_MIN: f64 = 1e-5;
 const EARLY_STOPPING_PATIENCE: usize = 5;
+
+// AlphaZero-specific training parameters
+const AZ_NUM_EPOCHS: usize = 20;
+const AZ_LR_MAX: f64 = 2e-4;
+const AZ_LR_MIN: f64 = 1e-5;
+const AZ_EARLY_STOPPING_PATIENCE: usize = 10;
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
 const NUM_ACTIONS: usize = 24;
 const VALUE_LOSS_WEIGHT: f32 = 0.5;
@@ -84,6 +90,8 @@ fn main() {
 
     let args: Vec<String> = std::env::args().collect();
     let alphazero_mode = args.iter().any(|a| a == "--alphazero");
+    let data_dir = args.iter().position(|a| a == "--data-dir")
+        .map(|i| args[i + 1].clone());
 
     #[cfg(feature = "gpu")]
     println!("Backend: CUDA (GPU)");
@@ -92,7 +100,7 @@ fn main() {
 
     if alphazero_mode {
         println!("Mode: AlphaZero (Policy CE + Value MSE)");
-        train_alphazero();
+        train_alphazero(data_dir.as_deref());
     } else {
         println!("Mode: Supervised (Policy CE only)");
         train_supervised();
@@ -236,14 +244,38 @@ fn compute_val_loss_supervised(
 // AlphaZero training (from self-play data)
 // ---------------------------------------------------------------------------
 
-fn train_alphazero() {
+fn train_alphazero(data_dir: Option<&str>) {
     let device: <TrainBackend as Backend>::Device = Default::default();
-    let data_path = "data/alphazero_data.bin";
 
-    println!("Loading AlphaZero dataset from {}...", data_path);
-    let dataset = AlphaZeroDataset::load(data_path).expect("Failed to load dataset");
+    let dataset = if let Some(dir) = data_dir {
+        // Replay buffer mode: load all alphazero_iter_*.bin files from the directory
+        println!("Loading AlphaZero datasets from {}...", dir);
+        let mut paths: Vec<String> = std::fs::read_dir(dir)
+            .expect("Failed to read data directory")
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                let name = path.file_name()?.to_str()?.to_string();
+                if name.starts_with("alphazero_iter_") && name.ends_with(".bin") {
+                    Some(path.to_str()?.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        paths.sort();
+        if paths.is_empty() {
+            panic!("No alphazero_iter_*.bin files found in {}", dir);
+        }
+        println!("Found {} data files", paths.len());
+        AlphaZeroDataset::load_multiple(&paths).expect("Failed to load datasets")
+    } else {
+        // Legacy single-file mode
+        let data_path = "data/alphazero_data.bin";
+        println!("Loading AlphaZero dataset from {}...", data_path);
+        AlphaZeroDataset::load(data_path).expect("Failed to load dataset")
+    };
     let num_samples = dataset.samples.len();
-    println!("Loaded {} samples", num_samples);
+    println!("Loaded {} total samples", num_samples);
 
     let split = (num_samples as f64 * TRAIN_SPLIT_RATIO) as usize;
     let train_samples = &dataset.samples[..split];
@@ -284,12 +316,20 @@ fn train_alphazero() {
         }
     };
 
+    let num_epochs = AZ_NUM_EPOCHS;
+    let patience_limit = AZ_EARLY_STOPPING_PATIENCE;
+
     let mut optim = AdamConfig::new().init();
     let mut best_val_loss = f32::MAX;
     let mut patience_counter = 0usize;
 
-    for epoch in 0..NUM_EPOCHS {
-        let lr = cosine_lr(epoch, NUM_EPOCHS);
+    println!("AlphaZero training: {} epochs, LR {:.0e}->{:.0e}, patience={}",
+        num_epochs, AZ_LR_MAX, AZ_LR_MIN, patience_limit);
+
+    for epoch in 0..num_epochs {
+        let lr = AZ_LR_MIN
+            + 0.5 * (AZ_LR_MAX - AZ_LR_MIN)
+            * (1.0 + (std::f64::consts::PI * epoch as f64 / num_epochs as f64).cos());
         let mut epoch_policy_loss = 0.0f32;
         let mut epoch_value_loss = 0.0f32;
         let mut num_batches = 0;
@@ -372,7 +412,7 @@ fn train_alphazero() {
 
         println!(
             "Epoch {}/{}: train(p={:.6}, v={:.6}, t={:.6}), val(p={:.6}, v={:.6}, t={:.6}), lr={:.6}",
-            epoch + 1, NUM_EPOCHS, avg_p, avg_v, avg_total, val_p, val_v, val_total, cosine_lr(epoch, NUM_EPOCHS),
+            epoch + 1, num_epochs, avg_p, avg_v, avg_total, val_p, val_v, val_total, lr,
         );
 
         if val_total < best_val_loss {
@@ -382,8 +422,8 @@ fn train_alphazero() {
             println!("  -> Best model saved (val_loss={:.6})", val_total);
         } else {
             patience_counter += 1;
-            println!("  -> No improvement ({}/{})", patience_counter, EARLY_STOPPING_PATIENCE);
-            if patience_counter >= EARLY_STOPPING_PATIENCE {
+            println!("  -> No improvement ({}/{})", patience_counter, patience_limit);
+            if patience_counter >= patience_limit {
                 println!("Early stopping triggered at epoch {}", epoch + 1);
                 break;
             }

@@ -102,10 +102,10 @@ SimulationEvaluator AI に自動対戦させ、訓練データを収集する。
 | 名前 | 値 | 説明 |
 |------|-----|------|
 | `BATCH_SIZE` | 512 (GPU) / 64 (CPU) | バッチサイズ |
-| `NUM_EPOCHS` | 50 | 最大エポック数 |
-| `LR_MAX` | 5e-4 | Cosine Annealing 初期学習率 |
+| `NUM_EPOCHS` | 50（教師あり） / 20（AlphaZero） | 最大エポック数 |
+| `LR_MAX` | 5e-4（教師あり） / 2e-4（AlphaZero） | Cosine Annealing 初期学習率 |
 | `LR_MIN` | 1e-5 | Cosine Annealing 最終学習率 |
-| `EARLY_STOPPING_PATIENCE` | 5 | Early Stopping の patience（エポック数） |
+| `EARLY_STOPPING_PATIENCE` | 5（教師あり） / 10（AlphaZero） | Early Stopping の patience（エポック数） |
 | `MODEL_PATH` | `artifacts/puyo_model` | モデル保存先 |
 
 ### 学習率スケジューラ（Cosine Annealing）
@@ -141,10 +141,26 @@ MCTS ベースの AlphaZero self-play ループ。Dual Head Network（`PuyoNet`�
 | `--games` | 整数 | 100 | 自己対戦ゲーム数 |
 | `--simulations` | 整数 | 200 | MCTS シミュレーション回数/手 |
 | `--c-puct` | 小数 | 1.5 | PUCT 探索定数 |
-| `--temperature` | 小数 | 1.0 | Policy の温度パラメータ |
+| `--temperature` | 小数 | 1.0 | Policy の温度パラメータ（序盤用） |
 | `--seed-offset` | 整数 | 200,000 | RNG シードオフセット（seed = seed_offset + game_idx） |
+| `--dirichlet-alpha` | 小数 | 0.4 | Dirichlet ノイズの集中パラメータ α |
+| `--dirichlet-epsilon` | 小数 | 0.25 | Dirichlet ノイズの混合比率 ε |
+| `--temp-threshold` | 整数 | 15 | 温度スケジュールの閾値手数（これ以降 τ=0.1 に低下） |
+| `--output` | 文字列 | `data/alphazero_data.bin` | 出力ファイルパス |
 
 `--seed-offset` により、複数回の self-play 実行で異なるゲームデータを生成できる。
+
+### 温度スケジュール
+
+AlphaZero 方式に従い、ゲーム進行度に応じて温度パラメータを切り替える:
+- `move_count < temp_threshold`（デフォルト15手目まで）: τ = `--temperature`（デフォルト1.0、探索的）
+- `move_count >= temp_threshold`: τ = 0.1（ほぼ貪欲）
+
+序盤で多様なデータを収集し、終盤では高品質な Value target を得るための設計。
+
+### Dirichlet ノイズ
+
+ルートノードの policy prior に Dirichlet ノイズを混合して探索の多様性を確保する（詳細は `docs/spec/09-ai-search.md` 参照）。
 
 ### 手順
 
@@ -154,8 +170,16 @@ MCTS ベースの AlphaZero self-play ループ。Dual Head Network（`PuyoNet`�
    ```
    value_target[t] = Σ_{k=0}^{T-t-1} γ^k × score[t+k]  （γ = 0.99）
    ```
-4. `AlphaZeroSample`（board_data, context_data, mcts_policy, value_target）を生成し、`data/alphazero_data.bin` に保存
+4. `AlphaZeroSample`（board_data, context_data, mcts_policy, value_target）を生成し、出力ファイル（デフォルト: `data/alphazero_data.bin`、`--output` で変更可能）に保存
 5. 生成データは `train --alphazero` で Policy Head（Cross-Entropy 損失）と Value Head（MSE 損失、MuZero Invertible Value Transform 適用、重み `VALUE_LOSS_WEIGHT=0.5`）を同時に学習
+
+### リプレイバッファ
+
+`alphazero-loop.sh` では、各イテレーションのデータを `data/alphazero_iter_N.bin` として個別に保存する。`train --alphazero --data-dir data` で直近のイテレーションデータを全て結合して学習に使用する（リプレイバッファ）。
+
+- `REPLAY_WINDOW`（デフォルト10）で保持するイテレーション数を制御
+- 古いデータは自動削除される
+- `AlphaZeroDataset::load_multiple()` で複数ファイルをマージ
 
 ## 実行順序
 
@@ -187,5 +211,6 @@ GAMES=200 SIMULATIONS=50 bash scripts/alphazero-loop.sh
 | ファイル | 説明 |
 |---------|------|
 | `data/training_data.bin` | 教師あり学習データ（bincode） |
-| `data/alphazero_data.bin` | AlphaZero self-play データ（bincode） |
+| `data/alphazero_data.bin` | AlphaZero self-play データ（レガシー単一ファイル、bincode） |
+| `data/alphazero_iter_N.bin` | イテレーション別 self-play データ（リプレイバッファ用） |
 | `artifacts/puyo_model` | 学習済みモデル（教師あり / AlphaZero 共通保存先） |

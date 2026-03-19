@@ -12,6 +12,10 @@ SIMS_STEP="${SIMS_STEP:-5}"        # イテレーションごとの増加量
 SIMS_MAX="${SIMS_MAX:-200}"        # シミュレーション上限
 C_PUCT="${C_PUCT:-1.5}"
 TEMPERATURE="${TEMPERATURE:-1.0}"
+DIRICHLET_ALPHA="${DIRICHLET_ALPHA:-0.4}"
+DIRICHLET_EPSILON="${DIRICHLET_EPSILON:-0.25}"
+TEMP_THRESHOLD="${TEMP_THRESHOLD:-15}"
+REPLAY_WINDOW="${REPLAY_WINDOW:-10}"  # 直近N個のイテレーションデータを保持
 LOG_FILE="artifacts/alphazero-loop.log"
 
 # イテレーションカウンタ（永続化）
@@ -40,26 +44,43 @@ while true; do
     log "--- Iteration $ITERATION (sims=$SIMS) ---"
     SEED_OFFSET=$((ITERATION * GAMES))
 
+    OUTPUT_FILE="data/alphazero_iter_${ITERATION}.bin"
+
     # 1. Self-play
-    log "Self-play start (seed_offset=$SEED_OFFSET)"
+    log "Self-play start (seed_offset=$SEED_OFFSET, dirichlet_alpha=$DIRICHLET_ALPHA)"
     cargo run --release -p puyo-trainer --bin self-play -- \
         --games "$GAMES" \
         --simulations "$SIMS" \
         --c-puct "$C_PUCT" \
         --temperature "$TEMPERATURE" \
         --seed-offset "$SEED_OFFSET" \
+        --dirichlet-alpha "$DIRICHLET_ALPHA" \
+        --dirichlet-epsilon "$DIRICHLET_EPSILON" \
+        --temp-threshold "$TEMP_THRESHOLD" \
+        --output "$OUTPUT_FILE" \
         2>&1 | tee -a "$LOG_FILE"
 
-    # 2. Git commit self-play data
-    git add data/alphazero_data.bin
-    git commit -m "alphazero: iter $ITERATION self-play (games=$GAMES, sims=$SIMS)"
+    # 2. Remove old data files beyond replay window
+    OLD_ITER=$((ITERATION - REPLAY_WINDOW))
+    if [ "$OLD_ITER" -gt 0 ]; then
+        OLD_FILE="data/alphazero_iter_${OLD_ITER}.bin"
+        if [ -f "$OLD_FILE" ]; then
+            log "Removing old data: $OLD_FILE"
+            rm -f "$OLD_FILE"
+        fi
+    fi
 
-    # 3. Train (GPU)
-    log "Train start (AlphaZero mode)"
-    cargo run --release -p puyo-trainer --bin train -- --alphazero \
+    # 3. Git commit self-play data
+    git add data/alphazero_iter_*.bin
+    git add -u data/  # stage deletions
+    git commit -m "alphazero: iter $ITERATION self-play (games=$GAMES, sims=$SIMS)" || true
+
+    # 4. Train (GPU) with replay buffer
+    log "Train start (AlphaZero mode, replay buffer)"
+    cargo run --release -p puyo-trainer --bin train -- --alphazero --data-dir data \
         2>&1 | tee -a "$LOG_FILE"
 
-    # 4. Git commit model
+    # 5. Git commit model
     git add artifacts/puyo_model.bin
     git commit -m "alphazero: iter $ITERATION training complete"
 

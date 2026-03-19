@@ -122,9 +122,31 @@ Q_normalized = (Q - Q_min) / (Q_max - Q_min)
 4. Value を探索パスに沿って逆伝播（Backpropagation）。同時に min/max を更新
 5. 規定回数の反復後、ルート直下の訪問回数分布を返す
 
+### Dirichlet ノイズ（ルート探索多様化）
+
+AlphaZero 方式に従い、ルートノード展開後に Dirichlet ノイズを policy prior に混合する。これにより、自己対局データの多様性を確保し、NNが自身の出力を再学習するだけの「policy collapse」を防止する。
+
+```
+P'(s, a) = (1 - ε) × P(s, a) + ε × Dir(α)
+```
+
+| パラメータ | デフォルト | 説明 |
+|-----------|----------|------|
+| `alpha` | 0.4 | Dirichlet 集中パラメータ（≈ 10/行動空間サイズ） |
+| `epsilon` | 0.25 | ノイズ混合比率 |
+
+- Gamma 分布サンプリングは Marsaglia-Tsang 法で自前実装（外部クレート不要）
+- 推論時（`NnEvaluator`）ではノイズを適用しない（`dirichlet: None`）
+- `DirichletConfig` 構造体でパラメータを管理
+
 ### API
 
 ```rust
+pub struct DirichletConfig {
+    pub alpha: f32,
+    pub epsilon: f32,
+}
+
 pub fn mcts_search(
     board: &Board,
     current: &Piece,
@@ -137,12 +159,14 @@ pub fn mcts_search(
     temperature: f32,
     max_turns: u32,
     current_move: u32,
+    dirichlet: Option<&DirichletConfig>,
 ) -> [f32; 24]
 ```
 
-- **入力**: 盤面、3ツモ（current, next, next_next）、NNモデル、デバイス、探索パラメータ（シミュレーション回数、PUCT定数、温度）、最大手数、現在の手数
+- **入力**: 盤面、3ツモ（current, next, next_next）、NNモデル、デバイス、探索パラメータ（シミュレーション回数、PUCT定数、温度）、最大手数、現在の手数、Dirichlet ノイズ設定（None で無効）
 - **出力**: 24次元の確率分布（各配置の訪問回数に基づく）
 - `current_move` はゲーム開始からの現在の手数（0-based）。MCTSツリー内の各ノードで `remaining_ratio = (max_turns - (current_move + depth)) / max_turns` として正しい残り手数比率を計算するために使用する
+- `dirichlet` が Some の場合、最初のシミュレーションでルートノードを展開した後、Dirichlet ノイズを適用してから残りのシミュレーションを実行する
 
 ## 共通ユーティリティ（placement.rs）
 
