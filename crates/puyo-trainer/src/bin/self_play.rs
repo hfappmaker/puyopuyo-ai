@@ -34,7 +34,7 @@ fn parse_args() -> Args {
     let args: Vec<String> = std::env::args().collect();
     let mut result = Args {
         num_games: 100,
-        num_simulations: 25,
+        num_simulations: 200,
         c_puct: 1.5,
         temperature: 1.0,
         seed_offset: 200_000,
@@ -169,6 +169,7 @@ fn main() {
                 args.c_puct,
                 args.temperature,
                 MAX_TURNS,
+                move_count,
             );
 
             println!(

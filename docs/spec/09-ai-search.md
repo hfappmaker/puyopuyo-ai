@@ -109,6 +109,7 @@ Q_normalized = (Q - Q_min) / (Q_max - Q_min)
 ```
 
 - `Q_min == Q_max`（まだ情報がない場合）は 0.5 を返す
+- 正規化結果は `[0.0, 1.0]` にクランプされる
 - min/max は Backpropagation 時に毎回更新される
 
 これにより、Q項（活用）と Prior項（探索）のスケールが揃い、`c_puct` のチューニングがスコアレンジに依存しなくなる。
@@ -134,11 +135,14 @@ pub fn mcts_search(
     num_simulations: usize,
     c_puct: f32,
     temperature: f32,
+    max_turns: u32,
+    current_move: u32,
 ) -> [f32; 24]
 ```
 
-- **入力**: 盤面、3ツモ（current, next, next_next）、NNモデル、デバイス、探索パラメータ（シミュレーション回数、PUCT定数、温度）
+- **入力**: 盤面、3ツモ（current, next, next_next）、NNモデル、デバイス、探索パラメータ（シミュレーション回数、PUCT定数、温度）、最大手数、現在の手数
 - **出力**: 24次元の確率分布（各配置の訪問回数に基づく）
+- `current_move` はゲーム開始からの現在の手数（0-based）。MCTSツリー内の各ノードで `remaining_ratio = (max_turns - (current_move + depth)) / max_turns` として正しい残り手数比率を計算するために使用する
 
 ## 共通ユーティリティ（placement.rs）
 
