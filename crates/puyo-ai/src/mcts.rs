@@ -51,6 +51,10 @@ pub struct MctsTree {
     nodes: Vec<MctsNode>,
     root: usize,
     max_turns: u32,
+    /// Minimum Q value observed in the tree (for Min-Max normalization).
+    min_value: f32,
+    /// Maximum Q value observed in the tree (for Min-Max normalization).
+    max_value: f32,
 }
 
 impl MctsTree {
@@ -78,6 +82,8 @@ impl MctsTree {
             nodes: vec![root],
             root: 0,
             max_turns,
+            min_value: f32::INFINITY,
+            max_value: f32::NEG_INFINITY,
         }
     }
 
@@ -117,7 +123,9 @@ impl MctsTree {
             0.0
         };
 
-        // 3. Backpropagation
+        // 3. Backpropagation & update min/max for normalization
+        self.min_value = self.min_value.min(value);
+        self.max_value = self.max_value.max(value);
         for &(parent_id, action) in path.iter().rev() {
             if let Some(child_id) = self.nodes[parent_id].children[action] {
                 self.nodes[child_id].visit_count += 1;
@@ -127,7 +135,18 @@ impl MctsTree {
         self.nodes[self.root].visit_count += 1;
     }
 
-    /// Select action using PUCT score.
+    /// Normalize a Q value to [0, 1] using min-max normalization (MuZero Reanalyze).
+    /// Returns 0.5 when min == max (no information yet).
+    fn normalize_q(&self, q: f32) -> f32 {
+        let range = self.max_value - self.min_value;
+        if range > f32::EPSILON {
+            (q - self.min_value) / range
+        } else {
+            0.5
+        }
+    }
+
+    /// Select action using PUCT score with Min-Max normalized Q values.
     fn select_action(&self, node_id: usize, c_puct: f32) -> usize {
         let node = &self.nodes[node_id];
         let parent_visits = node.visit_count.max(1) as f32;
@@ -157,7 +176,8 @@ impl MctsTree {
                 None => (0.0, 0.0),
             };
 
-            let puct = q + c_puct * prior * sqrt_parent / (1.0 + n);
+            let q_normalized = self.normalize_q(q);
+            let puct = q_normalized + c_puct * prior * sqrt_parent / (1.0 + n);
             if puct > best_score {
                 best_score = puct;
                 best_action = action;

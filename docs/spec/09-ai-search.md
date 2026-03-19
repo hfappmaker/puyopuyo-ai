@@ -100,12 +100,25 @@ PUCT（Predictor Upper Confidence bounds applied to Trees）に基づくモン�
 
 3手先以降のツモが不明な場合、決定論的なハッシュ関数（`sample_piece`）でランダムツモを生成する。ノードIDとアクションIDをシードとして使用するため、同じ探索状態では常に同じツモが生成される。
 
+### Min-Max Value Normalization（MuZero Reanalyze方式）
+
+PUCT計算時にQ値を [0, 1] に正規化する。探索木内で観測されたValue（NNの推論値）の最小値・最大値を `MctsTree` で追跡し、以下の式で正規化:
+
+```
+Q_normalized = (Q - Q_min) / (Q_max - Q_min)
+```
+
+- `Q_min == Q_max`（まだ情報がない場合）は 0.5 を返す
+- min/max は Backpropagation 時に毎回更新される
+
+これにより、Q項（活用）と Prior項（探索）のスケールが揃い、`c_puct` のチューニングがスコアレンジに依存しなくなる。
+
 ### 探索の流れ
 
-1. ルートノードから PUCT で最も有望な子ノードを選択（Selection）。各ノードの `priors` フィールドに保存されたNN policy出力を事前確率として使用
+1. ルートノードから PUCT で最も有望な子ノードを選択（Selection）。各ノードの `priors` フィールドに保存されたNN policy出力を事前確率として使用。Q値は Min-Max 正規化して [0, 1] に変換
 2. 未展開ノードに到達したら、`PuyoNet` の forward pass で (policy_logits, value) を取得（Expansion + Evaluation）
 3. Policy logits を masked softmax でアクション確率に変換し、ノードの `priors` フィールドに保存。既存の子ノードの `prior` も更新
-4. Value を探索パスに沿って逆伝播（Backpropagation）
+4. Value を探索パスに沿って逆伝播（Backpropagation）。同時に min/max を更新
 5. 規定回数の反復後、ルート直下の訪問回数分布を返す
 
 ### API
