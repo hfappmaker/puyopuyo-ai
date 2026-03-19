@@ -1,6 +1,8 @@
 # Rust
 target/
 
+artifacts/alphazero-loop.log
+
 # Node
 node_modules/
 
