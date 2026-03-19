@@ -92,6 +92,7 @@ impl Evaluator for NnEvaluator {
                 mcts_config.c_puct,
                 mcts_config.temperature,
                 0,
+                0,
             );
 
             let mut best_index = 0;

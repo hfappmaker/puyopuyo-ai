@@ -31,7 +31,7 @@ const LR_MIN: f64 = 1e-5;
 const EARLY_STOPPING_PATIENCE: usize = 5;
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
 const NUM_ACTIONS: usize = 24;
-const VALUE_LOSS_WEIGHT: f32 = 0.01;
+const VALUE_LOSS_WEIGHT: f32 = 0.5;
 
 fn cosine_lr(epoch: usize, total_epochs: usize) -> f64 {
     LR_MIN
