@@ -51,6 +51,8 @@ pub struct MctsTree {
     nodes: Vec<MctsNode>,
     root: usize,
     max_turns: u32,
+    /// Current move number in the game (for correct remaining_ratio computation).
+    current_move: u32,
     /// Minimum Q value observed in the tree (for Min-Max normalization).
     min_value: f32,
     /// Maximum Q value observed in the tree (for Min-Max normalization).
@@ -60,7 +62,8 @@ pub struct MctsTree {
 impl MctsTree {
     /// Create a new MCTS tree rooted at the given game state.
     /// `max_turns` is the total turn budget (e.g., 50) used to compute remaining_turns_ratio.
-    pub fn new(board: &Board, current: &Piece, next: &Piece, next_next: &Piece, max_turns: u32) -> Self {
+    /// `current_move` is the current move number in the game (0-based).
+    pub fn new(board: &Board, current: &Piece, next: &Piece, next_next: &Piece, max_turns: u32, current_move: u32) -> Self {
         let state = GameSnapshot {
             board: board.clone(),
             current: *current,
@@ -82,6 +85,7 @@ impl MctsTree {
             nodes: vec![root],
             root: 0,
             max_turns,
+            current_move,
             min_value: f32::INFINITY,
             max_value: f32::NEG_INFINITY,
         }
@@ -140,7 +144,7 @@ impl MctsTree {
     fn normalize_q(&self, q: f32) -> f32 {
         let range = self.max_value - self.min_value;
         if range > f32::EPSILON {
-            (q - self.min_value) / range
+            ((q - self.min_value) / range).clamp(0.0, 1.0)
         } else {
             0.5
         }
@@ -241,8 +245,9 @@ impl MctsTree {
     ) -> f32 {
         let state = &self.nodes[node_id].state;
         let depth = self.nodes[node_id].depth;
+        let absolute_move = self.current_move + depth;
         let remaining_ratio = if self.max_turns > 0 {
-            (self.max_turns.saturating_sub(depth)) as f32 / self.max_turns as f32
+            (self.max_turns.saturating_sub(absolute_move)) as f32 / self.max_turns as f32
         } else {
             1.0
         };
@@ -375,6 +380,7 @@ fn sample_piece(seed1: u64, seed2: u64) -> Piece {
 
 /// Run MCTS search and return the policy (visit count distribution).
 /// `max_turns` is the total turn budget used to compute remaining_turns_ratio for the context.
+/// `current_move` is the current move number in the game (0-based).
 pub fn mcts_search(
     board: &Board,
     current: &Piece,
@@ -386,8 +392,9 @@ pub fn mcts_search(
     c_puct: f32,
     temperature: f32,
     max_turns: u32,
+    current_move: u32,
 ) -> [f32; NUM_ACTIONS] {
-    let mut tree = MctsTree::new(board, current, next, next_next, max_turns);
+    let mut tree = MctsTree::new(board, current, next, next_next, max_turns, current_move);
 
     for _ in 0..num_simulations {
         tree.run_one_simulation(model, device, c_puct);
@@ -439,7 +446,7 @@ mod tests {
         let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
         let next_next = Piece::new(PuyoColor::Blue, PuyoColor::Red);
 
-        let tree = MctsTree::new(&board, &current, &next, &next_next, 50);
+        let tree = MctsTree::new(&board, &current, &next, &next_next, 50, 0);
         assert_eq!(tree.nodes.len(), 1);
         assert!(!tree.nodes[0].expanded);
         assert!(!tree.nodes[0].terminal);

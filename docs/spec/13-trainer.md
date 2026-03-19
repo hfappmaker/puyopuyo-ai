@@ -139,7 +139,7 @@ MCTS ベースの AlphaZero self-play ループ。Dual Head Network（`PuyoNet`�
 | 引数 | 型 | デフォルト | 説明 |
 |------|-----|----------|------|
 | `--games` | 整数 | 100 | 自己対戦ゲーム数 |
-| `--simulations` | 整数 | 25 | MCTS シミュレーション回数/手 |
+| `--simulations` | 整数 | 200 | MCTS シミュレーション回数/手 |
 | `--c-puct` | 小数 | 1.5 | PUCT 探索定数 |
 | `--temperature` | 小数 | 1.0 | Policy の温度パラメータ |
 | `--seed-offset` | 整数 | 200,000 | RNG シードオフセット（seed = seed_offset + game_idx） |
@@ -155,7 +155,7 @@ MCTS ベースの AlphaZero self-play ループ。Dual Head Network（`PuyoNet`�
    value_target[t] = Σ_{k=0}^{T-t-1} γ^k × score[t+k]  （γ = 0.99）
    ```
 4. `AlphaZeroSample`（board_data, context_data, mcts_policy, value_target）を生成し、`data/alphazero_data.bin` に保存
-5. 生成データは `train --alphazero` で Policy Head（Cross-Entropy 損失）と Value Head（MSE 損失、MuZero Invertible Value Transform 適用）を同時に学習
+5. 生成データは `train --alphazero` で Policy Head（Cross-Entropy 損失）と Value Head（MSE 損失、MuZero Invertible Value Transform 適用、重み `VALUE_LOSS_WEIGHT=0.5`）を同時に学習
 
 ## 実行順序
 
