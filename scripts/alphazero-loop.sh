@@ -7,8 +7,8 @@ cd "$PROJECT_ROOT"
 
 # 設定（環境変数でオーバーライド可能）
 GAMES="${GAMES:-100}"
-SIMS_BASE="${SIMS_BASE:-25}"       # シミュレーション初期値
-SIMS_STEP="${SIMS_STEP:-5}"        # イテレーションごとの増加量
+SIMS_BASE="${SIMS_BASE:-200}"       # シミュレーション初期値
+SIMS_STEP="${SIMS_STEP:-0}"        # イテレーションごとの増加量
 SIMS_MAX="${SIMS_MAX:-200}"        # シミュレーション上限
 C_PUCT="${C_PUCT:-1.5}"
 TEMPERATURE="${TEMPERATURE:-1.0}"
