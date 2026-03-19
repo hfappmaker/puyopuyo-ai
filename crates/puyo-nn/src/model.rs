@@ -1,6 +1,6 @@
 use burn::nn::conv::{Conv2d, Conv2dConfig};
 use burn::nn::pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig};
-use burn::nn::{Linear, LinearConfig, PaddingConfig2d, Relu};
+use burn::nn::{GroupNorm, GroupNormConfig, Linear, LinearConfig, PaddingConfig2d, Relu};
 use burn::prelude::*;
 
 use crate::encoding::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
@@ -15,18 +15,20 @@ const NUM_ACTIONS: usize = 24; // 6 cols × 4 orientations
 const BACKBONE_OUTPUT: usize = HEAD_CHANNELS * POOL_H * POOL_W; // 1536
 
 /// FiLM parameters generated from context (pieces).
-const FILM_HIDDEN: usize = 64;
-/// FiLM output size: gamma (RESIDUAL_CHANNELS) + beta (RESIDUAL_CHANNELS).
-const FILM_OUTPUT: usize = RESIDUAL_CHANNELS * 2;
+const FILM_HIDDEN: usize = 128;
+/// FiLM output size: per-block (gamma + beta) for each residual block.
+const FILM_OUTPUT: usize = RESIDUAL_CHANNELS * 2 * NUM_RESIDUAL_BLOCKS; // 768
 
-/// Residual block with FiLM conditioning.
+/// Residual block with GroupNorm and FiLM conditioning.
 ///
-/// Conv → ReLU → Conv → FiLM(gamma, beta) → add skip → ReLU.
-/// FiLM applies channel-wise affine transform: y = gamma * x + beta.
+/// Conv → GroupNorm → ReLU → Conv → GroupNorm → Residual FiLM(gamma, beta) → add skip → ReLU.
+/// Residual FiLM: y = x * (1 + gamma) + beta (identity when gamma=0, beta=0).
 #[derive(Module, Debug)]
 pub struct ResidualBlock<B: Backend> {
     conv1: Conv2d<B>,
+    norm1: GroupNorm<B>,
     conv2: Conv2d<B>,
+    norm2: GroupNorm<B>,
     activation: Relu,
 }
 
@@ -41,17 +43,20 @@ impl ResidualBlockConfig {
             conv1: Conv2dConfig::new([self.channels, self.channels], [3, 3])
                 .with_padding(PaddingConfig2d::Same)
                 .init(device),
+            norm1: GroupNormConfig::new(1, self.channels).init(device),
             conv2: Conv2dConfig::new([self.channels, self.channels], [3, 3])
                 .with_padding(PaddingConfig2d::Same)
                 .init(device),
+            norm2: GroupNormConfig::new(1, self.channels).init(device),
             activation: Relu::new(),
         }
     }
 }
 
 impl<B: Backend> ResidualBlock<B> {
-    /// Forward pass with FiLM conditioning.
+    /// Forward pass with residual FiLM conditioning.
     /// gamma, beta: [batch, channels] — broadcast over spatial dims.
+    /// Uses residual FiLM: y = x * (1 + gamma) + beta so that gamma=0 → identity.
     pub fn forward(
         &self,
         x: Tensor<B, 4>,
@@ -60,25 +65,29 @@ impl<B: Backend> ResidualBlock<B> {
     ) -> Tensor<B, 4> {
         let residual = x.clone();
         let x = self.conv1.forward(x);
+        let x = self.norm1.forward(x);
         let x = self.activation.forward(x);
         let x = self.conv2.forward(x);
+        let x = self.norm2.forward(x);
 
-        // FiLM: reshape [batch, channels] → [batch, channels, 1, 1] for broadcast
+        // Residual FiLM: reshape [batch, channels] → [batch, channels, 1, 1] for broadcast
         let gamma_dims = gamma.dims();
         let gamma = gamma.reshape([gamma_dims[0], gamma_dims[1], 1, 1]);
         let beta_dims = beta.dims();
         let beta = beta.reshape([beta_dims[0], beta_dims[1], 1, 1]);
-        let x = x * gamma + beta;
+        // y = x * (1 + gamma) + beta: when gamma=0, beta=0 this is identity
+        let x = x * (gamma + 1.0) + beta;
 
         self.activation.forward(x + residual)
     }
 }
 
-/// Dual-head CNN for Puyo Puyo with FiLM conditioning (AlphaZero-style).
+/// Dual-head CNN for Puyo Puyo with per-block FiLM conditioning (AlphaZero-style).
 ///
 /// Architecture:
-///   FiLM generator: context(25) → Linear(25→64) → ReLU → Linear(64→128) → split(gamma, beta)
-///   Backbone: stem (6ch → 64ch) → FiLMResidualBlock ×6 (64ch) → head_conv (64ch → 128ch)
+///   FiLM generator: context(25) → Linear(25→128) → ReLU → Linear(128→768)
+///     → split into 6 × (gamma[64], beta[64]) for each residual block
+///   Backbone: stem (6ch → 64ch) → (GroupNorm + FiLM) ResidualBlock ×6 (64ch) → head_conv (64ch → 128ch)
 ///     → AdaptiveAvgPool → flatten [1536]
 ///   Policy Head: Linear(1536→256) → ReLU → Linear(256→24)
 ///   Value Head:  Linear(1536→256) → ReLU → Linear(256→1)
@@ -144,22 +153,23 @@ impl<B: Backend> PuyoNet<B> {
     ) -> (Tensor<B, 2>, Tensor<B, 2>) {
         let batch_size = board.dims()[0];
 
-        // FiLM generator: context → gamma, beta
+        // FiLM generator: context → per-block (gamma, beta)
         let film = self.film_fc1.forward(context);
         let film = self.activation.forward(film);
-        let film = self.film_fc2.forward(film); // [batch, 128]
-
-        // Split into gamma [batch, 64] and beta [batch, 64]
-        let gamma = film.clone().slice([0..batch_size, 0..RESIDUAL_CHANNELS]);
-        let beta = film.slice([0..batch_size, RESIDUAL_CHANNELS..FILM_OUTPUT]);
+        let film = self.film_fc2.forward(film); // [batch, 768]
 
         // Stem
         let mut x = self.stem.forward(board);
         x = self.activation.forward(x);
 
-        // Residual blocks with FiLM
-        for block in &self.res_blocks {
-            x = block.forward(x, gamma.clone(), beta.clone());
+        // Residual blocks with per-block FiLM
+        let ch = RESIDUAL_CHANNELS;
+        for (i, block) in self.res_blocks.iter().enumerate() {
+            let g_start = i * ch;
+            let b_start = NUM_RESIDUAL_BLOCKS * ch + i * ch;
+            let gamma = film.clone().slice([0..batch_size, g_start..g_start + ch]);
+            let beta = film.clone().slice([0..batch_size, b_start..b_start + ch]);
+            x = block.forward(x, gamma, beta);
         }
 
         // Backbone head

@@ -40,6 +40,8 @@ struct MctsNode {
     expanded: bool,
     /// Terminal node (game over or no turns left).
     terminal: bool,
+    /// Immediate reward received when transitioning TO this node (chain score).
+    immediate_reward: f32,
     /// Game state at this node.
     state: GameSnapshot,
     /// Depth from root (root = 0).
@@ -53,6 +55,8 @@ pub struct MctsTree {
     max_turns: u32,
     /// Current move number in the game (for correct remaining_ratio computation).
     current_move: u32,
+    /// Discount factor for future rewards.
+    gamma: f32,
     /// Minimum Q value observed in the tree (for Min-Max normalization).
     min_value: f32,
     /// Maximum Q value observed in the tree (for Min-Max normalization).
@@ -63,7 +67,8 @@ impl MctsTree {
     /// Create a new MCTS tree rooted at the given game state.
     /// `max_turns` is the total turn budget (e.g., 50) used to compute remaining_turns_ratio.
     /// `current_move` is the current move number in the game (0-based).
-    pub fn new(board: &Board, current: &Piece, next: &Piece, next_next: &Piece, max_turns: u32, current_move: u32) -> Self {
+    /// `gamma` is the discount factor for future rewards.
+    pub fn new(board: &Board, current: &Piece, next: &Piece, next_next: &Piece, max_turns: u32, current_move: u32, gamma: f32) -> Self {
         let state = GameSnapshot {
             board: board.clone(),
             current: *current,
@@ -78,6 +83,7 @@ impl MctsTree {
             children: [None; NUM_ACTIONS],
             expanded: false,
             terminal: state.board.is_game_over(),
+            immediate_reward: 0.0,
             state,
             depth: 0,
         };
@@ -86,6 +92,7 @@ impl MctsTree {
             root: 0,
             max_turns,
             current_move,
+            gamma,
             min_value: f32::INFINITY,
             max_value: f32::NEG_INFINITY,
         }
@@ -127,13 +134,16 @@ impl MctsTree {
             0.0
         };
 
-        // 3. Backpropagation & update min/max for normalization
-        self.min_value = self.min_value.min(value);
-        self.max_value = self.max_value.max(value);
+        // 3. Backpropagation with discounted rewards: backup = r + gamma * backup
+        let mut backup = value;
         for &(parent_id, action) in path.iter().rev() {
             if let Some(child_id) = self.nodes[parent_id].children[action] {
+                let reward = self.nodes[child_id].immediate_reward;
+                backup = reward + self.gamma * backup;
+                self.min_value = self.min_value.min(backup);
+                self.max_value = self.max_value.max(backup);
                 self.nodes[child_id].visit_count += 1;
-                self.nodes[child_id].total_value += value;
+                self.nodes[child_id].total_value += backup;
             }
         }
         self.nodes[self.root].visit_count += 1;
@@ -197,13 +207,14 @@ impl MctsTree {
         let placement = index_to_placement(action);
 
         // Simulate placement
-        let (new_board, _chain_result) = simulate_placement(
+        let (new_board, chain_result) = simulate_placement(
             &parent_state.board,
             &parent_state.current,
             &placement,
         );
 
         let terminal = new_board.is_game_over();
+        let immediate_reward = chain_result.score as f32;
 
         // Advance pieces: next→current, next_next→next, random→next_next
         let new_current = parent_state.next;
@@ -227,6 +238,7 @@ impl MctsTree {
             children: [None; NUM_ACTIONS],
             expanded: false,
             terminal,
+            immediate_reward,
             state: child_state,
             depth: parent_depth + 1,
         };
@@ -485,6 +497,7 @@ pub struct DirichletConfig {
 /// Run MCTS search and return the policy (visit count distribution).
 /// `max_turns` is the total turn budget used to compute remaining_turns_ratio for the context.
 /// `current_move` is the current move number in the game (0-based).
+/// `gamma` is the discount factor for future rewards (e.g. 0.99).
 /// `dirichlet` adds Dirichlet noise to root priors for exploration (used in self-play).
 pub fn mcts_search(
     board: &Board,
@@ -498,9 +511,10 @@ pub fn mcts_search(
     temperature: f32,
     max_turns: u32,
     current_move: u32,
+    gamma: f32,
     dirichlet: Option<&DirichletConfig>,
 ) -> [f32; NUM_ACTIONS] {
-    let mut tree = MctsTree::new(board, current, next, next_next, max_turns, current_move);
+    let mut tree = MctsTree::new(board, current, next, next_next, max_turns, current_move, gamma);
 
     // Run first simulation to expand root node
     if num_simulations > 0 {
@@ -509,9 +523,12 @@ pub fn mcts_search(
 
     // Apply Dirichlet noise to root priors after root expansion
     if let Some(dir) = dirichlet {
-        let seed = (current_move as u64)
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(board.columns[0].len() as u64);
+        // Use hash of all column heights + current_move for diverse seeds
+        let mut seed = current_move as u64;
+        for col in 0..COLS {
+            seed = seed.wrapping_mul(6364136223846793005)
+                .wrapping_add(board.columns[col].len() as u64);
+        }
         tree.apply_root_dirichlet_noise(dir.alpha, dir.epsilon, seed);
     }
 
@@ -566,7 +583,7 @@ mod tests {
         let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
         let next_next = Piece::new(PuyoColor::Blue, PuyoColor::Red);
 
-        let tree = MctsTree::new(&board, &current, &next, &next_next, 50, 0);
+        let tree = MctsTree::new(&board, &current, &next, &next_next, 50, 0, 0.99);
         assert_eq!(tree.nodes.len(), 1);
         assert!(!tree.nodes[0].expanded);
         assert!(!tree.nodes[0].terminal);

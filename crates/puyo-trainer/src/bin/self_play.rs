@@ -10,7 +10,8 @@ use burn::record::{BinFileRecorder, FullPrecisionSettings};
 use puyo_ai::mcts::{mcts_search, DirichletConfig};
 use puyo_ai::placement::NUM_ACTIONS;
 use puyo_core::game::{GamePhase, GameState};
-use puyo_nn::encoding::{board_to_tensor_data, context_to_tensor_data};
+use puyo_nn::encoding::{board_to_tensor_data, context_to_tensor_data, CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
+use puyo_nn::value_transform::value_inverse_transform;
 use puyo_nn::model::PuyoNetConfig;
 use puyo_trainer::data::{AlphaZeroDataset, AlphaZeroSample};
 
@@ -205,6 +206,7 @@ fn main() {
                 temperature,
                 MAX_TURNS,
                 move_count,
+                GAMMA,
                 Some(&dirichlet),
             );
 
@@ -231,11 +233,19 @@ fn main() {
             move_count += 1;
         }
 
-        // Compute discounted cumulative rewards (backwards)
+        // Compute discounted cumulative rewards (backwards) with bootstrap for truncated games
         let num_moves = move_records.len();
+        let truncated = move_count >= MAX_TURNS && game.phase != GamePhase::GameOver;
         if num_moves > 0 {
+            // Bootstrap: if game was truncated (not game over), estimate remaining value with NN
+            let bootstrap_value = if truncated {
+                estimate_value(&model, &game, move_count, &device)
+            } else {
+                0.0
+            };
             let mut value_targets = vec![0.0f32; num_moves];
-            value_targets[num_moves - 1] = move_records[num_moves - 1].reward;
+            value_targets[num_moves - 1] =
+                move_records[num_moves - 1].reward + GAMMA * bootstrap_value;
             for i in (0..num_moves - 1).rev() {
                 value_targets[i] =
                     move_records[i].reward + GAMMA * value_targets[i + 1];
@@ -279,6 +289,40 @@ fn main() {
     std::fs::create_dir_all("data").expect("Failed to create data directory");
     dataset.save(&args.output_path).expect("Failed to save dataset");
     println!("Saved to {}", args.output_path);
+}
+
+/// Estimate the value of the current game state using the neural network.
+/// Used for bootstrapping when the game is truncated at MAX_TURNS.
+fn estimate_value(
+    model: &puyo_nn::model::PuyoNet<InferBackend>,
+    game: &GameState,
+    move_count: u32,
+    device: &<InferBackend as burn::prelude::Backend>::Device,
+) -> f32 {
+    let current_piece = match &game.current_piece {
+        Some(fp) => fp.piece,
+        None => return 0.0,
+    };
+    let board_data = board_to_tensor_data(&game.board);
+    let remaining_ratio = (MAX_TURNS.saturating_sub(move_count)) as f32 / MAX_TURNS as f32;
+    let context_data = context_to_tensor_data(
+        &current_piece,
+        &game.next_piece,
+        &game.next_next_piece,
+        remaining_ratio,
+    );
+
+    let board_tensor =
+        burn::tensor::Tensor::<InferBackend, 1>::from_floats(board_data.as_slice(), device)
+            .reshape([1, NUM_CHANNELS, puyo_core::board::ROWS, puyo_core::board::COLS]);
+    let context_tensor =
+        burn::tensor::Tensor::<InferBackend, 1>::from_floats(context_data.as_slice(), device)
+            .reshape([1, CONTEXT_TENSOR_SIZE]);
+
+    let (_logits, value) = model.forward(board_tensor, context_tensor);
+    let value_scalar = value.into_data().to_vec::<f32>().unwrap_or_default();
+    let v_raw = if value_scalar.is_empty() { 0.0 } else { value_scalar[0] };
+    value_inverse_transform(v_raw)
 }
 
 /// Select an action by sampling from the MCTS policy.

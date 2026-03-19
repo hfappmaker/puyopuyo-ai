@@ -93,8 +93,8 @@ PUCT（Predictor Upper Confidence bounds applied to Trees）に基づくモン�
 
 | 構造体 | 説明 |
 |--------|------|
-| `MctsTree` | 探索木全体を管理。ルートノードから探索を実行 |
-| `MctsNode` | 探索木の各ノード。訪問回数・累積価値・prior・子ノード等を保持。`priors: [f32; 24]` にNN展開時のpolicy出力を保存し、PUCT選択・子ノード作成時に参照する |
+| `MctsTree` | 探索木全体を管理。ルートノードから探索を実行。`gamma: f32` フィールドで割引率を保持 |
+| `MctsNode` | 探索木の各ノード。訪問回数・累積価値・prior・子ノード等を保持。`priors: [f32; 24]` にNN展開時のpolicy出力を保存し、PUCT選択・子ノード作成時に参照する。`immediate_reward: f32` フィールドでこのノードへの遷移時に得た即時報酬（連鎖スコア）を保持する |
 
 ### ランダムツモの扱い
 
@@ -119,7 +119,7 @@ Q_normalized = (Q - Q_min) / (Q_max - Q_min)
 1. ルートノードから PUCT で最も有望な子ノードを選択（Selection）。各ノードの `priors` フィールドに保存されたNN policy出力を事前確率として使用。Q値は Min-Max 正規化して [0, 1] に変換
 2. 未展開ノードに到達したら、`PuyoNet` の forward pass で (policy_logits, value) を取得（Expansion + Evaluation）
 3. Policy logits を masked softmax でアクション確率に変換し、ノードの `priors` フィールドに保存。既存の子ノードの `prior` も更新
-4. Value を探索パスに沿って逆伝播（Backpropagation）。同時に min/max を更新
+4. 割引報酬を加算しながら探索パスを逆伝播（Backpropagation）。末端のNN value 推定値から逆順に `backup = reward + gamma * backup` を適用し、各ノードの即時報酬を加味した割引累積価値を伝播する。同時に min/max を更新
 5. 規定回数の反復後、ルート直下の訪問回数分布を返す
 
 ### Dirichlet ノイズ（ルート探索多様化）
@@ -138,6 +138,18 @@ P'(s, a) = (1 - ε) × P(s, a) + ε × Dir(α)
 - Gamma 分布サンプリングは Marsaglia-Tsang 法で自前実装（外部クレート不要）
 - 推論時（`NnEvaluator`）ではノイズを適用しない（`dirichlet: None`）
 - `DirichletConfig` 構造体でパラメータを管理
+
+#### Dirichlet ノイズのシード生成
+
+ノイズのシードは、全カラムの高さをハッシュチェーンで混合して生成する（以前は `board.columns[0].len()` のみを使用）。これにより、同一の `current_move` でも盤面状態が異なればシードが異なり、探索の多様性が向上する。
+
+```rust
+let mut seed = current_move as u64;
+for col in 0..COLS {
+    seed = seed.wrapping_mul(6364136223846793005)
+        .wrapping_add(board.columns[col].len() as u64);
+}
+```
 
 ### API
 
@@ -159,13 +171,15 @@ pub fn mcts_search(
     temperature: f32,
     max_turns: u32,
     current_move: u32,
+    gamma: f32,
     dirichlet: Option<&DirichletConfig>,
 ) -> [f32; 24]
 ```
 
-- **入力**: 盤面、3ツモ（current, next, next_next）、NNモデル、デバイス、探索パラメータ（シミュレーション回数、PUCT定数、温度）、最大手数、現在の手数、Dirichlet ノイズ設定（None で無効）
+- **入力**: 盤面、3ツモ（current, next, next_next）、NNモデル、デバイス、探索パラメータ（シミュレーション回数、PUCT定数、温度）、最大手数、現在の手数、割引率、Dirichlet ノイズ設定（None で無効）
 - **出力**: 24次元の確率分布（各配置の訪問回数に基づく）
 - `current_move` はゲーム開始からの現在の手数（0-based）。MCTSツリー内の各ノードで `remaining_ratio = (max_turns - (current_move + depth)) / max_turns` として正しい残り手数比率を計算するために使用する
+- `gamma` は将来報酬の割引率（例: 0.99）。`MctsTree::new()` に渡され、Backpropagation の `backup = reward + gamma * backup` で使用される
 - `dirichlet` が Some の場合、最初のシミュレーションでルートノードを展開した後、Dirichlet ノイズを適用してから残りのシミュレーションを実行する
 
 ## 共通ユーティリティ（placement.rs）

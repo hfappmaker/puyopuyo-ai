@@ -5,6 +5,7 @@ use burn::backend::Autodiff;
 use burn::backend::CudaJit;
 use burn::module::AutodiffModule;
 use burn::optim::{AdamConfig, GradientsParams, Optimizer};
+use burn::optim::decay::WeightDecayConfig;
 use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 use burn::tensor::backend::AutodiffBackend;
@@ -127,7 +128,9 @@ fn train_supervised() {
 
     let config = PuyoNetConfig::new();
     let mut model = config.init::<TrainBackend>(&device);
-    let mut optim = AdamConfig::new().init();
+    let mut optim = AdamConfig::new()
+        .with_weight_decay(Some(WeightDecayConfig::new(1e-4)))
+        .init();
     let mut best_val_loss = f32::MAX;
     let mut patience_counter = 0usize;
 
@@ -277,6 +280,15 @@ fn train_alphazero(data_dir: Option<&str>) {
     let num_samples = dataset.samples.len();
     println!("Loaded {} total samples", num_samples);
 
+    // Shuffle before split to avoid systematic bias (games are sequential)
+    let mut sample_indices: Vec<usize> = (0..num_samples).collect();
+    shuffle_indices(&mut sample_indices, 12345);
+    let mut shuffled_samples = Vec::with_capacity(num_samples);
+    for &idx in &sample_indices {
+        shuffled_samples.push(dataset.samples[idx].clone());
+    }
+    let dataset = AlphaZeroDataset { samples: shuffled_samples };
+
     let split = (num_samples as f64 * TRAIN_SPLIT_RATIO) as usize;
     let train_samples = &dataset.samples[..split];
     let val_samples = &dataset.samples[split..];
@@ -319,7 +331,9 @@ fn train_alphazero(data_dir: Option<&str>) {
     let num_epochs = AZ_NUM_EPOCHS;
     let patience_limit = AZ_EARLY_STOPPING_PATIENCE;
 
-    let mut optim = AdamConfig::new().init();
+    let mut optim = AdamConfig::new()
+        .with_weight_decay(Some(WeightDecayConfig::new(1e-4)))
+        .init();
     let mut best_val_loss = f32::MAX;
     let mut patience_counter = 0usize;
 

@@ -89,7 +89,7 @@ Dual Head Network（`PuyoNet`）で盤面とコンテキスト情報（3ツモ�
 
 ### MCTS モードの評価の流れ
 
-1. `mcts_search()` を呼び出し、PUCT探索で配置確率分布 `[f32; 24]` を取得
+1. `mcts_search()` を呼び出し、PUCT探索で配置確率分布 `[f32; 24]` を取得。`gamma` 引数で将来報酬の割引率を指定する
 2. 確率分布から最善配置を選択
 3. 詳細は `docs/spec/09-ai-search.md` の MCTS 探索セクションを参照
 

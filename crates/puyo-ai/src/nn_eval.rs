@@ -94,6 +94,7 @@ impl Evaluator for NnEvaluator {
                 mcts_config.temperature,
                 0,
                 0,
+                0.99,
                 None,
             );
 

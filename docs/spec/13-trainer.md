@@ -126,9 +126,19 @@ Validation loss が `EARLY_STOPPING_PATIENCE` エポック連続で改善しな�
 2. エポックごとに Cosine Annealing で学習率を計算
 3. LCG（PCG family パラメータ: `6364136223846793005`, `1`）ベースのシャッフル → ミニバッチ学習
 4. 損失関数: Policy は Cross-Entropy（action_index を正解ラベルとして使用）
-5. 最適化: Adam
+5. 最適化: Adam（Weight decay 1e-4 付き）
 6. Validation loss 改善時にベストモデルを `BinFileRecorder` で保存
 7. Early Stopping 判定（patience=5）
+
+#### Weight Decay
+
+Adam に Weight decay（L2正則化）を追加している:
+
+```rust
+AdamConfig::new().with_weight_decay(Some(WeightDecayConfig::new(1e-4))).init()
+```
+
+過学習を抑制し、汎化性能を向上させる目的で、教師あり学習・AlphaZero 学習の両モードに適用される。
 
 ## Phase 3: 自己対戦強化学習 (`self-play`)
 
@@ -164,14 +174,25 @@ AlphaZero 方式に従い、ゲーム進行度に応じて温度パラメータ�
 
 ### 手順
 
-1. 現在のモデルを使って MCTS 探索でゲームをプレイ
+1. 現在のモデルを使って MCTS 探索でゲームをプレイ（`mcts_search()` に `gamma` を渡す）
 2. 各手番で MCTS の訪問回数分布を policy target として記録
 3. ゲーム終了後、各手番の value target を累積割引報酬で逆算:
    ```
    value_target[t] = Σ_{k=0}^{T-t-1} γ^k × score[t+k]  （γ = 0.99）
    ```
-4. `AlphaZeroSample`（board_data, context_data, mcts_policy, value_target）を生成し、出力ファイル（デフォルト: `data/alphazero_data.bin`、`--output` で変更可能）に保存
-5. 生成データは `train --alphazero` で Policy Head（Cross-Entropy 損失）と Value Head（MSE 損失、MuZero Invertible Value Transform 適用、重み `VALUE_LOSS_WEIGHT=0.5`）を同時に学習
+4. **MAX_TURNS 打ち切り時はブートストラップ**：ゲームオーバーではなく手数上限で打ち切られた場合、NN の value 推定を使って最終ターンの value target を補正する:
+   ```
+   value_target[last] = reward[last] + GAMMA × V_nn(final_state)
+   ```
+   `estimate_value()` が `value_inverse_transform()` を適用した実スケール推定値を返す。これにより、手数打ち切りによる value の過小評価（未来スコアの切り捨て）を緩和し、学習品質を改善する
+5. `AlphaZeroSample`（board_data, context_data, mcts_policy, value_target）を生成し、出力ファイル（デフォルト: `data/alphazero_data.bin`、`--output` で変更可能）に保存
+6. 生成データは `train --alphazero` で Policy Head（Cross-Entropy 損失）と Value Head（MSE 損失、MuZero Invertible Value Transform 適用、重み `VALUE_LOSS_WEIGHT=0.5`）を同時に学習
+
+#### AlphaZero 学習のデータシャッフル
+
+AlphaZero モードでは、train/val 分割の**前に**全データをシャッフルしてから分割する。
+
+自己対局データはゲーム単位で連続して格納されるため、シャッフルなしで分割すると訓練/検証データがゲームの前半/後半に偏る（系統的バイアス）。事前シャッフルにより、各分割セットにゲームの多様な局面が均一に含まれる。
 
 ### リプレイバッファ
 
