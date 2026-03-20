@@ -10,6 +10,16 @@ function setupAiModeToggle(gameLoop: GameLoop): void {
   const mctsOptions = document.getElementById("mcts-options") as HTMLElement;
   const mctsSimInput = document.getElementById("mcts-simulations") as HTMLInputElement;
 
+  const applyAiMode = async (game: ReturnType<typeof gameLoop.getGame>) => {
+    const mode = aiModeSelect.value;
+    if (mode === "nn") {
+      await loadNnModel(game);
+    } else if (mode === "nn-mcts") {
+      const numSim = parseInt(mctsSimInput.value, 10) || 50;
+      await loadNnModelWithMcts(game, numSim);
+    }
+  };
+
   aiModeSelect.addEventListener("change", async () => {
     const mode = aiModeSelect.value;
     mctsOptions.style.display = mode === "nn-mcts" ? "" : "none";
@@ -39,6 +49,8 @@ function setupAiModeToggle(gameLoop: GameLoop): void {
       aiModeStatus.textContent = "";
     }
   });
+
+  gameLoop.setOnRestart(applyAiMode);
 }
 
 async function main() {

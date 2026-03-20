@@ -54,6 +54,7 @@ fn main() {
                 &current_piece,
                 &game.next_piece,
                 &game.next_next_piece,
+                move_count as u32,
             );
 
             match result {

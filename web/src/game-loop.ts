@@ -22,6 +22,7 @@ export class GameLoop {
   private aiEvalPanel: HTMLElement | null = null;
   private aiScoreDisplay: HTMLElement | null = null;
   private aiBestDisplay: HTMLElement | null = null;
+  private onRestartCallback?: (game: WasmGame) => Promise<void>;
 
   constructor(
     game: WasmGame,
@@ -50,6 +51,10 @@ export class GameLoop {
 
   getGame(): WasmGame {
     return this.game;
+  }
+
+  setOnRestart(callback: (game: WasmGame) => Promise<void>): void {
+    this.onRestartCallback = callback;
   }
 
   private handleAction(action: InputAction): void {
@@ -181,6 +186,7 @@ export class GameLoop {
     this.ui.update(this.game);
     this.renderer.render(this.game);
     this.updatePlacementList();
+    this.onRestartCallback?.(this.game);
   }
 
   private updatePlacementList(): void {

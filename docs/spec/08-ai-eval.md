@@ -8,11 +8,11 @@
 
 ```rust
 pub trait Evaluator {
-    fn find_best_move(&self, board, current, next, next_next) -> Option<(Placement, f64)>;
+    fn find_best_move(&self, board, current, next, next_next, move_count) -> Option<(Placement, f64)>;
 }
 ```
 
-唯一のメソッド `find_best_move()` で、各 Evaluator が評価関数と探索戦略の両方を実装する。戻り値は最善配置と評価スコアのタプル。探索深度、評価ロジックは各実装が決定する。
+唯一のメソッド `find_best_move()` で、各 Evaluator が評価関数と探索戦略の両方を実装する。戻り値は最善配置と評価スコアのタプル。`move_count` はゲーム開始からの手数（`GameState.total_pieces`）。探索深度、評価ロジックは各実装が決定する。
 
 | Evaluator | 探索方式 | 評価関数 |
 |-----------|----------|---------|
@@ -78,10 +78,23 @@ Dual Head Network（`PuyoNet`）で盤面とコンテキスト情報（3ツモ�
 
 - `with_mcts(config: MctsConfig)`: MCTSモードを有効化。`MctsConfig` で探索パラメータを指定
 
+### remaining_ratio の計算
+
+`NnEvaluator` は `move_count` を50手周期でリセットし、`remaining_ratio` を計算する。これは自己対局（self-play）と同じ条件をNN入力に与えるためのもの。
+
+```
+cycle_move = move_count % 50
+remaining_ratio = (50 - cycle_move) / 50
+```
+
+MCTSモードでは `max_turns=50`, `current_move=cycle_move` として `mcts_search()` に渡し、ツリー内の各ノードで深さに応じた `remaining_ratio` を計算する。Policy-onlyモードでは上記の式で直接計算する。
+
+`SimulationEvaluator` は `move_count` を使用しない。
+
 ### Policy-only モードの評価の流れ
 
 1. 盤面を one-hot エンコーディング（6ch × 14行 × 6列）に変換
-2. 3ツモを `context_to_tensor_data()` で24次元ベクトルに変換
+2. 3ツモと `remaining_ratio` を `context_to_tensor_data()` で25次元ベクトルに変換
 3. Dual Head Network の forward pass で (policy_logits, value) を取得
 4. `compute_valid_mask()` で合法配置のマスクを生成
 5. 不正な配置の logits を `-inf` でマスクし、argmax で最善配置インデックスを選択
