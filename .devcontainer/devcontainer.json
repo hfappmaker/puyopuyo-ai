@@ -29,5 +29,5 @@
     }
   },
   "forwardPorts": [5173],
-  "postCreateCommand": "bash scripts/build-wasm.sh && bash scripts/setup-claude-plugins.sh"
+  "postCreateCommand": "bash scripts/setup-claude-plugins.sh"
 }
