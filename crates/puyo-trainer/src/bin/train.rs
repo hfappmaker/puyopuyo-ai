@@ -32,7 +32,7 @@ const LR_MIN: f64 = 1e-5;
 const EARLY_STOPPING_PATIENCE: usize = 5;
 
 // AlphaZero-specific training parameters
-const AZ_NUM_EPOCHS: usize = 20;
+const AZ_NUM_EPOCHS: usize = 40;
 const AZ_LR_MAX: f64 = 2e-4;
 const AZ_LR_MIN: f64 = 1e-5;
 const AZ_EARLY_STOPPING_PATIENCE: usize = 10;
