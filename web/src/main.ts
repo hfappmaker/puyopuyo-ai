@@ -50,6 +50,14 @@ function setupAiModeToggle(gameLoop: GameLoop): void {
     }
   });
 
+  mctsSimInput.addEventListener("change", () => {
+    if (aiModeSelect.value === "nn-mcts") {
+      const numSim = parseInt(mctsSimInput.value, 10) || 50;
+      gameLoop.getGame().set_mcts_simulations(numSim);
+      aiModeStatus.textContent = `NN MCTS 有効 (${numSim}sim)`;
+    }
+  });
+
   gameLoop.setOnRestart(applyAiMode);
 }
 

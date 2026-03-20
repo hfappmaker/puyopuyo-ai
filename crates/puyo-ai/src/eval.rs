@@ -14,6 +14,9 @@ pub trait Evaluator {
         next_next: &Piece,
         move_count: u32,
     ) -> Option<(Placement, f64)>;
+
+    /// MCTSシミュレーション数を変更する。対応していない評価器では何もしない。
+    fn set_num_simulations(&mut self, _num_simulations: usize) {}
 }
 
 /// Simulation-based evaluator: drops virtual puyos to estimate expected chain score.

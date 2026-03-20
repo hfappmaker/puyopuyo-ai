@@ -59,6 +59,12 @@ impl WasmGame {
         self.evaluator = Box::new(NnEvaluator::new(model, device).with_mcts(mcts_config));
     }
 
+    /// Update MCTS simulation count without reloading the model.
+    #[wasm_bindgen]
+    pub fn set_mcts_simulations(&mut self, num_simulations: u32) {
+        self.evaluator.set_num_simulations(num_simulations as usize);
+    }
+
     /// Switch back to heuristic evaluator.
     #[wasm_bindgen]
     pub fn use_heuristic(&mut self) {

@@ -55,6 +55,13 @@ impl NnEvaluator {
         self
     }
 
+    /// MCTSシミュレーション数を変更する。
+    pub fn set_num_simulations(&mut self, num_simulations: usize) {
+        if let Some(ref mut config) = self.mcts_config {
+            config.num_simulations = num_simulations;
+        }
+    }
+
     /// Get access to the model (for MCTS in self-play).
     pub fn model(&self) -> &PuyoNet<InferBackend> {
         &self.model
@@ -145,5 +152,9 @@ impl Evaluator for NnEvaluator {
         }
 
         Some((index_to_placement(best_index), best_logit))
+    }
+
+    fn set_num_simulations(&mut self, num_simulations: usize) {
+        self.set_num_simulations(num_simulations);
     }
 }

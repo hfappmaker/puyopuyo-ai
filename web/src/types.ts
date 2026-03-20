@@ -20,6 +20,7 @@ export interface WasmGame {
   enumerate_placements(): Uint8Array;
   load_nn_model(model_bytes: Uint8Array): void;
   load_nn_model_with_mcts(model_bytes: Uint8Array, num_simulations: number): void;
+  set_mcts_simulations(num_simulations: number): void;
   use_heuristic(): void;
   restart(seed: bigint): void;
   free(): void;
