@@ -11,7 +11,7 @@ const EPSILON: f32 = 1e-3;
 /// Scale factor to normalize transformed values to approximately 0–1 range.
 /// Cumulative discounted rewards can reach ~50,000, whose transform is ~273.
 /// Dividing by 150 keeps typical values in [0, 1] with some headroom.
-pub const VALUE_SCALE: f32 = 150.0;
+pub const VALUE_SCALE: f32 = 15.0;
 
 /// Forward transform: h(x) = sign(x) * (sqrt(|x| + 1) - 1) + epsilon * x
 fn value_transform_raw(x: f32) -> f32 {
