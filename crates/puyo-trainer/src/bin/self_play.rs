@@ -5,7 +5,6 @@
 //! Games are parallelized across threads for speed.
 
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::Mutex;
 
 use burn::backend::ndarray::NdArray;
 use burn::prelude::*;
@@ -279,51 +278,44 @@ fn main() {
 
     let start_time = std::time::Instant::now();
 
-    // Shared counters for progress reporting
+    // Shared counters for progress reporting (atomic-only, no Mutex)
     let games_done = AtomicU64::new(0);
     let total_samples = AtomicU64::new(0);
     let total_max_chain = AtomicU32::new(0);
     let total_chain_sum = AtomicU64::new(0);
-    let progress_mutex = Mutex::new(());
 
-    // Distribute games across threads, each thread owns its own model clone
-    let games_per_thread = (args.num_games as usize + num_threads - 1) / num_threads;
-    let all_results = Mutex::new(Vec::<GameResult>::new());
+    // Distribute games across threads, each thread returns its results via JoinHandle
+    let games_per_thread = (args.num_games + num_threads as u64 - 1) / num_threads as u64;
 
-    std::thread::scope(|s| {
-        for thread_idx in 0..num_threads {
-            let start = thread_idx as u64 * games_per_thread as u64;
-            let end = (start + games_per_thread as u64).min(args.num_games);
-            if start >= args.num_games {
-                break;
-            }
+    let game_results: Vec<GameResult> = std::thread::scope(|s| {
+        let handles: Vec<_> = (0..num_threads)
+            .map(|thread_idx| {
+                let start = thread_idx as u64 * games_per_thread;
+                let end = (start + games_per_thread).min(args.num_games);
 
-            let thread_model = model.clone();
-            let device = &device;
-            let args = &args;
-            let dirichlet = &dirichlet;
-            let games_done = &games_done;
-            let total_samples = &total_samples;
-            let total_max_chain = &total_max_chain;
-            let total_chain_sum = &total_chain_sum;
-            let progress_mutex = &progress_mutex;
-            let all_results = &all_results;
-            let start_time = &start_time;
+                let thread_model = model.clone();
+                let device = &device;
+                let args = &args;
+                let dirichlet = &dirichlet;
+                let games_done = &games_done;
+                let total_samples = &total_samples;
+                let total_max_chain = &total_max_chain;
+                let total_chain_sum = &total_chain_sum;
+                let start_time = &start_time;
 
-            s.spawn(move || {
-                let mut thread_results = Vec::new();
-                for game_idx in start..end {
-                    let result = play_one_game(game_idx, &thread_model, device, args, dirichlet);
+                s.spawn(move || {
+                    let mut thread_results = Vec::new();
+                    for game_idx in start..end {
+                        let result =
+                            play_one_game(game_idx, &thread_model, device, args, dirichlet);
 
-                    // Update progress atomically
-                    let done = games_done.fetch_add(1, Ordering::Relaxed) + 1;
-                    total_samples.fetch_add(result.samples.len() as u64, Ordering::Relaxed);
-                    total_max_chain.fetch_max(result.max_chain, Ordering::Relaxed);
-                    total_chain_sum.fetch_add(result.max_chain as u64, Ordering::Relaxed);
+                        // Update progress atomically
+                        let done = games_done.fetch_add(1, Ordering::Relaxed) + 1;
+                        total_samples.fetch_add(result.samples.len() as u64, Ordering::Relaxed);
+                        total_max_chain.fetch_max(result.max_chain, Ordering::Relaxed);
+                        total_chain_sum.fetch_add(result.max_chain as u64, Ordering::Relaxed);
 
-                    // Print progress (serialized)
-                    {
-                        let _lock = progress_mutex.lock().unwrap();
+                        // Print progress (minor interleaving between threads is acceptable)
                         let elapsed = start_time.elapsed().as_secs_f64();
                         let games_per_sec = done as f64 / elapsed;
                         let samples_so_far = total_samples.load(Ordering::Relaxed);
@@ -337,17 +329,22 @@ fn main() {
                             result.max_chain, max_chain, avg_chain,
                             games_per_sec, eta,
                         );
-                    }
 
-                    thread_results.push(result);
-                }
-                all_results.lock().unwrap().extend(thread_results);
-            });
-        }
+                        thread_results.push(result);
+                    }
+                    thread_results
+                })
+            })
+            .collect();
+
+        // Collect in thread_idx order → deterministic sample ordering
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap())
+            .collect()
     });
 
     // Aggregate results
-    let game_results = all_results.into_inner().unwrap();
     let mut dataset = AlphaZeroDataset::new();
     let mut final_max_chain = 0u32;
     for result in game_results {
