@@ -5,7 +5,7 @@ use burn::prelude::*;
 use burn::record::{BinBytesRecorder, FullPrecisionSettings, Recorder};
 
 use puyo_ai::eval::{Evaluator, SimulationEvaluator};
-use puyo_ai::nn_eval::NnEvaluator;
+use puyo_ai::nn_eval::{MctsConfig, NnEvaluator};
 use puyo_ai::placement::enumerate_placements;
 use puyo_core::game::{GamePhase, GameState};
 use puyo_nn::model::{PuyoNet, PuyoNetConfig};
@@ -39,6 +39,24 @@ impl WasmGame {
             .expect("Failed to load model record");
         let model: PuyoNet<InferBackend> = config.init(&device).load_record(record);
         self.evaluator = Box::new(NnEvaluator::new(model, device));
+    }
+
+    /// Load NN model with MCTS mode.
+    /// model_bytes: binary model data (BinBytesRecorder format)
+    /// num_simulations: number of MCTS simulations per move
+    #[wasm_bindgen]
+    pub fn load_nn_model_with_mcts(&mut self, model_bytes: &[u8], num_simulations: u32) {
+        let device: <InferBackend as Backend>::Device = Default::default();
+        let config = PuyoNetConfig::new();
+        let record = BinBytesRecorder::<FullPrecisionSettings>::default()
+            .load(model_bytes.to_vec(), &device)
+            .expect("Failed to load model record");
+        let model: PuyoNet<InferBackend> = config.init(&device).load_record(record);
+        let mcts_config = MctsConfig {
+            num_simulations: num_simulations as usize,
+            ..MctsConfig::default()
+        };
+        self.evaluator = Box::new(NnEvaluator::new(model, device).with_mcts(mcts_config));
     }
 
     /// Switch back to heuristic evaluator.

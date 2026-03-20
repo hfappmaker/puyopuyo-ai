@@ -2,14 +2,18 @@ import { loadWasm } from "./wasm";
 import { Renderer } from "./renderer";
 import { GameLoop } from "./game-loop";
 import { UI } from "./ui";
-import { loadNnModel } from "./model-loader";
+import { loadNnModel, loadNnModelWithMcts } from "./model-loader";
 
 function setupAiModeToggle(gameLoop: GameLoop): void {
   const aiModeSelect = document.getElementById("ai-mode-select") as HTMLSelectElement;
   const aiModeStatus = document.getElementById("ai-mode-status") as HTMLElement;
+  const mctsOptions = document.getElementById("mcts-options") as HTMLElement;
+  const mctsSimInput = document.getElementById("mcts-simulations") as HTMLInputElement;
 
   aiModeSelect.addEventListener("change", async () => {
     const mode = aiModeSelect.value;
+    mctsOptions.style.display = mode === "nn-mcts" ? "" : "none";
+
     if (mode === "nn") {
       aiModeStatus.textContent = "モデル読み込み中...";
       const success = await loadNnModel(gameLoop.getGame());
@@ -18,6 +22,17 @@ function setupAiModeToggle(gameLoop: GameLoop): void {
       } else {
         aiModeStatus.textContent = "モデル未配置";
         aiModeSelect.value = "heuristic";
+      }
+    } else if (mode === "nn-mcts") {
+      const numSim = parseInt(mctsSimInput.value, 10) || 50;
+      aiModeStatus.textContent = `MCTS読み込み中 (${numSim}sim)...`;
+      const success = await loadNnModelWithMcts(gameLoop.getGame(), numSim);
+      if (success) {
+        aiModeStatus.textContent = `NN MCTS 有効 (${numSim}sim)`;
+      } else {
+        aiModeStatus.textContent = "モデル未配置";
+        aiModeSelect.value = "heuristic";
+        mctsOptions.style.display = "none";
       }
     } else {
       gameLoop.getGame().use_heuristic();

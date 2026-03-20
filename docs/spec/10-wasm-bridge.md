@@ -56,4 +56,5 @@ Rust で実装したゲームロジックとAIを、`wasm-bindgen` を使って�
 | メソッド | 引数 | 戻り値 | 説明 |
 |---------|------|--------|------|
 | `load_nn_model(model_bytes)` | `&[u8]` | - | NN モデル（`PuyoNet`）をバイト列から読み込み、評価器を `NnEvaluator`（Policy-only モード）に切り替える |
+| `load_nn_model_with_mcts(model_bytes, num_simulations)` | `&[u8]`, `u32` | - | NN モデルを読み込み、MCTS モードの `NnEvaluator` に切り替える。`num_simulations` で探索回数を指定 |
 | `use_heuristic()` | - | - | 評価器を `SimulationEvaluator` に切り替える |

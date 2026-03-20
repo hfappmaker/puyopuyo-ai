@@ -21,3 +21,26 @@ export async function loadNnModel(game: WasmGame): Promise<boolean> {
     return false;
   }
 }
+
+export async function loadNnModelWithMcts(
+  game: WasmGame,
+  numSimulations: number
+): Promise<boolean> {
+  try {
+    const modelResponse = await fetch(MODEL_URL);
+
+    if (!modelResponse.ok) {
+      console.warn("NN model file not found. Using heuristic AI.");
+      return false;
+    }
+
+    const modelBytes = new Uint8Array(await modelResponse.arrayBuffer());
+
+    game.load_nn_model_with_mcts(modelBytes, numSimulations);
+    console.log(`NN MCTS model loaded (simulations=${numSimulations})`);
+    return true;
+  } catch (e) {
+    console.warn("Failed to load NN MCTS model:", e);
+    return false;
+  }
+}
