@@ -143,6 +143,7 @@ AdamConfig::new().with_weight_decay(Some(WeightDecayConfig::new(1e-4))).init()
 ## Phase 3: 自己対戦強化学習 (`self-play`)
 
 MCTS ベースの AlphaZero self-play ループ。Dual Head Network（`PuyoNet`）の Policy Head と Value Head を使った MCTS 探索でゲームをプレイし、訓練データを生成する。
+各ゲームは `std::thread::scope` により並列実行される（スレッド数 = CPU コア数）。各スレッドがモデルのクローンを所有し、独立にゲームを処理する。
 
 ### CLI引数
 
