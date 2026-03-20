@@ -65,10 +65,10 @@ mod tests {
         let h100 = value_transform(100.0);
         let h5000 = value_transform(5000.0);
         let h50000 = value_transform(50000.0);
-        // After /150 scaling, values should be in roughly 0–2 range
-        assert!(h100 < 0.2, "h(100)={} should be < 0.2", h100);
-        assert!(h5000 < 0.6, "h(5000)={} should be < 0.6", h5000);
-        assert!(h50000 < 2.0, "h(50000)={} should be < 2.0", h50000);
+        // After /15 scaling, values should be in roughly 0–20 range
+        assert!(h100 < 2.0, "h(100)={} should be < 2.0", h100);
+        assert!(h5000 < 6.0, "h(5000)={} should be < 6.0", h5000);
+        assert!(h50000 < 20.0, "h(50000)={} should be < 20.0", h50000);
     }
 
     #[test]
