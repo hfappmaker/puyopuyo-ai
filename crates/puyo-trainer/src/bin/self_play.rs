@@ -139,12 +139,10 @@ fn play_one_game(
 
         // Encode state
         let board_data = board_to_tensor_data(&game.board).to_vec();
-        let remaining_ratio = (MAX_TURNS - move_count) as f32 / MAX_TURNS as f32;
         let context_data = context_to_tensor_data(
             &current_piece,
             &game.next_piece,
             &game.next_next_piece,
-            remaining_ratio,
         )
         .to_vec();
 
@@ -164,8 +162,6 @@ fn play_one_game(
             args.num_simulations,
             args.c_puct,
             temperature,
-            MAX_TURNS,
-            move_count,
             GAMMA,
             Some(dirichlet),
         );
@@ -193,7 +189,7 @@ fn play_one_game(
     if num_moves > 0 {
         // Bootstrap: if game was truncated (not game over), estimate remaining value with NN
         let bootstrap_value = if truncated {
-            estimate_value(model, &game, move_count, device)
+            estimate_value(model, &game, device)
         } else {
             0.0
         };
@@ -369,7 +365,6 @@ fn main() {
 fn estimate_value(
     model: &PuyoNet<InferBackend>,
     game: &GameState,
-    move_count: u32,
     device: &<InferBackend as burn::prelude::Backend>::Device,
 ) -> f32 {
     let current_piece = match &game.current_piece {
@@ -377,12 +372,10 @@ fn estimate_value(
         None => return 0.0,
     };
     let board_data = board_to_tensor_data(&game.board);
-    let remaining_ratio = (MAX_TURNS.saturating_sub(move_count)) as f32 / MAX_TURNS as f32;
     let context_data = context_to_tensor_data(
         &current_piece,
         &game.next_piece,
         &game.next_next_piece,
-        remaining_ratio,
     );
 
     let board_tensor =

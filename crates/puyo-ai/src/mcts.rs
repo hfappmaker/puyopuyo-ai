@@ -44,17 +44,12 @@ struct MctsNode {
     immediate_reward: f32,
     /// Game state at this node.
     state: GameSnapshot,
-    /// Depth from root (root = 0).
-    depth: u32,
 }
 
 /// MCTS tree.
 pub struct MctsTree {
     nodes: Vec<MctsNode>,
     root: usize,
-    max_turns: u32,
-    /// Current move number in the game (for correct remaining_ratio computation).
-    current_move: u32,
     /// Discount factor for future rewards.
     gamma: f32,
     /// Minimum Q value observed in the tree (for Min-Max normalization).
@@ -65,10 +60,8 @@ pub struct MctsTree {
 
 impl MctsTree {
     /// Create a new MCTS tree rooted at the given game state.
-    /// `max_turns` is the total turn budget (e.g., 50) used to compute remaining_turns_ratio.
-    /// `current_move` is the current move number in the game (0-based).
     /// `gamma` is the discount factor for future rewards.
-    pub fn new(board: &Board, current: &Piece, next: &Piece, next_next: &Piece, max_turns: u32, current_move: u32, gamma: f32) -> Self {
+    pub fn new(board: &Board, current: &Piece, next: &Piece, next_next: &Piece, gamma: f32) -> Self {
         let state = GameSnapshot {
             board: board.clone(),
             current: *current,
@@ -85,13 +78,10 @@ impl MctsTree {
             terminal: state.board.is_game_over(),
             immediate_reward: 0.0,
             state,
-            depth: 0,
         };
         MctsTree {
             nodes: vec![root],
             root: 0,
-            max_turns,
-            current_move,
             gamma,
             min_value: f32::INFINITY,
             max_value: f32::NEG_INFINITY,
@@ -229,7 +219,6 @@ impl MctsTree {
             next_next: new_next_next,
         };
 
-        let parent_depth = self.nodes[parent_id].depth;
         let child = MctsNode {
             visit_count: 0,
             total_value: 0.0,
@@ -240,7 +229,6 @@ impl MctsTree {
             terminal,
             immediate_reward,
             state: child_state,
-            depth: parent_depth + 1,
         };
 
         let child_id = self.nodes.len();
@@ -256,17 +244,10 @@ impl MctsTree {
         device: &<InferBackend as Backend>::Device,
     ) -> f32 {
         let state = &self.nodes[node_id].state;
-        let depth = self.nodes[node_id].depth;
-        let absolute_move = self.current_move + depth;
-        let remaining_ratio = if self.max_turns > 0 {
-            (self.max_turns.saturating_sub(absolute_move)) as f32 / self.max_turns as f32
-        } else {
-            1.0
-        };
 
         let board_data = board_to_tensor_data(&state.board);
         let context_data = context_to_tensor_data(
-            &state.current, &state.next, &state.next_next, remaining_ratio,
+            &state.current, &state.next, &state.next_next,
         );
 
         let board_tensor = Tensor::<InferBackend, 1>::from_floats(board_data.as_slice(), device)
@@ -510,8 +491,6 @@ pub struct DirichletConfig {
 }
 
 /// Run MCTS search and return the policy (visit count distribution) and Q values.
-/// `max_turns` is the total turn budget used to compute remaining_turns_ratio for the context.
-/// `current_move` is the current move number in the game (0-based).
 /// `gamma` is the discount factor for future rewards (e.g. 0.99).
 /// `dirichlet` adds Dirichlet noise to root priors for exploration (used in self-play).
 pub fn mcts_search(
@@ -524,12 +503,10 @@ pub fn mcts_search(
     num_simulations: usize,
     c_puct: f32,
     temperature: f32,
-    max_turns: u32,
-    current_move: u32,
     gamma: f32,
     dirichlet: Option<&DirichletConfig>,
 ) -> ([f32; NUM_ACTIONS], [f32; NUM_ACTIONS]) {
-    let mut tree = MctsTree::new(board, current, next, next_next, max_turns, current_move, gamma);
+    let mut tree = MctsTree::new(board, current, next, next_next, gamma);
 
     // Run first simulation to expand root node
     if num_simulations > 0 {
@@ -538,8 +515,8 @@ pub fn mcts_search(
 
     // Apply Dirichlet noise to root priors after root expansion
     if let Some(dir) = dirichlet {
-        // Use hash of all column heights + current_move for diverse seeds
-        let mut seed = current_move as u64;
+        // Use hash of all column heights for diverse seeds
+        let mut seed = 0u64;
         for col in 0..COLS {
             seed = seed.wrapping_mul(6364136223846793005)
                 .wrapping_add(board.columns[col].len() as u64);
@@ -598,7 +575,7 @@ mod tests {
         let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
         let next_next = Piece::new(PuyoColor::Blue, PuyoColor::Red);
 
-        let tree = MctsTree::new(&board, &current, &next, &next_next, 50, 0, 0.99);
+        let tree = MctsTree::new(&board, &current, &next, &next_next, 0.99);
         assert_eq!(tree.nodes.len(), 1);
         assert!(!tree.nodes[0].expanded);
         assert!(!tree.nodes[0].terminal);

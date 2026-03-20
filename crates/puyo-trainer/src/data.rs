@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct Sample {
     /// Encoded board state (NUM_CHANNELS × 14 rows × 6 cols floats).
     pub board_data: Vec<f32>,
-    /// Encoded context (3 pieces one-hot 24 + remaining turns ratio 1 = 25 floats).
+    /// Encoded context (3 pieces one-hot = 24 floats).
     pub context_data: Vec<f32>,
     /// Action index chosen by the teacher evaluator (0-23).
     pub action_index: u8,
@@ -16,7 +16,7 @@ pub struct Sample {
 pub struct AlphaZeroSample {
     /// Encoded board state.
     pub board_data: Vec<f32>,
-    /// Encoded context (3 pieces one-hot 24 + remaining turns ratio 1 = 25 floats).
+    /// Encoded context (3 pieces one-hot = 24 floats).
     pub context_data: Vec<f32>,
     /// MCTS visit-count policy (24 floats, sums to 1.0).
     pub mcts_policy: Vec<f32>,

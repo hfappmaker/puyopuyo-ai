@@ -57,8 +57,8 @@ pub fn board_to_tensor_data(board: &Board) -> [f32; TENSOR_SIZE] {
 /// Number of floats for piece encoding: 3 pieces × 2 colors × 4 one-hot = 24.
 pub const PIECE_TENSOR_SIZE: usize = 24;
 
-/// Context tensor size: piece encoding (24) + remaining turns (1) = 25.
-pub const CONTEXT_TENSOR_SIZE: usize = PIECE_TENSOR_SIZE + 1;
+/// Context tensor size: piece encoding (24).
+pub const CONTEXT_TENSOR_SIZE: usize = PIECE_TENSOR_SIZE;
 
 /// Convert three pieces (current, next, next_next) to a flat f32 array.
 /// Each piece encodes axis_color and satellite_color as 4-dim one-hot vectors.
@@ -78,20 +78,14 @@ pub fn pieces_to_tensor_data(current: &Piece, next: &Piece, next_next: &Piece) -
     data
 }
 
-/// Convert pieces + remaining turns to context tensor for FiLM conditioning.
-/// Layout: [pieces one-hot (24), remaining_turns_normalized (1)] = 25 floats.
-/// `remaining_turns_ratio` should be in [0, 1] (e.g., remaining / max_turns).
+/// Convert pieces to context tensor for FiLM conditioning.
+/// Layout: [pieces one-hot (24)] = 24 floats.
 pub fn context_to_tensor_data(
     current: &Piece,
     next: &Piece,
     next_next: &Piece,
-    remaining_turns_ratio: f32,
 ) -> [f32; CONTEXT_TENSOR_SIZE] {
-    let pieces = pieces_to_tensor_data(current, next, next_next);
-    let mut data = [0.0f32; CONTEXT_TENSOR_SIZE];
-    data[..PIECE_TENSOR_SIZE].copy_from_slice(&pieces);
-    data[PIECE_TENSOR_SIZE] = remaining_turns_ratio;
-    data
+    pieces_to_tensor_data(current, next, next_next)
 }
 
 #[cfg(test)]
@@ -167,7 +161,7 @@ mod tests {
 
     #[test]
     fn test_context_tensor_size() {
-        assert_eq!(CONTEXT_TENSOR_SIZE, 25);
+        assert_eq!(CONTEXT_TENSOR_SIZE, 24);
     }
 
     #[test]
@@ -175,14 +169,12 @@ mod tests {
         let current = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
         let next_next = Piece::new(PuyoColor::Blue, PuyoColor::Red);
-        let data = context_to_tensor_data(&current, &next, &next_next, 0.8);
+        let data = context_to_tensor_data(&current, &next, &next_next);
 
         // Pieces one-hot (same as pieces_to_tensor_data)
         assert_eq!(data[0], 1.0); // current axis=Red
         assert_eq!(data[4 + 2], 1.0); // current sat=Blue
         assert_eq!(data[8 + 1], 1.0); // next axis=Green
-        // Remaining turns ratio
-        assert!((data[24] - 0.8).abs() < 1e-6);
     }
 
     #[test]
