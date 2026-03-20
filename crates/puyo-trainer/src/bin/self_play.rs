@@ -194,7 +194,7 @@ fn main() {
                 0.1
             };
             let move_start = std::time::Instant::now();
-            let mcts_policy = mcts_search(
+            let (mcts_policy, _q_values) = mcts_search(
                 &game.board,
                 &current_piece,
                 &game.next_piece,

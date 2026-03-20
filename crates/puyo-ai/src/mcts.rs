@@ -312,6 +312,21 @@ impl MctsTree {
         counts
     }
 
+    /// Get Q values (average cumulative reward) for root's direct children.
+    pub fn root_q_values(&self) -> [f32; NUM_ACTIONS] {
+        let mut q_values = [0.0f32; NUM_ACTIONS];
+        let root = &self.nodes[self.root];
+        for action in 0..NUM_ACTIONS {
+            if let Some(child_id) = root.children[action] {
+                let child = &self.nodes[child_id];
+                if child.visit_count > 0 {
+                    q_values[action] = child.total_value / child.visit_count as f32;
+                }
+            }
+        }
+        q_values
+    }
+
     /// Apply Dirichlet noise to root node priors for exploration diversity.
     /// `P'(a) = (1 - epsilon) * P(a) + epsilon * Dir(alpha)`
     pub fn apply_root_dirichlet_noise(&mut self, alpha: f32, epsilon: f32, seed: u64) {
@@ -494,7 +509,7 @@ pub struct DirichletConfig {
     pub epsilon: f32,
 }
 
-/// Run MCTS search and return the policy (visit count distribution).
+/// Run MCTS search and return the policy (visit count distribution) and Q values.
 /// `max_turns` is the total turn budget used to compute remaining_turns_ratio for the context.
 /// `current_move` is the current move number in the game (0-based).
 /// `gamma` is the discount factor for future rewards (e.g. 0.99).
@@ -513,7 +528,7 @@ pub fn mcts_search(
     current_move: u32,
     gamma: f32,
     dirichlet: Option<&DirichletConfig>,
-) -> [f32; NUM_ACTIONS] {
+) -> ([f32; NUM_ACTIONS], [f32; NUM_ACTIONS]) {
     let mut tree = MctsTree::new(board, current, next, next_next, max_turns, current_move, gamma);
 
     // Run first simulation to expand root node
@@ -537,7 +552,7 @@ pub fn mcts_search(
         tree.run_one_simulation(model, device, c_puct);
     }
 
-    tree.get_policy(temperature)
+    (tree.get_policy(temperature), tree.root_q_values())
 }
 
 #[cfg(test)]

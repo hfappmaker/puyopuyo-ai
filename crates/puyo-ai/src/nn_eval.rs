@@ -82,7 +82,7 @@ impl Evaluator for NnEvaluator {
         if let Some(ref mcts_config) = self.mcts_config {
             // MCTS mode uses max_turns=0 to indicate no turn limit (remaining_ratio=1.0)
             // No Dirichlet noise during inference (only used in self-play training)
-            let policy = mcts_search(
+            let (policy, q_values) = mcts_search(
                 board,
                 current,
                 next,
@@ -98,6 +98,7 @@ impl Evaluator for NnEvaluator {
                 None,
             );
 
+            // Select the action with highest visit probability
             let mut best_index = 0;
             let mut best_prob = f64::NEG_INFINITY;
             for i in 0..NUM_ACTIONS {
@@ -106,7 +107,8 @@ impl Evaluator for NnEvaluator {
                     best_index = i;
                 }
             }
-            return Some((index_to_placement(best_index), best_prob));
+            // Return Q value (average cumulative reward) as the score
+            return Some((index_to_placement(best_index), q_values[best_index] as f64));
         }
 
         // Policy-only mode (fast, for WASM)
