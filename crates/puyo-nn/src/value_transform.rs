@@ -8,8 +8,13 @@
 
 const EPSILON: f32 = 1e-3;
 
+/// Scale factor to normalize transformed values to approximately 0–1 range.
+/// Cumulative discounted rewards can reach ~50,000, whose transform is ~273.
+/// Dividing by 150 keeps typical values in [0, 1] with some headroom.
+pub const VALUE_SCALE: f32 = 150.0;
+
 /// Forward transform: h(x) = sign(x) * (sqrt(|x| + 1) - 1) + epsilon * x
-pub fn value_transform(x: f32) -> f32 {
+fn value_transform_raw(x: f32) -> f32 {
     x.signum() * ((x.abs() + 1.0).sqrt() - 1.0) + EPSILON * x
 }
 
@@ -22,7 +27,7 @@ pub fn value_transform(x: f32) -> f32 {
 ///   epsilon * u^2 + u - (1 + y + epsilon) = 0
 ///   u = (-1 + sqrt(1 + 4*epsilon*(1 + y + epsilon))) / (2*epsilon)
 ///   x = u^2 - 1
-pub fn value_inverse_transform(y: f32) -> f32 {
+fn value_inverse_transform_raw(y: f32) -> f32 {
     let sign_y = y.signum();
     let abs_y = y.abs();
 
@@ -32,6 +37,18 @@ pub fn value_inverse_transform(y: f32) -> f32 {
     let x = u * u - 1.0;
 
     sign_y * x.max(0.0)
+}
+
+/// Forward transform with scale normalization.
+/// Maps cumulative rewards to approximately 0–1 range for stable training.
+pub fn value_transform(x: f32) -> f32 {
+    value_transform_raw(x) / VALUE_SCALE
+}
+
+/// Inverse transform with scale denormalization.
+/// Recovers original value from scaled network output.
+pub fn value_inverse_transform(y: f32) -> f32 {
+    value_inverse_transform_raw(y * VALUE_SCALE)
 }
 
 #[cfg(test)]
@@ -44,13 +61,14 @@ mod tests {
     }
 
     #[test]
-    fn test_transform_compresses_large_values() {
+    fn test_transform_normalized_range() {
         let h100 = value_transform(100.0);
         let h5000 = value_transform(5000.0);
-        // sqrt(101)-1 + 0.001*100 ≈ 9.05 + 0.1 = 9.15
-        assert!(h100 < 20.0);
-        // sqrt(5001)-1 + 0.001*5000 ≈ 69.7 + 5.0 = 74.7
-        assert!(h5000 < 80.0);
+        let h50000 = value_transform(50000.0);
+        // After /150 scaling, values should be in roughly 0–2 range
+        assert!(h100 < 0.2, "h(100)={} should be < 0.2", h100);
+        assert!(h5000 < 0.6, "h(5000)={} should be < 0.6", h5000);
+        assert!(h50000 < 2.0, "h(50000)={} should be < 2.0", h50000);
     }
 
     #[test]
