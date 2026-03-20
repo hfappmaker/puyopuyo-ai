@@ -1,6 +1,6 @@
 import type { WasmGame } from "./types";
 
-const MODEL_URL = "/models/puyo_model_selfplay.bin";
+const MODEL_URL = "/models/puyo_model.bin";
 
 export async function loadNnModel(game: WasmGame): Promise<boolean> {
   try {

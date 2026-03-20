@@ -15,7 +15,7 @@ web/dist/
 # トレーニングデータ（data/training_data.bin のコピー）
 web/data/
 
-# ブラウザ用モデルデプロイ先（artifacts/からupdate-model.shで生成）
+# ブラウザ用モデルデプロイ先（scripts/update-model.sh で配置）
 web/public/models/
 
 # IDE
