@@ -72,11 +72,11 @@ impl GameState {
     /// Spawn a new piece at the top.
     fn spawn_piece(&mut self, piece: Piece) {
         self.current_piece = Some(FallingPiece::spawn(piece));
-        self.total_pieces += 1;
     }
 
     /// Advance to the next piece.
     fn advance_piece(&mut self) {
+        self.total_pieces += 1;
         let next = self.next_piece;
         self.next_piece = self.next_next_piece;
         self.next_next_piece = Self::generate_piece(&mut self.rng);
