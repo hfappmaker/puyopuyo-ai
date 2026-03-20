@@ -23,7 +23,8 @@
         "Anthropic.claude-code",
         "bierner.markdown-mermaid",
         "ms-toolsai.jupyter",
-        "ms-python.python"
+        "ms-python.python",
+        "ms-vscode.wasm-dwarf-debugging"
       ]
     }
   },
