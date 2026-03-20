@@ -72,8 +72,6 @@ impl NnEvaluator {
     }
 }
 
-/// Maximum turns per cycle for remaining_ratio computation (matches self-play).
-const MAX_TURNS: u32 = 50;
 
 impl Evaluator for NnEvaluator {
     fn find_best_move(
@@ -91,7 +89,6 @@ impl Evaluator for NnEvaluator {
 
         // MCTS mode: use tree search
         if let Some(ref mcts_config) = self.mcts_config {
-            let cycle_move = move_count % MAX_TURNS;
             // No Dirichlet noise during inference (only used in self-play training)
             let (policy, q_values) = mcts_search(
                 board,
@@ -103,8 +100,6 @@ impl Evaluator for NnEvaluator {
                 mcts_config.num_simulations,
                 mcts_config.c_puct,
                 mcts_config.temperature,
-                MAX_TURNS,
-                cycle_move,
                 0.99,
                 None,
             );
@@ -124,9 +119,7 @@ impl Evaluator for NnEvaluator {
 
         // Policy-only mode (fast, for WASM)
         let board_data = board_to_tensor_data(board);
-        let cycle_move = move_count % MAX_TURNS;
-        let remaining_ratio = (MAX_TURNS - cycle_move) as f32 / MAX_TURNS as f32;
-        let context_data = context_to_tensor_data(current, next, next_next, remaining_ratio);
+        let context_data = context_to_tensor_data(current, next, next_next);
 
         let board_tensor =
             Tensor::<InferBackend, 1>::from_floats(board_data.as_slice(), &self.device)

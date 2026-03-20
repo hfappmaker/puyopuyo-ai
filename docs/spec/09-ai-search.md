@@ -141,10 +141,10 @@ P'(s, a) = (1 - ε) × P(s, a) + ε × Dir(α)
 
 #### Dirichlet ノイズのシード生成
 
-ノイズのシードは、全カラムの高さをハッシュチェーンで混合して生成する（以前は `board.columns[0].len()` のみを使用）。これにより、同一の `current_move` でも盤面状態が異なればシードが異なり、探索の多様性が向上する。
+ノイズのシードは、全カラムの高さをハッシュチェーンで混合して生成する。盤面状態が異なればシードが異なり、探索の多様性が向上する。
 
 ```rust
-let mut seed = current_move as u64;
+let mut seed = 0u64;
 for col in 0..COLS {
     seed = seed.wrapping_mul(6364136223846793005)
         .wrapping_add(board.columns[col].len() as u64);
@@ -169,16 +169,13 @@ pub fn mcts_search(
     num_simulations: usize,
     c_puct: f32,
     temperature: f32,
-    max_turns: u32,
-    current_move: u32,
     gamma: f32,
     dirichlet: Option<&DirichletConfig>,
-) -> [f32; 24]
+) -> ([f32; 24], [f32; 24])
 ```
 
-- **入力**: 盤面、3ツモ（current, next, next_next）、NNモデル、デバイス、探索パラメータ（シミュレーション回数、PUCT定数、温度）、最大手数、現在の手数、割引率、Dirichlet ノイズ設定（None で無効）
-- **出力**: 24次元の確率分布（各配置の訪問回数に基づく）
-- `current_move` はゲーム開始からの現在の手数（0-based）。MCTSツリー内の各ノードで `remaining_ratio = (max_turns - (current_move + depth)) / max_turns` として正しい残り手数比率を計算するために使用する
+- **入力**: 盤面、3ツモ（current, next, next_next）、NNモデル、デバイス、探索パラメータ（シミュレーション回数、PUCT定数、温度）、割引率、Dirichlet ノイズ設定（None で無効）
+- **出力**: (24次元の確率分布（各配置の訪問回数に基づく）, 24次元のQ値)
 - `gamma` は将来報酬の割引率（例: 0.99）。`MctsTree::new()` に渡され、Backpropagation の `backup = reward + gamma * backup` で使用される
 - `dirichlet` が Some の場合、最初のシミュレーションでルートノードを展開した後、Dirichlet ノイズを適用してから残りのシミュレーションを実行する
 
