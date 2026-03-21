@@ -98,7 +98,7 @@ PUCT（Predictor Upper Confidence bounds applied to Trees）に基づくモン�
 
 ### ランダムツモの扱い
 
-3手先以降のツモが不明な場合、決定論的なハッシュ関数（`sample_piece`）でランダムツモを生成する。ノードIDとアクションIDをシードとして使用するため、同じ探索状態では常に同じツモが生成される。
+3手先以降のツモが不明な場合、決定論的なハッシュ関数（`sample_piece`）でランダムツモを生成する。ノードID、アクションID、および配置後の盤面のFNV-1aハッシュ（`board_hash`）をシードとして使用するため、同じ盤面状態・同じアクションでは常に同じツモが生成される。
 
 ### Min-Max Value Normalization（MuZero Reanalyze方式）
 
