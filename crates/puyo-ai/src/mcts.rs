@@ -213,7 +213,8 @@ impl MctsTree {
         let new_current = parent_state.next;
         let new_next = parent_state.next_next;
         // Generate a deterministic "random" piece based on state for reproducibility
-        let new_next_next = sample_piece(parent_id as u64, action as u64);
+        let board_h = board_hash(&new_board);
+        let new_next_next = sample_piece(parent_id as u64, action as u64, board_h);
 
         let child_state = GameSnapshot {
             board: new_board,
@@ -473,10 +474,25 @@ fn xorshift64_f64(state: &mut u64, mix: u64) -> f64 {
     (s >> 11) as f64 / ((1u64 << 53) as f64)
 }
 
-/// Sample a random piece deterministically from node_id and action.
-fn sample_piece(seed1: u64, seed2: u64) -> Piece {
-    // Simple hash for deterministic "random" piece
-    let mut x = seed1.wrapping_mul(6364136223846793005).wrapping_add(seed2).wrapping_add(1);
+/// Compute a simple FNV-1a hash of the board state.
+fn board_hash(board: &Board) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for col in 0..COLS {
+        for row in 0..ROWS {
+            h ^= board.columns[col][row] as u8 as u64;
+            h = h.wrapping_mul(0x00000100000001B3);
+        }
+    }
+    h
+}
+
+/// Sample a random piece deterministically from node_id, action, and board hash.
+fn sample_piece(seed1: u64, seed2: u64, seed3: u64) -> Piece {
+    let mut x = seed1
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(seed2)
+        .wrapping_add(1)
+        .wrapping_add(seed3.wrapping_mul(0x9e3779b97f4a7c15));
     x = (x ^ (x >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
     x = (x ^ (x >> 27)).wrapping_mul(0x94D049BB133111EB);
     x = x ^ (x >> 31);
