@@ -80,7 +80,6 @@ impl Evaluator for NnEvaluator {
         current: &Piece,
         next: &Piece,
         next_next: &Piece,
-        move_count: u32,
     ) -> Option<(Placement, f64)> {
         let mask = compute_valid_mask(board, current);
         if !mask.iter().any(|&v| v) {

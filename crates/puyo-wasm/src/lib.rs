@@ -201,7 +201,6 @@ impl WasmGame {
             &current_piece,
             &self.state.next_piece,
             &self.state.next_next_piece,
-            self.state.total_pieces,
         );
 
         match result {
@@ -235,7 +234,6 @@ impl WasmGame {
             &current_piece,
             &self.state.next_piece,
             &self.state.next_next_piece,
-            self.state.total_pieces,
         );
 
         match result {

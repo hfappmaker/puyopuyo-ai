@@ -8,11 +8,11 @@
 
 ```rust
 pub trait Evaluator {
-    fn find_best_move(&self, board, current, next, next_next, move_count) -> Option<(Placement, f64)>;
+    fn find_best_move(&self, board, current, next, next_next) -> Option<(Placement, f64)>;
 }
 ```
 
-唯一のメソッド `find_best_move()` で、各 Evaluator が評価関数と探索戦略の両方を実装する。戻り値は最善配置と評価スコアのタプル。`move_count` はゲーム開始からの手数（`GameState.total_pieces`）。探索深度、評価ロジックは各実装が決定する。
+唯一のメソッド `find_best_move()` で、各 Evaluator が評価関数と探索戦略の両方を実装する。戻り値は最善配置と評価スコアのタプル。探索深度、評価ロジックは各実装が決定する。
 
 | Evaluator | 探索方式 | 評価関数 |
 |-----------|----------|---------|
