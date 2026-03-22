@@ -260,8 +260,8 @@ mod tests {
 
     fn board_with_heights(heights: &[usize; COLS]) -> Board {
         let mut board = Board::new();
-        for col in 0..COLS {
-            for row in 0..heights[col] {
+        for (col, &h) in heights.iter().enumerate().take(COLS) {
+            for row in 0..h {
                 board.set(col, row, PuyoColor::Red);
             }
         }

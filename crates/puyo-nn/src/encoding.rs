@@ -118,7 +118,7 @@ mod tests {
         let data = board_to_tensor_data(&board);
 
         assert_eq!(data[0], 1.0); // Red at ch0, row0, col0
-        assert_eq!(data[1 * ROWS * COLS + 1], 1.0); // Green at ch1, row0, col1
+        assert_eq!(data[ROWS * COLS + 1], 1.0); // Green at ch1, row0, col1
         assert_eq!(data[2 * ROWS * COLS + 2], 1.0); // Blue at ch2, row0, col2
         assert_eq!(data[3 * ROWS * COLS + 3], 1.0); // Yellow at ch3, row0, col3
     }
@@ -131,7 +131,7 @@ mod tests {
         let data = board_to_tensor_data(&board);
 
         let ch4 = 4 * ROWS * COLS;
-        assert_eq!(data[ch4 + 0], 1.0); // col0, row0: occupied
+        assert_eq!(data[ch4], 1.0); // col0, row0: occupied
         assert_eq!(data[ch4 + 2], 1.0); // col2, row0: occupied
         assert_eq!(data[ch4 + 1], 0.0); // col1, row0: empty
     }
@@ -188,7 +188,7 @@ mod tests {
         assert_eq!(data[0], 1.0); // Red
         assert_eq!(data[1], 0.0);
         assert_eq!(data[4 + 2], 1.0); // Blue
-        assert_eq!(data[4 + 0], 0.0);
+        assert_eq!(data[4], 0.0);
 
         // next: axis=Green(1), sat=Yellow(3)
         assert_eq!(data[8 + 1], 1.0); // Green
@@ -196,7 +196,7 @@ mod tests {
 
         // next_next: axis=Blue(2), sat=Red(0)
         assert_eq!(data[16 + 2], 1.0); // Blue
-        assert_eq!(data[16 + 4 + 0], 1.0); // Red
+        assert_eq!(data[16 + 4], 1.0); // Red
     }
 
     #[test]
