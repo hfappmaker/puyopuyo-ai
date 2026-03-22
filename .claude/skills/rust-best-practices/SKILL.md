@@ -183,6 +183,34 @@ let results: Vec<_> = items
     .collect();
 ```
 
+```rust
+// BAD
+let mut i = 0;
+while i < items.len() && items[i].is_valid() {
+    i += 1;
+}
+let valid_count = i;
+
+// GOOD
+let valid_count = items.iter().take_while(|item| item.is_valid()).count();
+```
+
+```rust
+// BAD
+let mut found = None;
+let mut idx = 0;
+while idx < items.len() {
+    if items[idx].matches(query) {
+        found = Some(&items[idx]);
+        break;
+    }
+    idx += 1;
+}
+
+// GOOD
+let found = items.iter().find(|item| item.matches(query));
+```
+
 ### Use `collect()` Type Inference
 
 ```rust
