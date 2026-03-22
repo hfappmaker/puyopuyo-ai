@@ -31,54 +31,32 @@ impl Evaluator for SimulationEvaluator {
         _next_next: &Piece,
     ) -> Option<(Placement, f64)> {
         let placements = enumerate_placements(board, current);
-        if placements.is_empty() {
-            return None;
-        }
 
-        let mut best_score = f64::NEG_INFINITY;
-        let mut best_placement = placements[0];
-
-        for p1 in &placements {
-            let (board1, result1) = simulate_placement(board, current, p1);
-            if board1.is_game_over() {
-                continue;
-            }
-
-            let s = (result1.score as f64).max(simulate_expected_score(&board1));
-            if s > best_score {
-                best_score = s;
-                best_placement = *p1;
-            }
-
-            for p2 in &enumerate_placements(&board1, next) {
-                let (board2, result2) = simulate_placement(&board1, next, p2);
-                if board2.is_game_over() {
-                    continue;
+        placements
+            .iter()
+            .filter_map(|p1| {
+                let (board1, result1) = simulate_placement(board, current, p1);
+                if board1.is_game_over() {
+                    return None;
                 }
 
-                let s = (result2.score as f64).max(simulate_expected_score(&board2));
-                if s > best_score {
-                    best_score = s;
-                    best_placement = *p1;
-                }
+                let depth1_score = (result1.score as f64).max(simulate_expected_score(&board1));
 
-                // 3手先のシミュレーションは重すぎるので省略（期待値評価だけで十分なはず）
-                // for p3 in &enumerate_placements(&board2, next_next) {
-                //     let (board3, result3) = simulate_placement(&board2, next_next, p3);
-                //     if board3.is_game_over() {
-                //         continue;
-                //     }
+                let depth2_best = enumerate_placements(&board1, next)
+                    .iter()
+                    .filter_map(|p2| {
+                        let (board2, result2) = simulate_placement(&board1, next, p2);
+                        if board2.is_game_over() {
+                            return None;
+                        }
+                        Some((result2.score as f64).max(simulate_expected_score(&board2)))
+                    })
+                    .fold(f64::NEG_INFINITY, f64::max);
 
-                //     let s = (result3.score as f64).max(simulate_expected_score(&board3));
-                //     if s > best_score {
-                //         best_score = s;
-                //         best_placement = *p1;
-                //     }
-                // }
-            }
-        }
-
-        Some((best_placement, best_score))
+                let score = depth1_score.max(depth2_best);
+                Some((*p1, score))
+            })
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
     }
 }
 
@@ -97,27 +75,28 @@ const COLORS: [PuyoColor; 4] = [
 
 /// 仮想ぷよ（同色2個Piece）を全合法配置に落として連鎖スコアの期待値（全パターン平均）を推定する。
 fn simulate_expected_score(board: &Board) -> f64 {
-    let mut sum = 0.0_f64;
-    let mut count = 0u32;
+    let scores: Vec<f64> = COLORS
+        .iter()
+        .flat_map(|&color| {
+            let piece = Piece::new(color, color);
+            enumerate_placements(board, &piece)
+                .into_iter()
+                .map(move |pl| {
+                    let (sim, result) = simulate_placement(board, &piece, &pl);
+                    if sim.is_game_over() {
+                        W_GAME_OVER
+                    } else {
+                        result.score as f64
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
 
-    for &color in &COLORS {
-        let piece = Piece::new(color, color);
-        for placement in &enumerate_placements(board, &piece) {
-            let (sim, result) = simulate_placement(board, &piece, placement);
-            let pattern_score = if sim.is_game_over() {
-                W_GAME_OVER
-            } else {
-                result.score as f64
-            };
-            sum += pattern_score;
-            count += 1;
-        }
-    }
-
-    if count == 0 {
+    if scores.is_empty() {
         return W_GAME_OVER;
     }
-    sum / count as f64
+    scores.iter().sum::<f64>() / scores.len() as f64
 }
 
 #[cfg(test)]
