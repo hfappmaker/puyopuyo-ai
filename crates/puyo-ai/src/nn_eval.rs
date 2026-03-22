@@ -12,19 +12,26 @@ use crate::placement::{compute_valid_mask, index_to_placement, NUM_ACTIONS};
 
 type InferBackend = NdArray;
 
-/// MCTS configuration.
+/// MCTS configuration (Gumbel AlphaZero).
 pub struct MctsConfig {
     pub num_simulations: usize,
     pub c_puct: f32,
-    pub temperature: f32,
+    /// Number of initial actions to sample via Gumbel-Top-k.
+    pub m: usize,
+    /// Q-value scaling for advantage computation.
+    pub c_visit: f32,
+    /// Scale parameter for advantage computation.
+    pub c_scale: f32,
 }
 
 impl Default for MctsConfig {
     fn default() -> Self {
         Self {
-            num_simulations: 200,
+            num_simulations: 64,
             c_puct: 1.5,
-            temperature: 0.1,
+            m: 16,
+            c_visit: 50.0,
+            c_scale: 1.0,
         }
     }
 }
@@ -86,9 +93,15 @@ impl Evaluator for NnEvaluator {
             return None;
         }
 
-        // MCTS mode: use tree search
+        // MCTS mode: use Gumbel tree search
         if let Some(ref mcts_config) = self.mcts_config {
-            // No Dirichlet noise during inference (only used in self-play training)
+            // Deterministic seed from board state
+            let mut seed = 0u64;
+            for col in 0..COLS {
+                seed = seed.wrapping_mul(6364136223846793005)
+                    .wrapping_add(board.columns[col].len() as u64);
+            }
+
             let (policy, q_values) = mcts_search(
                 board,
                 current,
@@ -98,12 +111,14 @@ impl Evaluator for NnEvaluator {
                 &self.device,
                 mcts_config.num_simulations,
                 mcts_config.c_puct,
-                mcts_config.temperature,
                 0.99,
-                None,
+                mcts_config.m,
+                mcts_config.c_visit,
+                mcts_config.c_scale,
+                seed,
             );
 
-            // Select the action with highest visit probability
+            // Select the action with highest improved policy probability
             let mut best_index = 0;
             let mut best_prob = f64::NEG_INFINITY;
             for i in 0..NUM_ACTIONS {

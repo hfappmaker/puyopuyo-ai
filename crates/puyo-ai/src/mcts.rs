@@ -34,6 +34,8 @@ struct MctsNode {
     prior: f32,
     /// NN policy priors for each action (set when expanded).
     priors: [f32; NUM_ACTIONS],
+    /// Raw NN logits before softmax (set when expanded).
+    logits: [f32; NUM_ACTIONS],
     /// Children indexed by action (0-23). None = not yet expanded for this action.
     children: [Option<usize>; NUM_ACTIONS],
     /// Whether this node has been expanded (network evaluated).
@@ -58,6 +60,8 @@ pub struct MctsTree {
     min_value: f32,
     /// Maximum Q value observed in the tree (for Min-Max normalization).
     max_value: f32,
+    /// Value head output for the root node (used for completed Q-values).
+    root_value: f32,
 }
 
 impl MctsTree {
@@ -75,6 +79,7 @@ impl MctsTree {
             total_value: 0.0,
             prior: 1.0,
             priors: [0.0; NUM_ACTIONS],
+            logits: [0.0; NUM_ACTIONS],
             children: [None; NUM_ACTIONS],
             expanded: false,
             terminal: state.board.is_game_over(),
@@ -88,46 +93,60 @@ impl MctsTree {
             gamma,
             min_value: f32::INFINITY,
             max_value: f32::NEG_INFINITY,
+            root_value: 0.0,
         }
     }
 
-    /// Run one MCTS simulation: select → expand/evaluate → backpropagate.
-    pub fn run_one_simulation(
+    /// Expand the root node and return the value estimate.
+    fn expand_root(
         &mut self,
+        model: &PuyoNet<InferBackend>,
+        device: &<InferBackend as Backend>::Device,
+    ) -> f32 {
+        let v = self.expand_node(self.root, model, device);
+        self.root_value = v;
+        self.nodes[self.root].visit_count += 1;
+        v
+    }
+
+    /// Run one simulation forcing a specific action at the root, then PUCT for the rest.
+    fn simulate_from_root_action(
+        &mut self,
+        action: usize,
         model: &PuyoNet<InferBackend>,
         device: &<InferBackend as Backend>::Device,
         c_puct: f32,
     ) {
-        let mut path: Vec<(usize, usize)> = Vec::new(); // (node_id, action)
-        let mut node_id = self.root;
+        let child_id = self.get_or_create_child(self.root, action);
+        let mut path: Vec<(usize, usize)> = vec![(self.root, action)];
+        let mut node_id = child_id;
 
-        // 1. Selection: traverse tree using PUCT
+        // From child onward, use standard PUCT selection
         while self.nodes[node_id].expanded && !self.nodes[node_id].terminal {
-            let action = self.select_action(node_id, c_puct);
-            path.push((node_id, action));
-            node_id = self.get_or_create_child(node_id, action);
+            let act = self.select_action(node_id, c_puct);
+            path.push((node_id, act));
+            node_id = self.get_or_create_child(node_id, act);
         }
 
-        // 2. Expansion & Evaluation
+        // Expand leaf
         let value = if self.nodes[node_id].terminal {
-            0.0 // Terminal nodes have zero future value
+            0.0
         } else if !self.nodes[node_id].expanded {
             self.expand_node(node_id, model, device)
         } else {
-            // Already expanded (shouldn't normally happen)
             0.0
         };
 
-        // 3. Backpropagation with discounted rewards: backup = r + gamma * backup
+        // Backpropagate
         let mut backup = value;
-        for &(parent_id, action) in path.iter().rev() {
-            if let Some(child_id) = self.nodes[parent_id].children[action] {
-                let reward = self.nodes[child_id].immediate_reward;
+        for &(parent_id, act) in path.iter().rev() {
+            if let Some(cid) = self.nodes[parent_id].children[act] {
+                let reward = self.nodes[cid].immediate_reward;
                 backup = reward + self.gamma * backup;
                 self.min_value = self.min_value.min(backup);
                 self.max_value = self.max_value.max(backup);
-                self.nodes[child_id].visit_count += 1;
-                self.nodes[child_id].total_value += backup;
+                self.nodes[cid].visit_count += 1;
+                self.nodes[cid].total_value += backup;
             }
         }
         self.nodes[self.root].visit_count += 1;
@@ -223,6 +242,7 @@ impl MctsTree {
             total_value: 0.0,
             prior: self.nodes[parent_id].priors[action],
             priors: [0.0; NUM_ACTIONS],
+            logits: [0.0; NUM_ACTIONS],
             children: [None; NUM_ACTIONS],
             expanded: false,
             terminal,
@@ -236,7 +256,7 @@ impl MctsTree {
         child_id
     }
 
-    /// Expand a node: run the neural network and set priors for valid actions.
+    /// Expand a node: run the neural network and set priors + logits for valid actions.
     fn expand_node(
         &mut self,
         node_id: usize,
@@ -266,7 +286,12 @@ impl MctsTree {
         let mask = compute_valid_mask(&self.nodes[node_id].state.board, &self.nodes[node_id].state.current);
         let priors = masked_softmax(&logits_vec, &mask);
 
-        // Store priors in the node for use by select_action and create_child
+        // Store logits and priors
+        let mut stored_logits = [0.0f32; NUM_ACTIONS];
+        for (i, logit) in logits_vec.iter().enumerate().take(NUM_ACTIONS) {
+            stored_logits[i] = *logit;
+        }
+        self.nodes[node_id].logits = stored_logits;
         self.nodes[node_id].priors = priors;
 
         // Update priors of already-created children
@@ -281,16 +306,6 @@ impl MctsTree {
         v
     }
 
-    /// Get visit counts for root's direct children (used to select the final move).
-    pub fn root_visit_counts(&self) -> [u32; NUM_ACTIONS] {
-        let root = &self.nodes[self.root];
-        std::array::from_fn(|action| {
-            root.children[action]
-                .map(|child_id| self.nodes[child_id].visit_count)
-                .unwrap_or(0)
-        })
-    }
-
     /// Get Q values (average cumulative reward) for root's direct children.
     pub fn root_q_values(&self) -> [f32; NUM_ACTIONS] {
         let root = &self.nodes[self.root];
@@ -301,60 +316,6 @@ impl MctsTree {
                 .map(|child| child.total_value / child.visit_count as f32)
                 .unwrap_or(0.0)
         })
-    }
-
-    /// Apply Dirichlet noise to root node priors for exploration diversity.
-    /// `P'(a) = (1 - epsilon) * P(a) + epsilon * Dir(alpha)`
-    pub fn apply_root_dirichlet_noise(&mut self, alpha: f32, epsilon: f32, seed: u64) {
-        let root = self.root;
-        if !self.nodes[root].expanded {
-            return;
-        }
-        let mask = compute_valid_mask(
-            &self.nodes[root].state.board,
-            &self.nodes[root].state.current,
-        );
-        let num_valid = mask.iter().filter(|&&v| v).count();
-        if num_valid == 0 {
-            return;
-        }
-
-        let noise = sample_dirichlet(alpha, num_valid, seed);
-        let mut noise_idx = 0;
-        for (action, &is_valid) in mask.iter().enumerate() {
-            if is_valid {
-                let p = self.nodes[root].priors[action];
-                self.nodes[root].priors[action] =
-                    (1.0 - epsilon) * p + epsilon * noise[noise_idx];
-                noise_idx += 1;
-            }
-        }
-    }
-
-    /// Get the MCTS policy (normalized visit counts) with temperature.
-    pub fn get_policy(&self, temperature: f32) -> [f32; NUM_ACTIONS] {
-        let counts = self.root_visit_counts();
-
-        if temperature < 0.01 {
-            // Greedy: all weight on most-visited action
-            let best = counts.iter().enumerate()
-                .max_by_key(|(_, &n)| n)
-                .map(|(i, _)| i)
-                .unwrap_or(0);
-            let mut policy = [0.0f32; NUM_ACTIONS];
-            policy[best] = 1.0;
-            policy
-        } else {
-            // Temperature-scaled
-            let inv_temp = 1.0 / temperature;
-            let mut policy: [f32; NUM_ACTIONS] =
-                std::array::from_fn(|i| (counts[i] as f32).powf(inv_temp));
-            let sum: f32 = policy.iter().sum();
-            if sum > 0.0 {
-                policy.iter_mut().for_each(|p| *p /= sum);
-            }
-            policy
-        }
     }
 }
 
@@ -385,59 +346,6 @@ fn masked_softmax(logits: &[f32], mask: &[bool; NUM_ACTIONS]) -> [f32; NUM_ACTIO
     result
 }
 
-/// Sample from a Dirichlet distribution with concentration parameter `alpha`.
-/// Returns a vector of `n` values summing to 1.0.
-/// Uses Marsaglia-Tsang method for Gamma sampling with a simple xorshift64 PRNG.
-fn sample_dirichlet(alpha: f32, n: usize, seed: u64) -> Vec<f32> {
-    let mut rng_state = seed.wrapping_add(1); // avoid 0
-
-    let mut samples: Vec<f32> = (0..n)
-        .map(|i| sample_gamma(alpha, &mut rng_state, i as u64))
-        .collect();
-    let sum: f32 = samples.iter().sum();
-    if sum > 0.0 {
-        samples.iter_mut().for_each(|s| *s /= sum);
-    } else {
-        // Fallback: uniform
-        samples.fill(1.0 / n as f32);
-    }
-    samples
-}
-
-/// Sample from Gamma(alpha, 1) using Marsaglia-Tsang method.
-/// For alpha < 1, uses the boost: Gamma(alpha) = Gamma(alpha+1) * U^(1/alpha).
-fn sample_gamma(alpha: f32, rng: &mut u64, extra_seed: u64) -> f32 {
-    let alpha = alpha as f64;
-    let (alpha_use, boost) = if alpha < 1.0 {
-        let u = xorshift64_f64(rng, extra_seed);
-        (alpha + 1.0, u.powf(1.0 / alpha))
-    } else {
-        (alpha, 1.0)
-    };
-
-    let d = alpha_use - 1.0 / 3.0;
-    let c = 1.0 / (9.0 * d).sqrt();
-
-    loop {
-        // Generate normal using Box-Muller
-        let u1 = xorshift64_f64(rng, 0).max(1e-15);
-        let u2 = xorshift64_f64(rng, 1);
-        let n = (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos();
-
-        let v = (1.0 + c * n).powi(3);
-        if v <= 0.0 {
-            continue;
-        }
-        let u = xorshift64_f64(rng, 2);
-        // Acceptance test
-        if u < 1.0 - 0.0331 * n * n * n * n
-            || u.ln() < 0.5 * n * n + d * (1.0 - v + v.ln())
-        {
-            return (d * v * boost) as f32;
-        }
-    }
-}
-
 /// Simple xorshift64-based PRNG returning f64 in [0, 1).
 fn xorshift64_f64(state: &mut u64, mix: u64) -> f64 {
     let mut s = (*state).wrapping_add(mix.wrapping_mul(2654435761));
@@ -446,6 +354,12 @@ fn xorshift64_f64(state: &mut u64, mix: u64) -> f64 {
     s ^= s << 17;
     *state = s;
     (s >> 11) as f64 / ((1u64 << 53) as f64)
+}
+
+/// Sample from the standard Gumbel(0,1) distribution: g = -log(-log(u)).
+fn sample_gumbel(state: &mut u64, mix: u64) -> f32 {
+    let u = xorshift64_f64(state, mix).clamp(1e-20, 1.0 - 1e-10);
+    -((-(u.ln())).ln()) as f32
 }
 
 /// Compute a simple FNV-1a hash of the board state.
@@ -479,15 +393,98 @@ fn sample_piece(seed1: u64, seed2: u64, seed3: u64) -> Piece {
     )
 }
 
-/// Dirichlet noise configuration for root exploration.
-pub struct DirichletConfig {
-    pub alpha: f32,
-    pub epsilon: f32,
+/// Compute completed Q-values for all valid root actions.
+/// Visited actions use actual Q from tree; unvisited actions use root value estimate.
+fn compute_completed_q(
+    tree: &MctsTree,
+    mask: &[bool; NUM_ACTIONS],
+) -> [f32; NUM_ACTIONS] {
+    let root = &tree.nodes[tree.root];
+    std::array::from_fn(|a| {
+        if !mask[a] {
+            return 0.0;
+        }
+        match root.children[a] {
+            Some(child_id) if tree.nodes[child_id].visit_count > 0 => {
+                tree.nodes[child_id].total_value / tree.nodes[child_id].visit_count as f32
+            }
+            _ => tree.root_value,
+        }
+    })
 }
 
-/// Run MCTS search and return the policy (visit count distribution) and Q values.
-/// `gamma` is the discount factor for future rewards (e.g. 0.99).
-/// `dirichlet` adds Dirichlet noise to root priors for exploration (used in self-play).
+/// Compute the improved policy target from logits and completed Q-values.
+/// π_improved(a) ∝ π(a) · exp(advantage(a) · c_visit)
+fn compute_improved_policy(
+    logits: &[f32; NUM_ACTIONS],
+    q_completed: &[f32; NUM_ACTIONS],
+    mask: &[bool; NUM_ACTIONS],
+    c_visit: f32,
+    c_scale: f32,
+) -> [f32; NUM_ACTIONS] {
+    // Compute V_mixed: prior-weighted sum of completed Q-values
+    let priors = masked_softmax(logits, mask);
+    let v_mixed: f32 = (0..NUM_ACTIONS)
+        .filter(|&a| mask[a])
+        .map(|a| priors[a] * q_completed[a])
+        .sum();
+
+    // Compute improved logits: logit(a) + advantage(a) * c_visit / c_scale
+    let mut improved_logits = [f32::NEG_INFINITY; NUM_ACTIONS];
+    for a in 0..NUM_ACTIONS {
+        if mask[a] {
+            let advantage = q_completed[a] - v_mixed;
+            improved_logits[a] = logits[a] + advantage * c_visit / c_scale;
+        }
+    }
+
+    masked_softmax(&improved_logits, mask)
+}
+
+/// Compute sigma_bar for Sequential Halving score updates.
+/// sigma_bar(a) = (c_visit + N_max) * q_normalized(a)
+/// where q_normalized is min-max normalized completed Q-value.
+fn compute_sigma_bar(
+    tree: &MctsTree,
+    q_completed: &[f32; NUM_ACTIONS],
+    mask: &[bool; NUM_ACTIONS],
+    considered: &[usize],
+    c_visit: f32,
+) -> [f32; NUM_ACTIONS] {
+    // Find max visit count among root children
+    let root = &tree.nodes[tree.root];
+    let n_max: f32 = considered.iter()
+        .filter_map(|&a| root.children[a].map(|cid| tree.nodes[cid].visit_count as f32))
+        .fold(0.0f32, f32::max);
+
+    // Min-max normalize completed Q-values
+    let mut min_q = f32::INFINITY;
+    let mut max_q = f32::NEG_INFINITY;
+    for &a in considered {
+        if mask[a] {
+            min_q = min_q.min(q_completed[a]);
+            max_q = max_q.max(q_completed[a]);
+        }
+    }
+    let q_range = max_q - min_q;
+
+    std::array::from_fn(|a| {
+        if !mask[a] {
+            return 0.0;
+        }
+        let q_norm = if q_range > f32::EPSILON {
+            (q_completed[a] - min_q) / q_range
+        } else {
+            0.5
+        };
+        (c_visit + n_max) * q_norm
+    })
+}
+
+/// Run Gumbel MCTS search using Sequential Halving with Gumbel noise.
+///
+/// Returns (improved_policy, q_values).
+/// `seed` is used for deterministic Gumbel noise sampling.
 #[allow(clippy::too_many_arguments)]
 pub fn mcts_search(
     board: &Board,
@@ -498,34 +495,125 @@ pub fn mcts_search(
     device: &<InferBackend as Backend>::Device,
     num_simulations: usize,
     c_puct: f32,
-    temperature: f32,
     gamma: f32,
-    dirichlet: Option<&DirichletConfig>,
+    m: usize,
+    c_visit: f32,
+    c_scale: f32,
+    seed: u64,
 ) -> ([f32; NUM_ACTIONS], [f32; NUM_ACTIONS]) {
     let mut tree = MctsTree::new(board, current, next, next_next, gamma);
 
-    // Run first simulation to expand root node
-    if num_simulations > 0 {
-        tree.run_one_simulation(model, device, c_puct);
+    // 1. Expand root (1 NN evaluation)
+    if num_simulations == 0 || tree.nodes[tree.root].terminal {
+        let mask = compute_valid_mask(board, current);
+        return (masked_softmax(&[0.0f32; NUM_ACTIONS], &mask), [0.0; NUM_ACTIONS]);
+    }
+    tree.expand_root(model, device);
+
+    let mask = compute_valid_mask(board, current);
+    let root_logits = tree.nodes[tree.root].logits;
+
+    // Collect valid actions
+    let valid_actions: Vec<usize> = (0..NUM_ACTIONS).filter(|&a| mask[a]).collect();
+    if valid_actions.is_empty() {
+        return ([0.0; NUM_ACTIONS], [0.0; NUM_ACTIONS]);
+    }
+    if valid_actions.len() == 1 {
+        let mut policy = [0.0f32; NUM_ACTIONS];
+        policy[valid_actions[0]] = 1.0;
+        return (policy, tree.root_q_values());
     }
 
-    // Apply Dirichlet noise to root priors after root expansion
-    if let Some(dir) = dirichlet {
-        // Use hash of all column heights for diverse seeds
-        let mut seed = 0u64;
-        for col in 0..COLS {
-            seed = seed.wrapping_mul(6364136223846793005)
-                .wrapping_add(board.columns[col].len() as u64);
+    // 2. Sample Gumbel noise and compute initial scores: g(a) + logit(a)
+    let mut rng_state = seed.wrapping_add(0xdeadbeef);
+    let mut scores = [f32::NEG_INFINITY; NUM_ACTIONS];
+    let mut gumbels = [0.0f32; NUM_ACTIONS];
+    for &a in &valid_actions {
+        let g = sample_gumbel(&mut rng_state, a as u64);
+        gumbels[a] = g;
+        scores[a] = g + root_logits[a];
+    }
+
+    // 3. Select top-m actions by initial score
+    let m = m.min(valid_actions.len());
+    let mut considered: Vec<usize> = valid_actions.clone();
+    considered.sort_by(|&a, &b| scores[b].partial_cmp(&scores[a]).unwrap_or(std::cmp::Ordering::Equal));
+    considered.truncate(m);
+
+    // 4. Sequential Halving
+    let remaining_budget = num_simulations.saturating_sub(1); // root expansion used 1
+
+    if remaining_budget == 0 {
+        let q_completed = compute_completed_q(&tree, &mask);
+        let improved = compute_improved_policy(&root_logits, &q_completed, &mask, c_visit, c_scale);
+        return (improved, tree.root_q_values());
+    }
+
+    // Compute number of halving phases
+    let num_phases = {
+        let mut phases = 0u32;
+        let mut n = considered.len();
+        while n > 1 {
+            n = (n + 1) / 2;
+            phases += 1;
         }
-        tree.apply_root_dirichlet_noise(dir.alpha, dir.epsilon, seed);
+        phases.max(1) as usize
+    };
+
+    let mut budget_used = 0usize;
+
+    for phase in 0..num_phases {
+        if considered.len() <= 1 {
+            break;
+        }
+
+        // Simulations per action in this phase
+        let n_actions = considered.len();
+        let budget_remaining = remaining_budget.saturating_sub(budget_used);
+        let phases_left = num_phases - phase;
+        let sims_per_action = (budget_remaining / (phases_left * n_actions)).max(1);
+
+        // Run simulations for each considered action
+        for &a in &considered {
+            for _ in 0..sims_per_action {
+                if budget_used >= remaining_budget {
+                    break;
+                }
+                tree.simulate_from_root_action(a, model, device, c_puct);
+                budget_used += 1;
+            }
+        }
+
+        // Update scores with completed Q-values
+        let q_completed = compute_completed_q(&tree, &mask);
+        let sigma_bar = compute_sigma_bar(&tree, &q_completed, &mask, &considered, c_visit);
+
+        for &a in &considered {
+            scores[a] = gumbels[a] + root_logits[a] + sigma_bar[a];
+        }
+
+        // Halve: keep top ceil(n_actions / 2)
+        let keep = (n_actions + 1) / 2;
+        considered.sort_by(|&a, &b| scores[b].partial_cmp(&scores[a]).unwrap_or(std::cmp::Ordering::Equal));
+        considered.truncate(keep);
     }
 
-    // Remaining simulations
-    for _ in 1..num_simulations {
-        tree.run_one_simulation(model, device, c_puct);
+    // 5. Spend remaining budget on surviving action(s)
+    while budget_used < remaining_budget {
+        for &a in &considered {
+            if budget_used >= remaining_budget {
+                break;
+            }
+            tree.simulate_from_root_action(a, model, device, c_puct);
+            budget_used += 1;
+        }
     }
 
-    (tree.get_policy(temperature), tree.root_q_values())
+    // 6. Compute improved policy target
+    let q_completed = compute_completed_q(&tree, &mask);
+    let improved_policy = compute_improved_policy(&root_logits, &q_completed, &mask, c_visit, c_scale);
+
+    (improved_policy, tree.root_q_values())
 }
 
 #[cfg(test)]
@@ -575,5 +663,36 @@ mod tests {
         assert_eq!(tree.nodes.len(), 1);
         assert!(!tree.nodes[0].expanded);
         assert!(!tree.nodes[0].terminal);
+    }
+
+    #[test]
+    fn test_sample_gumbel_finite() {
+        let mut state = 12345u64;
+        for i in 0..100 {
+            let g = sample_gumbel(&mut state, i);
+            assert!(g.is_finite(), "Gumbel sample should be finite");
+        }
+    }
+
+    #[test]
+    fn test_compute_improved_policy_normalized() {
+        let logits = [1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let q = [10.0, 20.0, 15.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let mut mask = [false; 24];
+        mask[0] = true;
+        mask[1] = true;
+        mask[2] = true;
+
+        let policy = compute_improved_policy(&logits, &q, &mask, 50.0, 1.0);
+
+        let sum: f32 = policy.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-5, "Improved policy should sum to 1.0, got {}", sum);
+        // Action 1 has highest Q, should have highest improved probability
+        assert!(policy[1] > policy[0]);
+        assert!(policy[1] > policy[2]);
     }
 }

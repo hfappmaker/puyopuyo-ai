@@ -142,7 +142,7 @@ AdamConfig::new().with_weight_decay(Some(WeightDecayConfig::new(1e-4))).init()
 
 ## Phase 3: 自己対戦強化学習 (`self-play`)
 
-MCTS ベースの AlphaZero self-play ループ。Dual Head Network（`PuyoNet`）の Policy Head と Value Head を使った MCTS 探索でゲームをプレイし、訓練データを生成する。
+Gumbel MCTS ベースの AlphaZero self-play ループ。Dual Head Network（`PuyoNet`）の Policy Head と Value Head を使った Gumbel MCTS 探索でゲームをプレイし、訓練データを生成する。
 各ゲームは `std::thread::scope` により並列実行される（スレッド数 = CPU コア数）。各スレッドがモデルのクローンを所有し、独立にゲームを処理する。
 
 ### CLI引数
@@ -150,33 +150,24 @@ MCTS ベースの AlphaZero self-play ループ。Dual Head Network（`PuyoNet`�
 | 引数 | 型 | デフォルト | 説明 |
 |------|-----|----------|------|
 | `--games` | 整数 | 100 | 自己対戦ゲーム数 |
-| `--simulations` | 整数 | 200 | MCTS シミュレーション回数/手 |
-| `--c-puct` | 小数 | 1.5 | PUCT 探索定数 |
-| `--temperature` | 小数 | 1.0 | Policy の温度パラメータ（序盤用） |
+| `--simulations` | 整数 | 64 | MCTS シミュレーション回数/手 |
+| `--c-puct` | 小数 | 1.5 | 内部ノードのPUCT探索定数 |
 | `--seed-offset` | 整数 | 200,000 | RNG シードオフセット（seed = seed_offset + game_idx） |
-| `--dirichlet-alpha` | 小数 | 0.4 | Dirichlet ノイズの集中パラメータ α |
-| `--dirichlet-epsilon` | 小数 | 0.25 | Dirichlet ノイズの混合比率 ε |
-| `--temp-threshold` | 整数 | 15 | 温度スケジュールの閾値手数（これ以降 τ=0.1 に低下） |
+| `--m` | 整数 | 16 | Gumbel Top-k 初期サンプル数 |
+| `--c-visit` | 小数 | 50.0 | Q値スケーリング係数 |
+| `--c-scale` | 小数 | 1.0 | Advantage スケールパラメータ |
 | `--output` | 文字列 | `data/alphazero_data.bin` | 出力ファイルパス |
 
 `--seed-offset` により、複数回の self-play 実行で異なるゲームデータを生成できる。
 
-### 温度スケジュール
+### 探索の多様性
 
-AlphaZero 方式に従い、ゲーム進行度に応じて温度パラメータを切り替える:
-- `move_count < temp_threshold`（デフォルト15手目まで）: τ = `--temperature`（デフォルト1.0、探索的）
-- `move_count >= temp_threshold`: τ = 0.1（ほぼ貪欲）
-
-序盤で多様なデータを収集し、終盤では高品質な Value target を得るための設計。
-
-### Dirichlet ノイズ
-
-ルートノードの policy prior に Dirichlet ノイズを混合して探索の多様性を確保する（詳細は `docs/spec/09-ai-search.md` 参照）。
+Gumbel AlphaZero では、各手番でGumbel(0,1)ノイズをサンプリングすることで探索の多様性を確保する。Dirichletノイズや温度スケジュールは不要。Gumbelノイズのシードはゲームシードと手数から決定論的に生成される。
 
 ### 手順
 
-1. 現在のモデルを使って MCTS 探索でゲームをプレイ（`mcts_search()` に `gamma` を渡す）
-2. 各手番で MCTS の訪問回数分布を policy target として記録
+1. 現在のモデルを使って Gumbel MCTS 探索でゲームをプレイ（`mcts_search()` に `gamma` を渡す）
+2. 各手番で improved policy（completed Q-values に基づく改善ポリシー）を policy target として記録
 3. ゲーム終了後、各手番の value target を累積割引報酬で逆算:
    ```
    value_target[t] = Σ_{k=0}^{T-t-1} γ^k × score[t+k]  （γ = 0.99）

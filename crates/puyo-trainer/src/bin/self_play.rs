@@ -1,6 +1,6 @@
-//! AlphaZero-style self-play for Puyo Puyo.
+//! AlphaZero-style self-play for Puyo Puyo (Gumbel MCTS).
 //!
-//! Plays games using MCTS + neural network, collects training data,
+//! Plays games using Gumbel MCTS + neural network, collects training data,
 //! and saves it for the training binary.
 //! Games are parallelized across threads for speed.
 
@@ -10,7 +10,7 @@ use burn::backend::ndarray::NdArray;
 use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 
-use puyo_ai::mcts::{mcts_search, DirichletConfig};
+use puyo_ai::mcts::mcts_search;
 use puyo_ai::placement::NUM_ACTIONS;
 use puyo_core::game::{GamePhase, GameState};
 use puyo_nn::encoding::{board_to_tensor_data, context_to_tensor_data, CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
@@ -30,11 +30,10 @@ struct Args {
     num_games: u64,
     num_simulations: usize,
     c_puct: f32,
-    temperature: f32,
     seed_offset: u64,
-    dirichlet_alpha: f32,
-    dirichlet_epsilon: f32,
-    temp_threshold: u32,
+    m: usize,
+    c_visit: f32,
+    c_scale: f32,
     output_path: String,
 }
 
@@ -42,13 +41,12 @@ fn parse_args() -> Args {
     let args: Vec<String> = std::env::args().collect();
     let mut result = Args {
         num_games: 100,
-        num_simulations: 200,
+        num_simulations: 64,
         c_puct: 1.5,
-        temperature: 1.0,
         seed_offset: 200_000,
-        dirichlet_alpha: 0.4,
-        dirichlet_epsilon: 0.25,
-        temp_threshold: 15,
+        m: 16,
+        c_visit: 50.0,
+        c_scale: 1.0,
         output_path: DEFAULT_OUTPUT_PATH.to_string(),
     };
     let mut i = 1;
@@ -66,25 +64,21 @@ fn parse_args() -> Args {
                 i += 1;
                 result.c_puct = args[i].parse().expect("--c-puct requires float");
             }
-            "--temperature" => {
-                i += 1;
-                result.temperature = args[i].parse().expect("--temperature requires float");
-            }
             "--seed-offset" => {
                 i += 1;
                 result.seed_offset = args[i].parse().expect("--seed-offset requires integer");
             }
-            "--dirichlet-alpha" => {
+            "--m" => {
                 i += 1;
-                result.dirichlet_alpha = args[i].parse().expect("--dirichlet-alpha requires float");
+                result.m = args[i].parse().expect("--m requires integer");
             }
-            "--dirichlet-epsilon" => {
+            "--c-visit" => {
                 i += 1;
-                result.dirichlet_epsilon = args[i].parse().expect("--dirichlet-epsilon requires float");
+                result.c_visit = args[i].parse().expect("--c-visit requires float");
             }
-            "--temp-threshold" => {
+            "--c-scale" => {
                 i += 1;
-                result.temp_threshold = args[i].parse().expect("--temp-threshold requires integer");
+                result.c_scale = args[i].parse().expect("--c-scale requires float");
             }
             "--output" => {
                 i += 1;
@@ -117,7 +111,6 @@ fn play_one_game(
     model: &PuyoNet<InferBackend>,
     device: &<InferBackend as Backend>::Device,
     args: &Args,
-    dirichlet: &DirichletConfig,
 ) -> GameResult {
     let seed = args.seed_offset + game_idx;
     let mut game = GameState::new(seed);
@@ -146,12 +139,9 @@ fn play_one_game(
         )
         .to_vec();
 
-        // Run MCTS with temperature schedule: high exploration early, greedy later
-        let temperature = if move_count < args.temp_threshold {
-            args.temperature
-        } else {
-            0.1
-        };
+        // Run Gumbel MCTS (Gumbel noise provides exploration, no Dirichlet needed)
+        let gumbel_seed = seed.wrapping_mul(6364136223846793005)
+            .wrapping_add(move_count as u64);
         let (mcts_policy, _q_values) = mcts_search(
             &game.board,
             &current_piece,
@@ -161,12 +151,14 @@ fn play_one_game(
             device,
             args.num_simulations,
             args.c_puct,
-            temperature,
             GAMMA,
-            Some(dirichlet),
+            args.m,
+            args.c_visit,
+            args.c_scale,
+            gumbel_seed,
         );
 
-        // Select action: sample from MCTS policy
+        // Select action: sample from improved policy
         let action = select_from_policy(&mcts_policy, seed + move_count as u64);
 
         let placement = puyo_ai::placement::index_to_placement(action);
@@ -220,18 +212,13 @@ fn play_one_game(
 fn main() {
     let args = parse_args();
 
-    println!("Backend: NdArray (CPU) — MCTS self-play (parallel)");
+    println!("Backend: NdArray (CPU) — Gumbel MCTS self-play (parallel)");
 
     println!(
-        "games={}, simulations={}, c_puct={}, temperature={}, seed_offset={}, dirichlet_alpha={}, dirichlet_epsilon={}",
-        args.num_games, args.num_simulations, args.c_puct, args.temperature, args.seed_offset,
-        args.dirichlet_alpha, args.dirichlet_epsilon
+        "games={}, simulations={}, c_puct={}, m={}, c_visit={}, c_scale={}, seed_offset={}",
+        args.num_games, args.num_simulations, args.c_puct, args.m,
+        args.c_visit, args.c_scale, args.seed_offset,
     );
-
-    let dirichlet = DirichletConfig {
-        alpha: args.dirichlet_alpha,
-        epsilon: args.dirichlet_epsilon,
-    };
 
     let device: <InferBackend as Backend>::Device = Default::default();
 
@@ -292,7 +279,6 @@ fn main() {
                 let thread_model = model.clone();
                 let device = &device;
                 let args = &args;
-                let dirichlet = &dirichlet;
                 let games_done = &games_done;
                 let total_samples = &total_samples;
                 let total_max_chain = &total_max_chain;
@@ -303,7 +289,7 @@ fn main() {
                     let mut thread_results = Vec::new();
                     for game_idx in start..end {
                         let result =
-                            play_one_game(game_idx, &thread_model, device, args, dirichlet);
+                            play_one_game(game_idx, &thread_model, device, args);
 
                         // Update progress atomically
                         let done = games_done.fetch_add(1, Ordering::Relaxed) + 1;

@@ -69,7 +69,7 @@ fn find_best_move(&self, board: &Board, current: &Piece, next: &Piece, next_next
 |-----------|----------|
 | `SimulationEvaluator` | depth-1〜2 を BFS 順で統一評価 |
 | `NnEvaluator`（Policy-only） | 探索なし、NN 1回推論で直接選択 |
-| `NnEvaluator`（MCTS） | MCTS（PUCT探索） |
+| `NnEvaluator`（MCTS） | Gumbel MCTS（Sequential Halving + PUCT） |
 
 ## 探索の流れ
 
@@ -85,16 +85,16 @@ fn find_best_move(&self, board: &Board, current: &Piece, next: &Piece, next_next
 
 - depth-2: 最大 22 × 22 = 484 盤面の評価
 
-## MCTS 探索（mcts.rs）
+## Gumbel MCTS 探索（mcts.rs）
 
-PUCT（Predictor Upper Confidence bounds applied to Trees）に基づくモンテカルロ木探索。`NnEvaluator` の MCTSモードで使用される。
+Gumbel AlphaZero（Danihelka et al. 2022）に基づくモンテカルロ木探索。ルートでSequential Halving + Gumbel-Top-kを使用し、少ないシミュレーション数（32〜64）でも高品質な手選択とimproved policyターゲットを生成する。内部ノードではPUCT選択を使用する。
 
 ### 構造体
 
 | 構造体 | 説明 |
 |--------|------|
-| `MctsTree` | 探索木全体を管理。ルートノードから探索を実行。`gamma: f32` フィールドで割引率を保持 |
-| `MctsNode` | 探索木の各ノード。訪問回数・累積価値・prior・子ノード等を保持。`priors: [f32; 24]` にNN展開時のpolicy出力を保存し、PUCT選択・子ノード作成時に参照する。`immediate_reward: f32` フィールドでこのノードへの遷移時に得た即時報酬（連鎖スコア）を保持する |
+| `MctsTree` | 探索木全体を管理。`gamma: f32` で割引率、`root_value: f32` でルートの価値推定を保持 |
+| `MctsNode` | 探索木の各ノード。訪問回数・累積価値・prior・子ノード等を保持。`priors: [f32; 24]` と `logits: [f32; 24]` にNN展開時の出力を保存。`immediate_reward: f32` で即時報酬（連鎖スコア）を保持 |
 
 ### ランダムツモの扱い
 
@@ -102,7 +102,7 @@ PUCT（Predictor Upper Confidence bounds applied to Trees）に基づくモン�
 
 ### Min-Max Value Normalization（MuZero Reanalyze方式）
 
-PUCT計算時にQ値を [0, 1] に正規化する。探索木内で観測されたValue（NNの推論値）の最小値・最大値を `MctsTree` で追跡し、以下の式で正規化:
+内部ノードのPUCT計算時にQ値を [0, 1] に正規化する。探索木内で観測されたValueの最小値・最大値を `MctsTree` で追跡し、以下の式で正規化:
 
 ```
 Q_normalized = (Q - Q_min) / (Q_max - Q_min)
@@ -110,55 +110,44 @@ Q_normalized = (Q - Q_min) / (Q_max - Q_min)
 
 - `Q_min == Q_max`（まだ情報がない場合）は 0.5 を返す
 - 正規化結果は `[0.0, 1.0]` にクランプされる
-- min/max は Backpropagation 時に毎回更新される
 
-これにより、Q項（活用）と Prior項（探索）のスケールが揃い、`c_puct` のチューニングがスコアレンジに依存しなくなる。
+### 探索の流れ（Gumbel Sequential Halving）
 
-### 探索の流れ
+1. **ルート展開**: NN forward pass で logits と value を取得。logits はノードに保存
+2. **Gumbelノイズサンプリング**: 各有効アクションに Gumbel(0,1) ノイズ g(a) を付与
+3. **初期スコア計算**: `score(a) = g(a) + logit(a)` でTop-m アクションを選択
+4. **Sequential Halving**: 各フェーズで残りアクションにシミュレーションを均等割当 → `simulate_from_root_action` でルートアクションを強制して探索 → completed Q-values と sigma_bar でスコア更新 → 上位半分を残す
+5. **残り予算消化**: 生存アクションに残りシミュレーションを投入
+6. **Improved Policy計算**: `π_improved(a) ∝ π(a) · exp(advantage(a) · c_visit / c_scale)` で改善されたポリシーターゲットを生成
 
-1. ルートノードから PUCT で最も有望な子ノードを選択（Selection）。各ノードの `priors` フィールドに保存されたNN policy出力を事前確率として使用。Q値は Min-Max 正規化して [0, 1] に変換
-2. 未展開ノードに到達したら、`PuyoNet` の forward pass で (policy_logits, value) を取得（Expansion + Evaluation）
-3. Policy logits を masked softmax でアクション確率に変換し、ノードの `priors` フィールドに保存。既存の子ノードの `prior` も更新
-4. 割引報酬を加算しながら探索パスを逆伝播（Backpropagation）。末端のNN value 推定値から逆順に `backup = reward + gamma * backup` を適用し、各ノードの即時報酬を加味した割引累積価値を伝播する。同時に min/max を更新
-5. 規定回数の反復後、ルート直下の訪問回数分布を返す
+内部ノード（ルート以外）では従来のPUCT選択を使用する。
 
-### Dirichlet ノイズ（ルート探索多様化）
+### Completed Q-values
 
-AlphaZero 方式に従い、ルートノード展開後に Dirichlet ノイズを policy prior に混合する。これにより、自己対局データの多様性を確保し、NNが自身の出力を再学習するだけの「policy collapse」を防止する。
+Gumbel探索の核心概念。ルートの各アクションについて:
+
+- **訪問済みアクション**: 実際のツリーQ値 `total_value / visit_count` を使用
+- **未訪問アクション**: ルートの価値推定 `root_value` をプロキシとして使用
+
+これにより、少ないシミュレーションでも全アクションの比較が可能になる。
+
+### sigma_bar（スコア更新）
+
+Sequential Halvingの各フェーズでスコアを更新する際に使用:
 
 ```
-P'(s, a) = (1 - ε) × P(s, a) + ε × Dir(α)
+sigma_bar(a) = (c_visit + N_max) × q_normalized(a)
 ```
 
-| パラメータ | デフォルト | 説明 |
-|-----------|----------|------|
-| `alpha` | 0.4 | Dirichlet 集中パラメータ（≈ 10/行動空間サイズ） |
-| `epsilon` | 0.25 | ノイズ混合比率 |
+ここで `N_max` はルート子ノードの最大訪問回数、`q_normalized` はcompleted Q-valuesのmin-max正規化値。
 
-- Gamma 分布サンプリングは Marsaglia-Tsang 法で自前実装（外部クレート不要）
-- 推論時（`NnEvaluator`）ではノイズを適用しない（`dirichlet: None`）
-- `DirichletConfig` 構造体でパラメータを管理
+### Gumbelノイズ
 
-#### Dirichlet ノイズのシード生成
-
-ノイズのシードは、全カラムの高さをハッシュチェーンで混合して生成する。盤面状態が異なればシードが異なり、探索の多様性が向上する。
-
-```rust
-let mut seed = 0u64;
-for col in 0..COLS {
-    seed = seed.wrapping_mul(6364136223846793005)
-        .wrapping_add(board.columns[col].len() as u64);
-}
-```
+標準Gumbel(0,1)分布からサンプリング: `g = -log(-log(u))` (u ~ Uniform(0,1))。既存の `xorshift64_f64` PRNGを使用。Gumbelノイズにより探索の多様性が確保されるため、Dirichletノイズは不要。
 
 ### API
 
 ```rust
-pub struct DirichletConfig {
-    pub alpha: f32,
-    pub epsilon: f32,
-}
-
 pub fn mcts_search(
     board: &Board,
     current: &Piece,
@@ -168,16 +157,19 @@ pub fn mcts_search(
     device: &<NdArray as Backend>::Device,
     num_simulations: usize,
     c_puct: f32,
-    temperature: f32,
     gamma: f32,
-    dirichlet: Option<&DirichletConfig>,
+    m: usize,
+    c_visit: f32,
+    c_scale: f32,
+    seed: u64,
 ) -> ([f32; 24], [f32; 24])
 ```
 
-- **入力**: 盤面、3ツモ（current, next, next_next）、NNモデル、デバイス、探索パラメータ（シミュレーション回数、PUCT定数、温度）、割引率、Dirichlet ノイズ設定（None で無効）
-- **出力**: (24次元の確率分布（各配置の訪問回数に基づく）, 24次元のQ値)
-- `gamma` は将来報酬の割引率（例: 0.99）。`MctsTree::new()` に渡され、Backpropagation の `backup = reward + gamma * backup` で使用される
-- `dirichlet` が Some の場合、最初のシミュレーションでルートノードを展開した後、Dirichlet ノイズを適用してから残りのシミュレーションを実行する
+- **入力**: 盤面、3ツモ、NNモデル、デバイス、探索パラメータ（シミュレーション回数、PUCT定数、割引率、Top-kサンプル数m、Q値スケーリングc_visit/c_scale、Gumbelシード）
+- **出力**: (24次元のimproved policy, 24次元のQ値)
+- `m`: 初期にGumbel-Top-kで選択するアクション数（デフォルト16）
+- `c_visit`: completed Q-valuesのスケーリング係数（デフォルト50.0）
+- `c_scale`: advantageのスケールパラメータ（デフォルト1.0）
 
 ## 共通ユーティリティ（placement.rs）
 

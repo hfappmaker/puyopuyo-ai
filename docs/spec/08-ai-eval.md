@@ -18,7 +18,7 @@ pub trait Evaluator {
 |-----------|----------|---------|
 | `SimulationEvaluator` | depth-1〜2 を BFS 順で統一評価 | max(実連鎖スコア, 仮想ぷよシミュレーション期待値) |
 | `NnEvaluator`（Policy-only） | 探索なし、NN 1回推論で直接選択 | Dual Head Network の Policy Head（マスク付き argmax） |
-| `NnEvaluator`（MCTS） | MCTS（PUCT探索） | Dual Head Network の Policy + Value Head |
+| `NnEvaluator`（MCTS） | Gumbel MCTS（Sequential Halving + PUCT） | Dual Head Network の Policy + Value Head |
 
 ## 共通定数
 
@@ -72,11 +72,11 @@ Dual Head Network（`PuyoNet`）で盤面とコンテキスト情報（3ツモ�
 | モード | 有効化方法 | 探索方式 | 用途 |
 |--------|-----------|----------|------|
 | Policy-only | デフォルト | 探索なし、1回推論で直接選択 | WASM（ブラウザ） |
-| MCTS | `with_mcts(config)` | PUCT探索（Chance Node付き） | self-play、強い推論 |
+| MCTS | `with_mcts(config)` | Gumbel MCTS（Sequential Halving + PUCT） | self-play、強い推論 |
 
 ### 設定メソッド
 
-- `with_mcts(config: MctsConfig)`: MCTSモードを有効化。`MctsConfig` で探索パラメータを指定
+- `with_mcts(config: MctsConfig)`: MCTSモードを有効化。`MctsConfig` で探索パラメータを指定（`num_simulations`, `c_puct`, `m`, `c_visit`, `c_scale`）
 
 ### Policy-only モードの評価の流れ
 
@@ -89,9 +89,9 @@ Dual Head Network（`PuyoNet`）で盤面とコンテキスト情報（3ツモ�
 
 ### MCTS モードの評価の流れ
 
-1. `mcts_search()` を呼び出し、PUCT探索で配置確率分布 `[f32; 24]` を取得。`gamma` 引数で将来報酬の割引率を指定する
-2. 確率分布から最善配置を選択
-3. 詳細は `docs/spec/09-ai-search.md` の MCTS 探索セクションを参照
+1. `mcts_search()` を呼び出し、Gumbel MCTS（Sequential Halving + PUCT）で improved policy `[f32; 24]` を取得。`gamma` 引数で将来報酬の割引率を指定する
+2. improved policy から最善配置を選択
+3. 詳細は `docs/spec/09-ai-search.md` の Gumbel MCTS 探索セクションを参照
 
 ### 配置インデックス体系
 

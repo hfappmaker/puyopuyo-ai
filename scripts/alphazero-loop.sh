@@ -7,14 +7,13 @@ cd "$PROJECT_ROOT"
 
 # 設定（環境変数でオーバーライド可能）
 GAMES="${GAMES:-300}"
-SIMS_BASE="${SIMS_BASE:-200}"       # シミュレーション初期値
+SIMS_BASE="${SIMS_BASE:-64}"        # シミュレーション初期値
 SIMS_STEP="${SIMS_STEP:-0}"        # イテレーションごとの増加量
-SIMS_MAX="${SIMS_MAX:-200}"        # シミュレーション上限
+SIMS_MAX="${SIMS_MAX:-64}"         # シミュレーション上限
 C_PUCT="${C_PUCT:-1.5}"
-TEMPERATURE="${TEMPERATURE:-1.0}"
-DIRICHLET_ALPHA="${DIRICHLET_ALPHA:-0.4}"
-DIRICHLET_EPSILON="${DIRICHLET_EPSILON:-0.25}"
-TEMP_THRESHOLD="${TEMP_THRESHOLD:-15}"
+M="${M:-16}"                        # Gumbel Top-k初期サンプル数
+C_VISIT="${C_VISIT:-50.0}"          # Q値スケーリング
+C_SCALE="${C_SCALE:-1.0}"           # スケールパラメータ
 REPLAY_WINDOW="${REPLAY_WINDOW:-1}"  # 直近N個のイテレーションデータを保持
 LOG_FILE="artifacts/alphazero-loop.log"
 
@@ -46,17 +45,16 @@ while true; do
 
     OUTPUT_FILE="data/alphazero_iter_${ITERATION}.bin"
 
-    # 1. Self-play
-    log "Self-play start (seed_offset=$SEED_OFFSET, dirichlet_alpha=$DIRICHLET_ALPHA)"
+    # 1. Self-play (Gumbel MCTS)
+    log "Self-play start (seed_offset=$SEED_OFFSET, m=$M, c_visit=$C_VISIT)"
     cargo run --release -p puyo-trainer --bin self-play -- \
         --games "$GAMES" \
         --simulations "$SIMS" \
         --c-puct "$C_PUCT" \
-        --temperature "$TEMPERATURE" \
         --seed-offset "$SEED_OFFSET" \
-        --dirichlet-alpha "$DIRICHLET_ALPHA" \
-        --dirichlet-epsilon "$DIRICHLET_EPSILON" \
-        --temp-threshold "$TEMP_THRESHOLD" \
+        --m "$M" \
+        --c-visit "$C_VISIT" \
+        --c-scale "$C_SCALE" \
         --output "$OUTPUT_FILE" \
         2>&1 | tee -a "$LOG_FILE"
 
@@ -84,7 +82,7 @@ while true; do
     git add artifacts/puyo_model.bin
     git commit -m "alphazero: iter $ITERATION training complete"
 
-    # 5. 次のイテレーションへ
+    # 6. 次のイテレーションへ
     ITERATION=$((ITERATION + 1))
     echo "$ITERATION" > "$ITER_FILE"
 
