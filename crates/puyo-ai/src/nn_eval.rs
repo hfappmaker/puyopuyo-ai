@@ -32,7 +32,7 @@ impl Default for MctsConfig {
             num_simulations: 64,
             c_puct: 1.5,
             m: 16,
-            c_visit: 50.0,
+            c_visit: 1.0,
             c_scale: 1.0,
             gamma: 0.95,
         }

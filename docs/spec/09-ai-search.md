@@ -167,7 +167,7 @@ pub fn mcts_search(
 - `num_simulations`: シミュレーション回数（デフォルト64）
 - `c_puct`: PUCT定数（デフォルト1.5）
 - `m`: 初期にGumbel-Top-kで選択するアクション数（デフォルト16）
-- `c_visit`: completed Q-valuesのスケーリング係数（デフォルト50.0）
+- `c_visit`: completed Q-valuesのスケーリング係数（デフォルト1.0）
 - `c_scale`: advantageのスケールパラメータ（デフォルト1.0）
 - `gamma`: 将来報酬の割引率（デフォルト0.95）
 
