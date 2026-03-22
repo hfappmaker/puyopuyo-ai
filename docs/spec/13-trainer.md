@@ -35,8 +35,9 @@ crates/puyo-trainer/
 ```rust
 pub struct Sample {
     pub board_data: Vec<f32>,    // エンコード済み盤面 (504 floats)
-    pub context_data: Vec<f32>,  // コンテキストエンコーディング (25 floats: ツモ one-hot 24 + 残り手数比率 1)
+    pub context_data: Vec<f32>,  // コンテキストエンコーディング (24 floats: ツモ one-hot)
     pub action_index: u8,        // SimulationEvaluator が選択した配置インデックス (0〜23)
+    pub value_target: f32,       // 教師評価器によるスコア推定値
 }
 ```
 
@@ -55,9 +56,9 @@ MCTS self-play で生成されるサンプル。Policy と Value の両方の教
 ```rust
 pub struct AlphaZeroSample {
     pub board_data: Vec<f32>,     // エンコード済み盤面 (504 floats)
-    pub context_data: Vec<f32>,   // コンテキストエンコーディング (25 floats)
+    pub context_data: Vec<f32>,   // コンテキストエンコーディング (24 floats: ツモ one-hot)
     pub mcts_policy: Vec<f32>,    // MCTS 探索による配置確率分布 (24 floats)
-    pub value_target: f32,        // 累積割引報酬（γ=0.99 で逆算）
+    pub value_target: f32,        // 累積割引報酬（γ=0.95 で逆算）
 }
 ```
 
@@ -102,7 +103,7 @@ SimulationEvaluator AI に自動対戦させ、訓練データを収集する。
 | 名前 | 値 | 説明 |
 |------|-----|------|
 | `BATCH_SIZE` | 512 (GPU) / 64 (CPU) | バッチサイズ |
-| `NUM_EPOCHS` | 50（教師あり） / 20（AlphaZero） | 最大エポック数 |
+| `NUM_EPOCHS` | 50（教師あり） / 40（AlphaZero） | 最大エポック数 |
 | `LR_MAX` | 5e-4（教師あり） / 2e-4（AlphaZero） | Cosine Annealing 初期学習率 |
 | `LR_MIN` | 1e-5 | Cosine Annealing 最終学習率 |
 | `EARLY_STOPPING_PATIENCE` | 5（教師あり） / 10（AlphaZero） | Early Stopping の patience（エポック数） |
@@ -156,6 +157,7 @@ Gumbel MCTS ベースの AlphaZero self-play ループ。Dual Head Network（`Pu
 | `--m` | 整数 | 16 | Gumbel Top-k 初期サンプル数 |
 | `--c-visit` | 小数 | 50.0 | Q値スケーリング係数 |
 | `--c-scale` | 小数 | 1.0 | Advantage スケールパラメータ |
+| `--gamma` | 小数 | 0.95 | 将来報酬の割引率 |
 | `--output` | 文字列 | `data/alphazero_data.bin` | 出力ファイルパス |
 
 `--seed-offset` により、複数回の self-play 実行で異なるゲームデータを生成できる。
@@ -170,7 +172,7 @@ Gumbel AlphaZero では、各手番でGumbel(0,1)ノイズをサンプリング�
 2. 各手番で improved policy（completed Q-values に基づく改善ポリシー）を policy target として記録
 3. ゲーム終了後、各手番の value target を累積割引報酬で逆算:
    ```
-   value_target[t] = Σ_{k=0}^{T-t-1} γ^k × score[t+k]  （γ = 0.99）
+   value_target[t] = Σ_{k=0}^{T-t-1} γ^k × score[t+k]  （γ = 0.95）
    ```
 4. **MAX_TURNS 打ち切り時はブートストラップ**：ゲームオーバーではなく手数上限で打ち切られた場合、NN の value 推定を使って最終ターンの value target を補正する:
    ```

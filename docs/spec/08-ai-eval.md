@@ -9,10 +9,11 @@
 ```rust
 pub trait Evaluator {
     fn find_best_move(&self, board, current, next, next_next) -> Option<(Placement, f64)>;
+    fn set_num_simulations(&mut self, _num_simulations: usize) {}  // デフォルト実装: 何もしない
 }
 ```
 
-唯一のメソッド `find_best_move()` で、各 Evaluator が評価関数と探索戦略の両方を実装する。戻り値は最善配置と評価スコアのタプル。探索深度、評価ロジックは各実装が決定する。
+主要メソッド `find_best_move()` で、各 Evaluator が評価関数と探索戦略の両方を実装する。戻り値は最善配置と評価スコアのタプル。探索深度、評価ロジックは各実装が決定する。`set_num_simulations()` は MCTS のシミュレーション数を動的に変更するためのメソッド（デフォルト実装は何もしない）。
 
 | Evaluator | 探索方式 | 評価関数 |
 |-----------|----------|---------|
@@ -76,7 +77,8 @@ Dual Head Network（`PuyoNet`）で盤面とコンテキスト情報（3ツモ�
 
 ### 設定メソッド
 
-- `with_mcts(config: MctsConfig)`: MCTSモードを有効化。`MctsConfig` で探索パラメータを指定（`num_simulations`, `c_puct`, `m`, `c_visit`, `c_scale`）
+- `with_mcts(config: MctsConfig)`: MCTSモードを有効化。`MctsConfig` で探索パラメータを指定（`num_simulations`, `c_puct`, `m`, `c_visit`, `c_scale`, `gamma`）
+- `set_num_simulations(num_simulations: usize)`: MCTS シミュレーション数を動的に変更する
 
 ### Policy-only モードの評価の流れ
 

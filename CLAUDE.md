@@ -37,7 +37,7 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 ## アーキテクチャの要点
 
 ### Evaluator trait（多態性の中心）
-`puyo-ai/src/eval.rs`の`Evaluator`トレイト（`find_best_move(&Board, &Piece, &Piece, &Piece, u32) -> Option<(Placement, f64)>`）がAIの核。最後の`u32`は`move_count`（ゲーム開始からの手数）。
+`puyo-ai/src/eval.rs`の`Evaluator`トレイト（`find_best_move(&Board, &Piece, &Piece, &Piece) -> Option<(Placement, f64)>`）がAIの核。
 - `SimulationEvaluator`: 仮想ぷよシミュレーションで盤面を評価（2手先読みBFS）
 - `NnEvaluator`（`puyo-ai/src/nn_eval.rs`、`nn` feature flag有効時のみ）: Dual Head Network（Policy + Value）で評価。MCTSモード（`MctsConfig`付き、PUCT探索）とPolicy-onlyモード（WASM用、1回推論）の2モード
 

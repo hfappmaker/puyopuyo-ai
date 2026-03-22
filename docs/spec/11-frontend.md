@@ -93,7 +93,7 @@ AIプレビュー実行時に、サイドバーの「AI評価」パネルに評�
 
 | リソース | URL |
 |---------|-----|
-| モデル本体 | `/models/puyo_model_selfplay.bin` |
+| モデル本体 | `/models/puyo_model.bin` |
 
 Policy Network への移行に伴い、`norm_params.txt`（z-score 正規化パラメータ）の読み込みは不要となった。`load_nn_model()` にはモデルバイト列のみを渡す。
 fetch に失敗した場合や、リソースが存在しない場合は `console.warn` を出力してヒューリスティックにフォールバックする。
@@ -101,5 +101,5 @@ fetch に失敗した場合や、リソースが存在しない場合は `consol
 ### MCTS モード
 
 AI モードセレクタで「NN + MCTS」を選択すると、MCTS（モンテカルロ木探索）モードで NN 評価器が動作する。
-シミュレーション数（デフォルト 50）を入力欄で調整可能。`load_nn_model_with_mcts()` を呼び出し、指定回数の MCTS 探索を行った上で最善手を選択する。
+シミュレーション数（デフォルト 50）を入力欄で調整可能。`load_nn_model_with_mcts()` でモデルを読み込み、`set_mcts_simulations()` でシミュレーション数を動的に変更できる。指定回数の MCTS 探索を行った上で最善手を選択する。
 Policy-only モードより計算に時間がかかるが、より強い手を選択できる。

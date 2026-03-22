@@ -59,7 +59,7 @@ East/West 配置では軸列・衛星列の両方が到達可能でなければ�
 
 ## find_best_move
 
-`find_best_move` は `Evaluator` トレイトの唯一のメソッド。各評価器が評価関数・探索深度を含む探索戦略を完全に実装する。
+`find_best_move` は `Evaluator` トレイトの主要メソッド。各評価器が評価関数・探索深度を含む探索戦略を完全に実装する。
 
 ```rust
 fn find_best_move(&self, board: &Board, current: &Piece, next: &Piece, next_next: &Piece) -> Option<(Placement, f64)>
@@ -169,7 +169,7 @@ pub fn mcts_search(
 - `m`: 初期にGumbel-Top-kで選択するアクション数（デフォルト16）
 - `c_visit`: completed Q-valuesのスケーリング係数（デフォルト50.0）
 - `c_scale`: advantageのスケールパラメータ（デフォルト1.0）
-- `gamma`: 将来報酬の割引率（デフォルト0.99）
+- `gamma`: 将来報酬の割引率（デフォルト0.95）
 
 ## 共通ユーティリティ（placement.rs）
 
