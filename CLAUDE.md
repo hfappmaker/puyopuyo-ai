@@ -47,14 +47,6 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 
 詳細は仕様書を参照: NN → `docs/spec/12-nn.md`、WASM → `docs/spec/10-wasm-bridge.md`、学習 → `docs/spec/13-trainer.md`、フロントエンド → `docs/spec/11-frontend.md`
 
-## コーディングルール
-
-### `&mut` の使用制限（Rust）
-- `&mut self` は許可。
-- それ以外の `&mut` パラメータは原則禁止。値の返却（タプル含む）で代替すること。
-- 複数の可変状態を扱う場合は構造体にまとめ、メソッド（`&mut self`）で操作する。
-- 例外: コンストラクタ内など `self` が存在しない文脈での `&mut`（例: `generate_piece(rng: &mut Rng)`）。
-
 ## モデルファイル
 
 - `artifacts/puyo_model.bin` (~500KB): 学習済みモデル（`BinFileRecorder`形式）
