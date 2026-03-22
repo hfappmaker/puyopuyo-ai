@@ -44,13 +44,15 @@ impl AlphaZeroDataset {
     }
 
     pub fn save(&self, path: &str) -> std::io::Result<()> {
-        let bytes = bincode::serialize(self).expect("Failed to serialize dataset");
+        let bytes = bincode::serialize(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         std::fs::write(path, bytes)
     }
 
     pub fn load(path: &str) -> std::io::Result<Self> {
         let bytes = std::fs::read(path)?;
-        let dataset: AlphaZeroDataset = bincode::deserialize(&bytes).expect("Failed to deserialize dataset");
+        let dataset: AlphaZeroDataset = bincode::deserialize(&bytes)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         Ok(dataset)
     }
 
@@ -86,13 +88,15 @@ impl Dataset {
     }
 
     pub fn save(&self, path: &str) -> std::io::Result<()> {
-        let bytes = bincode::serialize(self).expect("Failed to serialize dataset");
+        let bytes = bincode::serialize(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         std::fs::write(path, bytes)
     }
 
     pub fn load(path: &str) -> std::io::Result<Self> {
         let bytes = std::fs::read(path)?;
-        let dataset: Dataset = bincode::deserialize(&bytes).expect("Failed to deserialize dataset");
+        let dataset: Dataset = bincode::deserialize(&bytes)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         Ok(dataset)
     }
 }

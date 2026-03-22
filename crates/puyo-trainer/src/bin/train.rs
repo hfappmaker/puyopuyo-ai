@@ -203,7 +203,7 @@ fn train_supervised() {
 
             let loss = policy_loss + value_loss * VALUE_LOSS_WEIGHT;
 
-            let loss_val = loss.clone().into_data().to_vec::<f32>().unwrap()[0];
+            let loss_val = loss.clone().into_data().to_vec::<f32>().expect("Failed to extract loss")[0];
             epoch_loss += loss_val;
             num_batches += 1;
 
@@ -278,8 +278,8 @@ fn compute_val_loss_supervised(
 
         let value_loss = value_mse_loss(value, &value_targets, device);
 
-        let loss_val = policy_loss.into_data().to_vec::<f32>().unwrap()[0]
-            + value_loss.into_data().to_vec::<f32>().unwrap()[0] * VALUE_LOSS_WEIGHT;
+        let loss_val = policy_loss.into_data().to_vec::<f32>().expect("Failed to extract policy loss")[0]
+            + value_loss.into_data().to_vec::<f32>().expect("Failed to extract value loss")[0] * VALUE_LOSS_WEIGHT;
         total_loss += loss_val;
         num_batches += 1;
     }
@@ -427,8 +427,8 @@ fn train_alphazero(data_dir: Option<&str>) {
             let value_loss = value_mse_loss(value, &value_targets, &device);
 
             // Total loss (value loss weighted to balance with policy loss)
-            let p_loss_val = policy_loss.clone().into_data().to_vec::<f32>().unwrap()[0];
-            let v_loss_val = value_loss.clone().into_data().to_vec::<f32>().unwrap()[0];
+            let p_loss_val = policy_loss.clone().into_data().to_vec::<f32>().expect("Failed to extract policy loss")[0];
+            let v_loss_val = value_loss.clone().into_data().to_vec::<f32>().expect("Failed to extract value loss")[0];
             let total_loss = policy_loss + value_loss * VALUE_LOSS_WEIGHT;
 
             epoch_policy_loss += p_loss_val;
@@ -517,10 +517,10 @@ fn compute_val_loss_alphazero(
         let (logits, value) = model.forward(board_inputs, context_inputs);
 
         let policy_loss = cross_entropy_loss_soft(logits, &policy_targets, device);
-        total_policy_loss += policy_loss.into_data().to_vec::<f32>().unwrap()[0];
+        total_policy_loss += policy_loss.into_data().to_vec::<f32>().expect("Failed to extract policy loss")[0];
 
         let value_loss = value_mse_loss(value, &value_targets, device);
-        total_value_loss += value_loss.into_data().to_vec::<f32>().unwrap()[0];
+        total_value_loss += value_loss.into_data().to_vec::<f32>().expect("Failed to extract value loss")[0];
 
         num_batches += 1;
     }

@@ -20,7 +20,6 @@ fn main() {
     for seed in 0..NUM_GAMES {
         let mut game = GameState::new(seed);
         let mut move_count = 0usize;
-        let mut game_max_chain = 0u32;
 
         while game.phase != GamePhase::GameOver {
             if game.phase != GamePhase::Falling {
@@ -57,8 +56,7 @@ fn main() {
             match result {
                 Some((placement, score)) => {
                     let action_index = placement_to_index(&placement) as u8;
-                    let chain_result = game.apply_placement(&placement);
-                    game_max_chain = game_max_chain.max(chain_result.chain_count);
+                    game.apply_placement(&placement);
 
                     dataset.samples.push(Sample {
                         board_data,
@@ -73,7 +71,7 @@ fn main() {
         }
 
         total_max_chain = total_max_chain.max(game.max_chain);
-        total_chain_sum += game_max_chain as u64;
+        total_chain_sum += game.max_chain as u64;
 
         if (seed + 1) % 100 == 0 {
             let elapsed = start_time.elapsed().as_secs_f64();
@@ -87,7 +85,7 @@ fn main() {
                 NUM_GAMES,
                 dataset.samples.len(),
                 move_count,
-                game_max_chain,
+                game.max_chain,
                 total_max_chain,
                 avg_chain,
                 game.score,

@@ -10,6 +10,7 @@ use burn::backend::ndarray::NdArray;
 use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 
+use puyo_ai::hash_util::splitmix64;
 use puyo_ai::mcts::mcts_search;
 use puyo_ai::nn_eval::MctsConfig;
 use puyo_ai::placement::NUM_ACTIONS;
@@ -51,44 +52,50 @@ fn parse_args() -> Args {
         gamma: 0.95,
         output_path: DEFAULT_OUTPUT_PATH.to_string(),
     };
+    let next_val = |i: usize, flag: &str| -> &String {
+        args.get(i).unwrap_or_else(|| {
+            eprintln!("Error: {flag} requires a value");
+            std::process::exit(1);
+        })
+    };
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
             "--games" => {
                 i += 1;
-                result.num_games = args[i].parse().expect("--games requires integer");
+                result.num_games = next_val(i, "--games").parse().expect("--games requires integer");
             }
             "--simulations" => {
                 i += 1;
-                result.num_simulations = args[i].parse().expect("--simulations requires integer");
+                result.num_simulations = next_val(i, "--simulations").parse().expect("--simulations requires integer");
             }
             "--c-puct" => {
                 i += 1;
-                result.c_puct = args[i].parse().expect("--c-puct requires float");
+                result.c_puct = next_val(i, "--c-puct").parse().expect("--c-puct requires float");
             }
             "--seed-offset" => {
                 i += 1;
-                result.seed_offset = args[i].parse().expect("--seed-offset requires integer");
+                result.seed_offset = next_val(i, "--seed-offset").parse().expect("--seed-offset requires integer");
             }
             "--m" => {
                 i += 1;
-                result.m = args[i].parse().expect("--m requires integer");
+                result.m = next_val(i, "--m").parse().expect("--m requires integer");
             }
             "--c-visit" => {
                 i += 1;
-                result.c_visit = args[i].parse().expect("--c-visit requires float");
+                result.c_visit = next_val(i, "--c-visit").parse().expect("--c-visit requires float");
             }
             "--c-scale" => {
                 i += 1;
-                result.c_scale = args[i].parse().expect("--c-scale requires float");
+                result.c_scale = next_val(i, "--c-scale").parse().expect("--c-scale requires float");
             }
             "--gamma" => {
                 i += 1;
-                result.gamma = args[i].parse().expect("--gamma requires float");
+                result.gamma = next_val(i, "--gamma").parse().expect("--gamma requires float");
             }
             "--output" => {
                 i += 1;
-                result.output_path = args[i].clone();
+                result.output_path = next_val(i, "--output").clone();
             }
             other => eprintln!("Unknown option: {} (ignoring)", other),
         }
@@ -120,7 +127,7 @@ fn play_one_game(
 ) -> GameResult {
     let seed = args.seed_offset + game_idx;
     let mut game = GameState::new(seed);
-    let mut move_records: Vec<MoveRecord> = Vec::new();
+    let mut move_records: Vec<MoveRecord> = Vec::with_capacity(MAX_TURNS as usize);
     let mut move_count = 0u32;
 
     let mcts_config = MctsConfig {
@@ -156,13 +163,10 @@ fn play_one_game(
 
         // Run Gumbel MCTS (Gumbel noise provides exploration, no Dirichlet needed)
         // Use splitmix64-style hash mixing to decorrelate seeds across consecutive moves
-        let gumbel_seed = {
-            let mut s = seed.wrapping_mul(6364136223846793005)
-                .wrapping_add(move_count as u64);
-            s = (s ^ (s >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-            s = (s ^ (s >> 27)).wrapping_mul(0x94D049BB133111EB);
-            s ^ (s >> 31)
-        };
+        let gumbel_seed = splitmix64(
+            seed.wrapping_mul(6364136223846793005)
+                .wrapping_add(move_count as u64),
+        );
         let (mcts_policy, _q_values) = mcts_search(
             &game.board,
             &current_piece,
@@ -176,12 +180,10 @@ fn play_one_game(
 
         // Select action: sample from improved policy
         // Use splitmix64-style hash mixing to decorrelate from gumbel_seed
-        let selection_seed = {
-            let mut s = seed.wrapping_add(move_count as u64).wrapping_add(0x9e3779b97f4a7c15);
-            s = (s ^ (s >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-            s = (s ^ (s >> 27)).wrapping_mul(0x94D049BB133111EB);
-            s ^ (s >> 31)
-        };
+        let selection_seed = splitmix64(
+            seed.wrapping_add(move_count as u64)
+                .wrapping_add(0x9e3779b97f4a7c15),
+        );
         let action = select_from_policy(&mcts_policy, selection_seed);
 
         let placement = puyo_ai::placement::index_to_placement(action);
@@ -395,18 +397,15 @@ fn estimate_value(
             .reshape([1, CONTEXT_TENSOR_SIZE]);
 
     let (_logits, value) = model.forward(board_tensor, context_tensor);
-    let value_scalar = value.into_data().to_vec::<f32>().unwrap_or_default();
-    let v_raw = if value_scalar.is_empty() { 0.0 } else { value_scalar[0] };
+    let value_scalar = value.into_data().to_vec::<f32>().expect("Failed to extract value tensor");
+    let v_raw = value_scalar[0];
     value_inverse_transform(v_raw)
 }
 
 /// Select an action by sampling from the MCTS policy.
 fn select_from_policy(policy: &[f32; NUM_ACTIONS], seed: u64) -> usize {
     // Deterministic sampling using hash
-    let mut x = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-    x = (x ^ (x >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-    x = (x ^ (x >> 27)).wrapping_mul(0x94D049BB133111EB);
-    x = x ^ (x >> 31);
+    let x = splitmix64(seed.wrapping_mul(6364136223846793005).wrapping_add(1));
 
     let r = (x as f64) / (u64::MAX as f64);
     let mut cumulative = 0.0;

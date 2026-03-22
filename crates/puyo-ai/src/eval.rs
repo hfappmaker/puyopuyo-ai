@@ -56,7 +56,7 @@ impl Evaluator for SimulationEvaluator {
                 let score = depth1_score.max(depth2_best);
                 Some((*p1, score))
             })
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| a.1.total_cmp(&b.1))
     }
 }
 
@@ -75,7 +75,7 @@ const COLORS: [PuyoColor; 4] = [
 
 /// 仮想ぷよ（同色2個Piece）を全合法配置に落として連鎖スコアの期待値（全パターン平均）を推定する。
 fn simulate_expected_score(board: &Board) -> f64 {
-    let scores: Vec<f64> = COLORS
+    let (sum, count) = COLORS
         .iter()
         .flat_map(|&color| {
             let piece = Piece::new(color, color);
@@ -89,14 +89,15 @@ fn simulate_expected_score(board: &Board) -> f64 {
                         result.score as f64
                     }
                 })
-                .collect::<Vec<_>>()
         })
-        .collect();
+        .fold((0.0f64, 0usize), |(sum, count), score| {
+            (sum + score, count + 1)
+        });
 
-    if scores.is_empty() {
+    if count == 0 {
         return W_GAME_OVER;
     }
-    scores.iter().sum::<f64>() / scores.len() as f64
+    sum / count as f64
 }
 
 #[cfg(test)]

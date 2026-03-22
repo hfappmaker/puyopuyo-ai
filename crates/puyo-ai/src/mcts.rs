@@ -291,8 +291,8 @@ impl MctsTree {
 
         let (logits, value) = model.forward(board_tensor, context_tensor);
 
-        let logits_vec = logits.into_data().to_vec::<f32>().unwrap_or_default();
-        let value_scalar = value.into_data().to_vec::<f32>().unwrap_or_default();
+        let logits_vec = logits.into_data().to_vec::<f32>().expect("Failed to extract logits tensor");
+        let value_scalar = value.into_data().to_vec::<f32>().expect("Failed to extract value tensor");
         let v_raw = if value_scalar.is_empty() { 0.0 } else { value_scalar[0] };
         let v = value_inverse_transform(v_raw);
 
@@ -479,14 +479,13 @@ pub fn board_hash(board: &Board) -> u64 {
 
 /// Sample a random piece deterministically from node_id, action, and board hash.
 fn sample_piece(seed1: u64, seed2: u64, seed3: u64) -> Piece {
-    let mut x = seed1
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(seed2)
-        .wrapping_add(1)
-        .wrapping_add(seed3.wrapping_mul(0x9e3779b97f4a7c15));
-    x = (x ^ (x >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-    x = (x ^ (x >> 27)).wrapping_mul(0x94D049BB133111EB);
-    x = x ^ (x >> 31);
+    let mut x = crate::hash_util::splitmix64(
+        seed1
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(seed2)
+            .wrapping_add(1)
+            .wrapping_add(seed3.wrapping_mul(0x9e3779b97f4a7c15)),
+    );
 
     let axis = ((x % NUM_COLORS as u64) as u8) + 1;
     // Re-mix for independent satellite color

@@ -389,8 +389,6 @@ pub fn new(config: Config) -> Result<Self> {
 
 ## Minimize Mutability with Expressions
 
-Rust's `if`, `match`, and blocks are expressions that return values. Use them to bind variables immutably instead of declaring `let mut` and reassigning.
-
 ### Use `if` / `match` Expressions
 
 ```rust
