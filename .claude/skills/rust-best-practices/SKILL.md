@@ -1,7 +1,7 @@
 ---
 name: rust-best-practices
 description: Rust coding best practices for idiomatic, efficient, and maintainable code. Use when writing Rust code, reviewing code, or learning Rust patterns.
-user-invokable: false
+user-invocable: false
 ---
 
 # Rust Best Practices

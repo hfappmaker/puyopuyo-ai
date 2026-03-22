@@ -27,7 +27,8 @@ ENV PATH="/usr/local/cuda-12.4/bin:${PATH}"
 ENV LD_LIBRARY_PATH="/usr/local/cuda-12.4/lib64"
 
 # Install wasm-pack and wasm target
-RUN rustup target add wasm32-unknown-unknown \
+RUN rustup component add clippy rustfmt \
+    && rustup target add wasm32-unknown-unknown \
     && cargo install wasm-pack
 
 # Install Node.js 20 LTS and Git LFS
