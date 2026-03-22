@@ -519,6 +519,35 @@ fn compute_completed_q(
     })
 }
 
+/// Min-max normalize Q-values to [0,1].
+/// Only indices where `mask[a]` is true are considered for min/max range.
+/// Returns 0.0 for masked-out actions, 0.5 when all considered values are equal.
+fn normalize_q_minmax(
+    q_values: &[f32; NUM_ACTIONS],
+    mask: &[bool; NUM_ACTIONS],
+) -> [f32; NUM_ACTIONS] {
+    let mut min_q = f32::INFINITY;
+    let mut max_q = f32::NEG_INFINITY;
+    for a in 0..NUM_ACTIONS {
+        if mask[a] {
+            min_q = min_q.min(q_values[a]);
+            max_q = max_q.max(q_values[a]);
+        }
+    }
+    let q_range = max_q - min_q;
+
+    std::array::from_fn(|a| {
+        if !mask[a] {
+            return 0.0;
+        }
+        if q_range > f32::EPSILON {
+            (q_values[a] - min_q) / q_range
+        } else {
+            0.5
+        }
+    })
+}
+
 /// Compute the improved policy target from logits and completed Q-values.
 /// π_improved(a) ∝ π(a) · exp(advantage(a) · c_visit / c_scale)
 ///
@@ -532,27 +561,7 @@ fn compute_improved_policy(
     c_visit: f32,
     c_scale: f32,
 ) -> [f32; NUM_ACTIONS] {
-    // Min-max normalize Q-values to [0,1] so advantage scale is consistent
-    let mut min_q = f32::INFINITY;
-    let mut max_q = f32::NEG_INFINITY;
-    for a in 0..NUM_ACTIONS {
-        if mask[a] {
-            min_q = min_q.min(q_completed[a]);
-            max_q = max_q.max(q_completed[a]);
-        }
-    }
-    let q_range = max_q - min_q;
-
-    let q_normalized: [f32; NUM_ACTIONS] = std::array::from_fn(|a| {
-        if !mask[a] {
-            return 0.0;
-        }
-        if q_range > f32::EPSILON {
-            (q_completed[a] - min_q) / q_range
-        } else {
-            0.5
-        }
-    });
+    let q_normalized = normalize_q_minmax(q_completed, mask);
 
     // Compute V_mixed: prior-weighted sum of normalized Q-values
     let priors = masked_softmax(logits, mask);
@@ -589,27 +598,18 @@ fn compute_sigma_bar(
         .filter_map(|&a| root.children[a].map(|cid| tree.nodes[cid].visit_count as f32))
         .fold(0.0f32, f32::max);
 
-    // Min-max normalize completed Q-values
-    let mut min_q = f32::INFINITY;
-    let mut max_q = f32::NEG_INFINITY;
+    // Build mask restricted to considered actions for normalization range
+    let mut considered_mask = [false; NUM_ACTIONS];
     for &a in considered {
-        if mask[a] {
-            min_q = min_q.min(q_completed[a]);
-            max_q = max_q.max(q_completed[a]);
-        }
+        considered_mask[a] = mask[a];
     }
-    let q_range = max_q - min_q;
+    let q_normalized = normalize_q_minmax(q_completed, &considered_mask);
 
     std::array::from_fn(|a| {
         if !mask[a] {
             return 0.0;
         }
-        let q_norm = if q_range > f32::EPSILON {
-            (q_completed[a] - min_q) / q_range
-        } else {
-            0.5
-        };
-        (c_visit + n_max) * q_norm
+        (c_visit + n_max) * q_normalized[a]
     })
 }
 

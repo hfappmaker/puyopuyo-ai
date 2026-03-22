@@ -20,6 +20,7 @@ use puyo_trainer::data::{AlphaZeroDataset, Dataset};
 type TrainBackend = Autodiff<CudaJit<f32>>;
 #[cfg(not(feature = "gpu"))]
 type TrainBackend = Autodiff<NdArray>;
+type InnerBackend = <TrainBackend as AutodiffBackend>::InnerBackend;
 
 const MODEL_PATH: &str = "artifacts/puyo_model";
 #[cfg(feature = "gpu")]
@@ -39,6 +40,20 @@ const AZ_EARLY_STOPPING_PATIENCE: usize = 10;
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
 const NUM_ACTIONS: usize = 24;
 const VALUE_LOSS_WEIGHT: f32 = 0.5;
+
+/// MSE loss between predicted value and transformed targets.
+fn value_mse_loss<B: Backend>(
+    value: Tensor<B, 2>,
+    targets: &[f32],
+    device: &B::Device,
+) -> Tensor<B, 1> {
+    let batch_size = value.dims()[0];
+    let transformed: Vec<f32> = targets.iter().map(|&v| value_transform(v)).collect();
+    let target_tensor = Tensor::<B, 1>::from_floats(transformed.as_slice(), device)
+        .reshape([batch_size, 1]);
+    let diff = value - target_tensor;
+    diff.clone().mul(diff).mean()
+}
 
 fn cosine_lr(epoch: usize, total_epochs: usize) -> f64 {
     LR_MIN
@@ -168,15 +183,7 @@ fn train_supervised() {
             let (logits, value) = model.forward(board_inputs, context_inputs);
             let policy_loss = cross_entropy_loss_hard(logits, &target_actions, &device);
 
-            // Value loss: MSE on transformed targets
-            let transformed_targets: Vec<f32> = value_targets
-                .iter()
-                .map(|&v| value_transform(v))
-                .collect();
-            let value_target_tensor = Tensor::<TrainBackend, 1>::from_floats(transformed_targets.as_slice(), &device)
-                .reshape([batch_size, 1]);
-            let value_diff = value - value_target_tensor;
-            let value_loss = value_diff.clone().mul(value_diff).mean();
+            let value_loss = value_mse_loss(value, &value_targets, &device);
 
             let loss = policy_loss + value_loss * VALUE_LOSS_WEIGHT;
 
@@ -253,14 +260,7 @@ fn compute_val_loss_supervised(
         let (logits, value) = model.forward(board_inputs, context_inputs);
         let policy_loss = cross_entropy_loss_hard(logits, &target_actions, device);
 
-        let transformed_targets: Vec<f32> = value_targets
-            .iter()
-            .map(|&v| value_transform(v))
-            .collect();
-        let value_target_tensor = Tensor::<InnerBackend, 1>::from_floats(transformed_targets.as_slice(), device)
-            .reshape([batch_size, 1]);
-        let value_diff = value - value_target_tensor;
-        let value_loss = value_diff.clone().mul(value_diff).mean();
+        let value_loss = value_mse_loss(value, &value_targets, device);
 
         let loss_val = policy_loss.into_data().to_vec::<f32>().unwrap()[0]
             + value_loss.into_data().to_vec::<f32>().unwrap()[0] * VALUE_LOSS_WEIGHT;
@@ -408,15 +408,7 @@ fn train_alphazero(data_dir: Option<&str>) {
             // Policy loss: cross-entropy with soft MCTS targets
             let policy_loss = cross_entropy_loss_soft(logits, &policy_targets, &device);
 
-            // Value loss: MSE on transformed targets (MuZero invertible value transform)
-            let transformed_targets: Vec<f32> = value_targets
-                .iter()
-                .map(|&v| value_transform(v))
-                .collect();
-            let value_target_tensor = Tensor::<TrainBackend, 1>::from_floats(transformed_targets.as_slice(), &device)
-                .reshape([batch_size, 1]);
-            let value_diff = value - value_target_tensor;
-            let value_loss = value_diff.clone().mul(value_diff).mean();
+            let value_loss = value_mse_loss(value, &value_targets, &device);
 
             // Total loss (value loss weighted to balance with policy loss)
             let p_loss_val = policy_loss.clone().into_data().to_vec::<f32>().unwrap()[0];
@@ -511,14 +503,7 @@ fn compute_val_loss_alphazero(
         let policy_loss = cross_entropy_loss_soft(logits, &policy_targets, device);
         total_policy_loss += policy_loss.into_data().to_vec::<f32>().unwrap()[0];
 
-        let transformed_targets: Vec<f32> = value_targets
-            .iter()
-            .map(|&v| value_transform(v))
-            .collect();
-        let value_target_tensor = Tensor::<InnerBackend, 1>::from_floats(transformed_targets.as_slice(), device)
-            .reshape([batch_size, 1]);
-        let value_diff = value - value_target_tensor;
-        let value_loss = value_diff.clone().mul(value_diff).mean();
+        let value_loss = value_mse_loss(value, &value_targets, device);
         total_value_loss += value_loss.into_data().to_vec::<f32>().unwrap()[0];
 
         num_batches += 1;
@@ -531,8 +516,6 @@ fn compute_val_loss_alphazero(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-type InnerBackend = <TrainBackend as AutodiffBackend>::InnerBackend;
 
 fn shuffle_indices(indices: &mut [usize], seed: u64) {
     let mut rng_state = seed + 42;
