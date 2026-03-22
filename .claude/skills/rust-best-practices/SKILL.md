@@ -359,6 +359,72 @@ pub fn new(config: Config) -> Result<Self> {
 }
 ```
 
+## Minimize Mutability with Expressions
+
+Rust's `if`, `match`, and blocks are expressions that return values. Use them to bind variables immutably instead of declaring `let mut` and reassigning.
+
+### Use `if` / `match` Expressions
+
+```rust
+// BAD - unnecessary mut
+let mut label = String::new();
+if count > 10 {
+    label = "many".into();
+} else {
+    label = "few".into();
+}
+
+// GOOD - if expression
+let label = if count > 10 { "many" } else { "few" };
+```
+
+```rust
+// BAD
+let mut msg = "";
+match status {
+    Status::Ok => msg = "success",
+    Status::Err => msg = "failure",
+    Status::Pending => msg = "waiting",
+}
+
+// GOOD - match expression
+let msg = match status {
+    Status::Ok => "success",
+    Status::Err => "failure",
+    Status::Pending => "waiting",
+};
+```
+
+### Use Block Expressions for Complex Initialization
+
+```rust
+// BAD
+let mut config = Config::default();
+config.port = 8080;
+config.host = "localhost".into();
+
+// GOOD - block expression (when builder is unavailable)
+let config = {
+    let mut c = Config::default();
+    c.port = 8080;
+    c.host = "localhost".into();
+    c
+};
+```
+
+### Combine with Iterators to Eliminate `mut`
+
+```rust
+// BAD
+let mut total = 0;
+for item in &items {
+    total += item.price();
+}
+
+// GOOD
+let total: i64 = items.iter().map(|item| item.price()).sum();
+```
+
 ## Anti-Patterns to Avoid
 
 | Anti-Pattern | Better Approach |
