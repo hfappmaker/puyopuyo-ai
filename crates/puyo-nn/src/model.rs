@@ -1,6 +1,6 @@
 use burn::nn::conv::{Conv2d, Conv2dConfig};
 use burn::nn::pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig};
-use burn::nn::{GroupNorm, GroupNormConfig, Linear, LinearConfig, PaddingConfig2d, Relu};
+use burn::nn::{Dropout, DropoutConfig, GroupNorm, GroupNormConfig, Linear, LinearConfig, PaddingConfig2d, Relu};
 use burn::prelude::*;
 
 use crate::encoding::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
@@ -13,6 +13,7 @@ const POOL_W: usize = 3;
 const HIDDEN_SIZE: usize = 256;
 const NUM_ACTIONS: usize = 24; // 6 cols × 4 orientations
 const BACKBONE_OUTPUT: usize = HEAD_CHANNELS * POOL_H * POOL_W; // 1536
+const HEAD_DROPOUT: f64 = 0.1;
 
 /// FiLM parameters generated from context (pieces).
 const FILM_HIDDEN: usize = 128;
@@ -89,8 +90,8 @@ impl<B: Backend> ResidualBlock<B> {
 ///     → split into 6 × (gamma[64], beta[64]) for each residual block
 ///   Backbone: stem (6ch → 64ch) → (GroupNorm + FiLM) ResidualBlock ×6 (64ch) → head_conv (64ch → 128ch)
 ///     → AdaptiveAvgPool → flatten [1536]
-///   Policy Head: Linear(1536→256) → ReLU → Linear(256→24)
-///   Value Head:  Linear(1536→256) → ReLU → Linear(256→1)
+///   Policy Head: Linear(1536→256) → ReLU → Dropout(0.1) → Linear(256→24)
+///   Value Head:  Linear(1536→256) → ReLU → Dropout(0.1) → Linear(256→1)
 ///
 /// Board input: [batch, 6, 14, 6]
 /// Context input: [batch, 24] (pieces one-hot encoding)
@@ -112,6 +113,7 @@ pub struct PuyoNet<B: Backend> {
     value_fc1: Linear<B>,
     value_fc2: Linear<B>,
     activation: Relu,
+    head_dropout: Dropout,
 }
 
 #[derive(Config, Debug)]
@@ -138,6 +140,7 @@ impl PuyoNetConfig {
             value_fc1: LinearConfig::new(BACKBONE_OUTPUT, HIDDEN_SIZE).init(device),
             value_fc2: LinearConfig::new(HIDDEN_SIZE, 1).init(device),
             activation: Relu::new(),
+            head_dropout: DropoutConfig::new(HEAD_DROPOUT).init(),
         }
     }
 }
@@ -181,11 +184,13 @@ impl<B: Backend> PuyoNet<B> {
         // Policy head
         let p = self.policy_fc1.forward(backbone.clone());
         let p = self.activation.forward(p);
+        let p = self.head_dropout.forward(p);
         let policy_logits = self.policy_fc2.forward(p);
 
         // Value head (outputs discounted cumulative reward, no activation)
         let v = self.value_fc1.forward(backbone);
         let v = self.activation.forward(v);
+        let v = self.head_dropout.forward(v);
         let value = self.value_fc2.forward(v);
 
         (policy_logits, value)
