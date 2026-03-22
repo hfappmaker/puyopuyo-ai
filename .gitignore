@@ -19,7 +19,6 @@ web/data/
 web/public/models/
 
 # IDE
-.vscode/
 *.swp
 *.swo
 

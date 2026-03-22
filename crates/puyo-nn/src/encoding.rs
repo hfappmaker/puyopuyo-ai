@@ -117,7 +117,7 @@ mod tests {
         board.drop_puyo(3, PuyoColor::Yellow);
         let data = board_to_tensor_data(&board);
 
-        assert_eq!(data[0 * ROWS * COLS + 0 * COLS + 0], 1.0); // Red at col 0
+        assert_eq!(data[(0 * ROWS * COLS + 0 * COLS)], 1.0); // Red at col 0
         assert_eq!(data[1 * ROWS * COLS + 0 * COLS + 1], 1.0); // Green at col 1
         assert_eq!(data[2 * ROWS * COLS + 0 * COLS + 2], 1.0); // Blue at col 2
         assert_eq!(data[3 * ROWS * COLS + 0 * COLS + 3], 1.0); // Yellow at col 3
