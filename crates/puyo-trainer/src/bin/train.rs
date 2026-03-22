@@ -150,12 +150,14 @@ fn train_supervised() {
             let mut board_data = Vec::with_capacity(batch_size * TENSOR_SIZE);
             let mut context_data = Vec::with_capacity(batch_size * CONTEXT_TENSOR_SIZE);
             let mut target_actions = Vec::with_capacity(batch_size);
+            let mut value_targets = Vec::with_capacity(batch_size);
 
             for &idx in &indices[batch_start..batch_end] {
                 let sample = &train_samples[idx];
                 board_data.extend_from_slice(&sample.board_data);
                 context_data.extend_from_slice(&sample.context_data);
                 target_actions.push(sample.action_index);
+                value_targets.push(sample.value_target);
             }
 
             let board_inputs = Tensor::<TrainBackend, 1>::from_floats(board_data.as_slice(), &device)
@@ -163,8 +165,20 @@ fn train_supervised() {
             let context_inputs = Tensor::<TrainBackend, 1>::from_floats(context_data.as_slice(), &device)
                 .reshape([batch_size, CONTEXT_TENSOR_SIZE]);
 
-            let (logits, _value) = model.forward(board_inputs, context_inputs);
-            let loss = cross_entropy_loss_hard(logits, &target_actions, &device);
+            let (logits, value) = model.forward(board_inputs, context_inputs);
+            let policy_loss = cross_entropy_loss_hard(logits, &target_actions, &device);
+
+            // Value loss: MSE on transformed targets
+            let transformed_targets: Vec<f32> = value_targets
+                .iter()
+                .map(|&v| value_transform(v))
+                .collect();
+            let value_target_tensor = Tensor::<TrainBackend, 1>::from_floats(transformed_targets.as_slice(), &device)
+                .reshape([batch_size, 1]);
+            let value_diff = value - value_target_tensor;
+            let value_loss = value_diff.clone().mul(value_diff).mean();
+
+            let loss = policy_loss + value_loss * VALUE_LOSS_WEIGHT;
 
             let loss_val = loss.clone().into_data().to_vec::<f32>().unwrap()[0];
             epoch_loss += loss_val;
@@ -222,11 +236,13 @@ fn compute_val_loss_supervised(
         let mut board_data = Vec::with_capacity(batch_size * TENSOR_SIZE);
         let mut context_data = Vec::with_capacity(batch_size * CONTEXT_TENSOR_SIZE);
         let mut target_actions = Vec::with_capacity(batch_size);
+        let mut value_targets = Vec::with_capacity(batch_size);
 
         for sample in &val_samples[batch_start..batch_end] {
             board_data.extend_from_slice(&sample.board_data);
             context_data.extend_from_slice(&sample.context_data);
             target_actions.push(sample.action_index);
+            value_targets.push(sample.value_target);
         }
 
         let board_inputs = Tensor::<InnerBackend, 1>::from_floats(board_data.as_slice(), device)
@@ -234,9 +250,21 @@ fn compute_val_loss_supervised(
         let context_inputs = Tensor::<InnerBackend, 1>::from_floats(context_data.as_slice(), device)
             .reshape([batch_size, CONTEXT_TENSOR_SIZE]);
 
-        let (logits, _value) = model.forward(board_inputs, context_inputs);
-        let loss = cross_entropy_loss_hard(logits, &target_actions, device);
-        total_loss += loss.into_data().to_vec::<f32>().unwrap()[0];
+        let (logits, value) = model.forward(board_inputs, context_inputs);
+        let policy_loss = cross_entropy_loss_hard(logits, &target_actions, device);
+
+        let transformed_targets: Vec<f32> = value_targets
+            .iter()
+            .map(|&v| value_transform(v))
+            .collect();
+        let value_target_tensor = Tensor::<InnerBackend, 1>::from_floats(transformed_targets.as_slice(), device)
+            .reshape([batch_size, 1]);
+        let value_diff = value - value_target_tensor;
+        let value_loss = value_diff.clone().mul(value_diff).mean();
+
+        let loss_val = policy_loss.into_data().to_vec::<f32>().unwrap()[0]
+            + value_loss.into_data().to_vec::<f32>().unwrap()[0] * VALUE_LOSS_WEIGHT;
+        total_loss += loss_val;
         num_batches += 1;
     }
 

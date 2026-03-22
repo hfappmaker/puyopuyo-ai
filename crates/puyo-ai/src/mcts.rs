@@ -520,7 +520,11 @@ fn compute_completed_q(
 }
 
 /// Compute the improved policy target from logits and completed Q-values.
-/// π_improved(a) ∝ π(a) · exp(advantage(a) · c_visit)
+/// π_improved(a) ∝ π(a) · exp(advantage(a) · c_visit / c_scale)
+///
+/// Q-values are min-max normalized to [0,1] before computing advantages,
+/// so that c_visit/c_scale operates on a consistent scale regardless of
+/// the raw reward magnitude (following Gumbel MuZero paper assumptions).
 fn compute_improved_policy(
     logits: &[f32; NUM_ACTIONS],
     q_completed: &[f32; NUM_ACTIONS],
@@ -528,18 +532,40 @@ fn compute_improved_policy(
     c_visit: f32,
     c_scale: f32,
 ) -> [f32; NUM_ACTIONS] {
-    // Compute V_mixed: prior-weighted sum of completed Q-values
+    // Min-max normalize Q-values to [0,1] so advantage scale is consistent
+    let mut min_q = f32::INFINITY;
+    let mut max_q = f32::NEG_INFINITY;
+    for a in 0..NUM_ACTIONS {
+        if mask[a] {
+            min_q = min_q.min(q_completed[a]);
+            max_q = max_q.max(q_completed[a]);
+        }
+    }
+    let q_range = max_q - min_q;
+
+    let q_normalized: [f32; NUM_ACTIONS] = std::array::from_fn(|a| {
+        if !mask[a] {
+            return 0.0;
+        }
+        if q_range > f32::EPSILON {
+            (q_completed[a] - min_q) / q_range
+        } else {
+            0.5
+        }
+    });
+
+    // Compute V_mixed: prior-weighted sum of normalized Q-values
     let priors = masked_softmax(logits, mask);
     let v_mixed: f32 = (0..NUM_ACTIONS)
         .filter(|&a| mask[a])
-        .map(|a| priors[a] * q_completed[a])
+        .map(|a| priors[a] * q_normalized[a])
         .sum();
 
     // Compute improved logits: logit(a) + advantage(a) * c_visit / c_scale
     let mut improved_logits = [f32::NEG_INFINITY; NUM_ACTIONS];
     for a in 0..NUM_ACTIONS {
         if mask[a] {
-            let advantage = q_completed[a] - v_mixed;
+            let advantage = q_normalized[a] - v_mixed;
             improved_logits[a] = logits[a] + advantage * c_visit / c_scale;
         }
     }

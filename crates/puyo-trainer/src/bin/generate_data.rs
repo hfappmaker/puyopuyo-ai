@@ -55,7 +55,7 @@ fn main() {
             );
 
             match result {
-                Some((placement, _score)) => {
+                Some((placement, score)) => {
                     let action_index = placement_to_index(&placement) as u8;
                     let chain_result = game.apply_placement(&placement);
                     game_max_chain = game_max_chain.max(chain_result.chain_count);
@@ -64,6 +64,7 @@ fn main() {
                         board_data,
                         context_data,
                         action_index,
+                        value_target: score as f32,
                     });
                     move_count += 1;
                 }
