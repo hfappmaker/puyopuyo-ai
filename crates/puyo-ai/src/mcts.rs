@@ -583,8 +583,8 @@ mod tests {
 
     #[test]
     fn test_sample_piece_deterministic() {
-        let p1 = sample_piece(42, 7);
-        let p2 = sample_piece(42, 7);
+        let p1 = sample_piece(42, 7, 0);
+        let p2 = sample_piece(42, 7, 0);
         assert_eq!(p1.axis_color, p2.axis_color);
         assert_eq!(p1.satellite_color, p2.satellite_color);
     }
