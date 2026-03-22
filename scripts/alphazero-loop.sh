@@ -15,7 +15,7 @@ TEMPERATURE="${TEMPERATURE:-1.0}"
 DIRICHLET_ALPHA="${DIRICHLET_ALPHA:-0.4}"
 DIRICHLET_EPSILON="${DIRICHLET_EPSILON:-0.25}"
 TEMP_THRESHOLD="${TEMP_THRESHOLD:-15}"
-REPLAY_WINDOW="${REPLAY_WINDOW:-3}"  # 直近N個のイテレーションデータを保持
+REPLAY_WINDOW="${REPLAY_WINDOW:-1}"  # 直近N個のイテレーションデータを保持
 LOG_FILE="artifacts/alphazero-loop.log"
 
 # イテレーションカウンタ（永続化）
