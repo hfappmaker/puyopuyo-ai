@@ -105,16 +105,7 @@ impl MctsTree {
         while self.nodes[node_id].expanded && !self.nodes[node_id].terminal {
             let action = self.select_action(node_id, c_puct);
             path.push((node_id, action));
-
-            if let Some(child_id) = self.nodes[node_id].children[action] {
-                node_id = child_id;
-            } else {
-                // Create child node by simulating the action
-                let child_id = self.create_child(node_id, action);
-                self.nodes[node_id].children[action] = Some(child_id);
-                node_id = child_id;
-                break; // New node, needs expansion
-            }
+            node_id = self.get_or_create_child(node_id, action);
         }
 
         // 2. Expansion & Evaluation
@@ -185,6 +176,16 @@ impl MctsTree {
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(action, _)| action)
             .unwrap_or(0)
+    }
+
+    /// Get existing child or create a new one by simulating the action.
+    fn get_or_create_child(&mut self, parent_id: usize, action: usize) -> usize {
+        if let Some(child_id) = self.nodes[parent_id].children[action] {
+            return child_id;
+        }
+        let child_id = self.create_child(parent_id, action);
+        self.nodes[parent_id].children[action] = Some(child_id);
+        child_id
     }
 
     /// Create a child node by simulating an action.
