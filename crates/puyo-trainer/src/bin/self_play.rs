@@ -25,7 +25,6 @@ type InferBackend = NdArray;
 const MODEL_PATH: &str = "artifacts/puyo_model";
 const DEFAULT_OUTPUT_PATH: &str = "data/alphazero_data.bin";
 const MAX_TURNS: u32 = 50;
-const GAMMA: f32 = 0.99;
 
 struct Args {
     num_games: u64,
@@ -35,6 +34,7 @@ struct Args {
     m: usize,
     c_visit: f32,
     c_scale: f32,
+    gamma: f32,
     output_path: String,
 }
 
@@ -48,6 +48,7 @@ fn parse_args() -> Args {
         m: 16,
         c_visit: 50.0,
         c_scale: 1.0,
+        gamma: 0.95,
         output_path: DEFAULT_OUTPUT_PATH.to_string(),
     };
     let mut i = 1;
@@ -80,6 +81,10 @@ fn parse_args() -> Args {
             "--c-scale" => {
                 i += 1;
                 result.c_scale = args[i].parse().expect("--c-scale requires float");
+            }
+            "--gamma" => {
+                i += 1;
+                result.gamma = args[i].parse().expect("--gamma requires float");
             }
             "--output" => {
                 i += 1;
@@ -124,7 +129,7 @@ fn play_one_game(
         m: args.m,
         c_visit: args.c_visit,
         c_scale: args.c_scale,
-        gamma: GAMMA,
+        gamma: args.gamma,
     };
 
     while game.phase != GamePhase::GameOver {
@@ -205,10 +210,10 @@ fn play_one_game(
         };
         let mut value_targets = vec![0.0f32; num_moves];
         value_targets[num_moves - 1] =
-            move_records[num_moves - 1].reward + GAMMA * bootstrap_value;
+            move_records[num_moves - 1].reward + args.gamma * bootstrap_value;
         for i in (0..num_moves - 1).rev() {
             value_targets[i] =
-                move_records[i].reward + GAMMA * value_targets[i + 1];
+                move_records[i].reward + args.gamma * value_targets[i + 1];
         }
 
         for (i, record) in move_records.into_iter().enumerate() {
@@ -233,9 +238,9 @@ fn main() {
     println!("Backend: NdArray (CPU) — Gumbel MCTS self-play (parallel)");
 
     println!(
-        "games={}, simulations={}, c_puct={}, m={}, c_visit={}, c_scale={}, seed_offset={}",
+        "games={}, simulations={}, c_puct={}, m={}, c_visit={}, c_scale={}, gamma={}, seed_offset={}",
         args.num_games, args.num_simulations, args.c_puct, args.m,
-        args.c_visit, args.c_scale, args.seed_offset,
+        args.c_visit, args.c_scale, args.gamma, args.seed_offset,
     );
 
     let device: <InferBackend as Backend>::Device = Default::default();

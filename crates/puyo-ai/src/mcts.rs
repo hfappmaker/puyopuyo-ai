@@ -727,7 +727,7 @@ mod tests {
         let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
         let next_next = Piece::new(PuyoColor::Blue, PuyoColor::Red);
 
-        let tree = MctsTree::new(&board, &current, &next, &next_next, 0.99);
+        let tree = MctsTree::new(&board, &current, &next, &next_next, 0.95);
         assert_eq!(tree.nodes.len(), 1);
         assert!(!tree.nodes[0].expanded);
         assert!(!tree.nodes[0].terminal);
