@@ -150,8 +150,14 @@ fn play_one_game(
         .to_vec();
 
         // Run Gumbel MCTS (Gumbel noise provides exploration, no Dirichlet needed)
-        let gumbel_seed = seed.wrapping_mul(6364136223846793005)
-            .wrapping_add(move_count as u64);
+        // Use splitmix64-style hash mixing to decorrelate seeds across consecutive moves
+        let gumbel_seed = {
+            let mut s = seed.wrapping_mul(6364136223846793005)
+                .wrapping_add(move_count as u64);
+            s = (s ^ (s >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+            s = (s ^ (s >> 27)).wrapping_mul(0x94D049BB133111EB);
+            s ^ (s >> 31)
+        };
         let (mcts_policy, _q_values) = mcts_search(
             &game.board,
             &current_piece,
@@ -164,7 +170,14 @@ fn play_one_game(
         );
 
         // Select action: sample from improved policy
-        let action = select_from_policy(&mcts_policy, seed + move_count as u64);
+        // Use splitmix64-style hash mixing to decorrelate from gumbel_seed
+        let selection_seed = {
+            let mut s = seed.wrapping_add(move_count as u64).wrapping_add(0x9e3779b97f4a7c15);
+            s = (s ^ (s >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+            s = (s ^ (s >> 27)).wrapping_mul(0x94D049BB133111EB);
+            s ^ (s >> 31)
+        };
+        let action = select_from_policy(&mcts_policy, selection_seed);
 
         let placement = puyo_ai::placement::index_to_placement(action);
         let chain_result = game.apply_placement(&placement);
