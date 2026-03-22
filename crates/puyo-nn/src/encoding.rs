@@ -117,10 +117,10 @@ mod tests {
         board.drop_puyo(3, PuyoColor::Yellow);
         let data = board_to_tensor_data(&board);
 
-        assert_eq!(data[(0 * ROWS * COLS + 0 * COLS)], 1.0); // Red at col 0
-        assert_eq!(data[1 * ROWS * COLS + 0 * COLS + 1], 1.0); // Green at col 1
-        assert_eq!(data[2 * ROWS * COLS + 0 * COLS + 2], 1.0); // Blue at col 2
-        assert_eq!(data[3 * ROWS * COLS + 0 * COLS + 3], 1.0); // Yellow at col 3
+        assert_eq!(data[0], 1.0); // Red at ch0, row0, col0
+        assert_eq!(data[1 * ROWS * COLS + 1], 1.0); // Green at ch1, row0, col1
+        assert_eq!(data[2 * ROWS * COLS + 2], 1.0); // Blue at ch2, row0, col2
+        assert_eq!(data[3 * ROWS * COLS + 3], 1.0); // Yellow at ch3, row0, col3
     }
 
     #[test]
@@ -131,9 +131,9 @@ mod tests {
         let data = board_to_tensor_data(&board);
 
         let ch4 = 4 * ROWS * COLS;
-        assert_eq!(data[ch4 + 0 * COLS + 0], 1.0); // col 0, row 0: occupied
-        assert_eq!(data[ch4 + 0 * COLS + 2], 1.0); // col 2, row 0: occupied
-        assert_eq!(data[ch4 + 0 * COLS + 1], 0.0); // col 1, row 0: empty
+        assert_eq!(data[ch4 + 0], 1.0); // col0, row0: occupied
+        assert_eq!(data[ch4 + 2], 1.0); // col2, row0: occupied
+        assert_eq!(data[ch4 + 1], 0.0); // col1, row0: empty
     }
 
     #[test]
@@ -147,11 +147,11 @@ mod tests {
 
         let ch5 = 5 * ROWS * COLS;
         // row 0 (bottom): 1 same-color neighbor above → 1/4 = 0.25
-        assert!((data[ch5 + 0 * COLS + 0] - 0.25).abs() < 1e-6);
+        assert!((data[ch5] - 0.25).abs() < 1e-6);
         // row 1 (middle): 2 same-color neighbors (above + below) → 2/4 = 0.5
-        assert!((data[ch5 + 1 * COLS + 0] - 0.5).abs() < 1e-6);
+        assert!((data[ch5 + COLS] - 0.5).abs() < 1e-6);
         // row 2 (top): 1 same-color neighbor below → 1/4 = 0.25
-        assert!((data[ch5 + 2 * COLS + 0] - 0.25).abs() < 1e-6);
+        assert!((data[ch5 + 2 * COLS] - 0.25).abs() < 1e-6);
     }
 
     #[test]
@@ -208,8 +208,8 @@ mod tests {
 
         let ch5 = 5 * ROWS * COLS;
         // col 0, row 0: 1 same-color neighbor to the right → 0.25
-        assert!((data[ch5 + 0 * COLS + 0] - 0.25).abs() < 1e-6);
+        assert!((data[ch5] - 0.25).abs() < 1e-6);
         // col 1, row 0: 1 same-color neighbor to the left → 0.25
-        assert!((data[ch5 + 0 * COLS + 1] - 0.25).abs() < 1e-6);
+        assert!((data[ch5 + 1] - 0.25).abs() < 1e-6);
     }
 }

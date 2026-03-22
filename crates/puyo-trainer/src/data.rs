@@ -30,6 +30,12 @@ pub struct AlphaZeroDataset {
     pub samples: Vec<AlphaZeroSample>,
 }
 
+impl Default for AlphaZeroDataset {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AlphaZeroDataset {
     pub fn new() -> Self {
         Self { samples: Vec::new() }
@@ -62,6 +68,12 @@ impl AlphaZeroDataset {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Dataset {
     pub samples: Vec<Sample>,
+}
+
+impl Default for Dataset {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Dataset {

@@ -238,7 +238,7 @@ fn main() {
     // Load model (fall back to random initialization if no model exists or load fails)
     let config = PuyoNetConfig::new();
     let model = {
-        let device_clone = device.clone();
+        let device_clone = device;
         let load_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
             config
@@ -281,7 +281,7 @@ fn main() {
     let total_chain_sum = AtomicU64::new(0);
 
     // Distribute games across threads, each thread returns its results via JoinHandle
-    let games_per_thread = (args.num_games + num_threads as u64 - 1) / num_threads as u64;
+    let games_per_thread = args.num_games.div_ceil(num_threads as u64);
 
     let game_results: Vec<GameResult> = std::thread::scope(|s| {
         let handles: Vec<_> = (0..num_threads)
@@ -401,8 +401,8 @@ fn select_from_policy(policy: &[f32; NUM_ACTIONS], seed: u64) -> usize {
 
     let r = (x as f64) / (u64::MAX as f64);
     let mut cumulative = 0.0;
-    for i in 0..NUM_ACTIONS {
-        cumulative += policy[i] as f64;
+    for (i, &p) in policy.iter().enumerate() {
+        cumulative += p as f64;
         if r < cumulative {
             return i;
         }

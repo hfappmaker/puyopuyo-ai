@@ -5,7 +5,6 @@
 ///
 /// - Training: `loss = MSE(network_output, value_transform(target))`
 /// - Inference: `value = value_inverse_transform(network_output)`
-
 const EPSILON: f32 = 1e-3;
 
 /// Scale factor to normalize transformed values to approximately 0–1 range.

@@ -7,7 +7,7 @@ use puyo_nn::encoding::{board_to_tensor_data, context_to_tensor_data, CONTEXT_TE
 use puyo_nn::model::PuyoNet;
 
 use crate::eval::Evaluator;
-use crate::mcts::{mcts_search, DirichletConfig};
+use crate::mcts::mcts_search;
 use crate::placement::{compute_valid_mask, index_to_placement, NUM_ACTIONS};
 
 type InferBackend = NdArray;

@@ -164,8 +164,8 @@ impl MctsTree {
         let mut best_action = 0;
         let mut best_score = f32::NEG_INFINITY;
 
-        for action in 0..NUM_ACTIONS {
-            if !mask[action] {
+        for (action, &is_valid) in mask.iter().enumerate() {
+            if !is_valid {
                 continue;
             }
 
@@ -276,9 +276,9 @@ impl MctsTree {
         self.nodes[node_id].priors = priors;
 
         // Update priors of already-created children
-        for action in 0..NUM_ACTIONS {
+        for (action, &prior) in priors.iter().enumerate() {
             if let Some(child_id) = self.nodes[node_id].children[action] {
-                self.nodes[child_id].prior = priors[action];
+                self.nodes[child_id].prior = prior;
             }
         }
 
@@ -291,9 +291,9 @@ impl MctsTree {
     pub fn root_visit_counts(&self) -> [u32; NUM_ACTIONS] {
         let mut counts = [0u32; NUM_ACTIONS];
         let root = &self.nodes[self.root];
-        for action in 0..NUM_ACTIONS {
+        for (action, count) in counts.iter_mut().enumerate() {
             if let Some(child_id) = root.children[action] {
-                counts[action] = self.nodes[child_id].visit_count;
+                *count = self.nodes[child_id].visit_count;
             }
         }
         counts
@@ -303,11 +303,11 @@ impl MctsTree {
     pub fn root_q_values(&self) -> [f32; NUM_ACTIONS] {
         let mut q_values = [0.0f32; NUM_ACTIONS];
         let root = &self.nodes[self.root];
-        for action in 0..NUM_ACTIONS {
+        for (action, q) in q_values.iter_mut().enumerate() {
             if let Some(child_id) = root.children[action] {
                 let child = &self.nodes[child_id];
                 if child.visit_count > 0 {
-                    q_values[action] = child.total_value / child.visit_count as f32;
+                    *q = child.total_value / child.visit_count as f32;
                 }
             }
         }
@@ -332,8 +332,8 @@ impl MctsTree {
 
         let noise = sample_dirichlet(alpha, num_valid, seed);
         let mut noise_idx = 0;
-        for action in 0..NUM_ACTIONS {
-            if mask[action] {
+        for (action, &is_valid) in mask.iter().enumerate() {
+            if is_valid {
                 let p = self.nodes[root].priors[action];
                 self.nodes[root].priors[action] =
                     (1.0 - epsilon) * p + epsilon * noise[noise_idx];
@@ -423,9 +423,7 @@ fn sample_dirichlet(alpha: f32, n: usize, seed: u64) -> Vec<f32> {
     } else {
         // Fallback: uniform
         let u = 1.0 / n as f32;
-        for s in &mut samples {
-            *s = u;
-        }
+        samples.fill(u);
     }
     samples
 }
@@ -514,6 +512,7 @@ pub struct DirichletConfig {
 /// Run MCTS search and return the policy (visit count distribution) and Q values.
 /// `gamma` is the discount factor for future rewards (e.g. 0.99).
 /// `dirichlet` adds Dirichlet noise to root priors for exploration (used in self-play).
+#[allow(clippy::too_many_arguments)]
 pub fn mcts_search(
     board: &Board,
     current: &Piece,

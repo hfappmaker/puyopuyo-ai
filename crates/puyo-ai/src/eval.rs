@@ -28,7 +28,7 @@ impl Evaluator for SimulationEvaluator {
         board: &Board,
         current: &Piece,
         next: &Piece,
-        next_next: &Piece,
+        _next_next: &Piece,
     ) -> Option<(Placement, f64)> {
         let placements = enumerate_placements(board, current);
         if placements.is_empty() {

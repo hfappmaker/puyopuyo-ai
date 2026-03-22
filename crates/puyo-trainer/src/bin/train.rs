@@ -175,7 +175,7 @@ fn train_supervised() {
             model = optim.step(lr, model, grads);
 
             if num_batches % 50 == 0 {
-                let total_batches = (train_samples.len() + BATCH_SIZE - 1) / BATCH_SIZE;
+                let total_batches = train_samples.len().div_ceil(BATCH_SIZE);
                 eprint!("\r  batch {}/{} loss={:.6}", num_batches, total_batches, epoch_loss / num_batches as f32);
             }
         }
@@ -404,7 +404,7 @@ fn train_alphazero(data_dir: Option<&str>) {
             model = optim.step(lr, model, grads);
 
             if num_batches % 50 == 0 {
-                let total_batches = (train_samples.len() + BATCH_SIZE - 1) / BATCH_SIZE;
+                let total_batches = train_samples.len().div_ceil(BATCH_SIZE);
                 eprint!(
                     "\r  batch {}/{} p_loss={:.4} v_loss={:.4}",
                     num_batches, total_batches,
@@ -506,7 +506,7 @@ fn compute_val_loss_alphazero(
 
 type InnerBackend = <TrainBackend as AutodiffBackend>::InnerBackend;
 
-fn shuffle_indices(indices: &mut Vec<usize>, seed: u64) {
+fn shuffle_indices(indices: &mut [usize], seed: u64) {
     let mut rng_state = seed + 42;
     const LCG_MULTIPLIER: u64 = 6364136223846793005;
     const LCG_INCREMENT: u64 = 1;
