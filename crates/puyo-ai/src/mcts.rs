@@ -161,37 +161,30 @@ impl MctsTree {
 
         let mask = compute_valid_mask(&node.state.board, &node.state.current);
 
-        let mut best_action = 0;
-        let mut best_score = f32::NEG_INFINITY;
-
-        for (action, &is_valid) in mask.iter().enumerate() {
-            if !is_valid {
-                continue;
-            }
-
-            let prior = node.priors[action];
-            let (q, n) = match node.children[action] {
-                Some(child_id) => {
-                    let child = &self.nodes[child_id];
-                    let q = if child.visit_count > 0 {
-                        child.total_value / child.visit_count as f32
-                    } else {
-                        0.0
-                    };
-                    (q, child.visit_count as f32)
-                }
-                None => (0.0, 0.0),
-            };
-
-            let q_normalized = self.normalize_q(q);
-            let puct = q_normalized + c_puct * prior * sqrt_parent / (1.0 + n);
-            if puct > best_score {
-                best_score = puct;
-                best_action = action;
-            }
-        }
-
-        best_action
+        mask.iter()
+            .enumerate()
+            .filter(|(_, &is_valid)| is_valid)
+            .map(|(action, _)| {
+                let prior = node.priors[action];
+                let (q, n) = match node.children[action] {
+                    Some(child_id) => {
+                        let child = &self.nodes[child_id];
+                        let q = if child.visit_count > 0 {
+                            child.total_value / child.visit_count as f32
+                        } else {
+                            0.0
+                        };
+                        (q, child.visit_count as f32)
+                    }
+                    None => (0.0, 0.0),
+                };
+                let q_normalized = self.normalize_q(q);
+                let puct = q_normalized + c_puct * prior * sqrt_parent / (1.0 + n);
+                (action, puct)
+            })
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(action, _)| action)
+            .unwrap_or(0)
     }
 
     /// Create a child node by simulating an action.
@@ -289,29 +282,24 @@ impl MctsTree {
 
     /// Get visit counts for root's direct children (used to select the final move).
     pub fn root_visit_counts(&self) -> [u32; NUM_ACTIONS] {
-        let mut counts = [0u32; NUM_ACTIONS];
         let root = &self.nodes[self.root];
-        for (action, count) in counts.iter_mut().enumerate() {
-            if let Some(child_id) = root.children[action] {
-                *count = self.nodes[child_id].visit_count;
-            }
-        }
-        counts
+        std::array::from_fn(|action| {
+            root.children[action]
+                .map(|child_id| self.nodes[child_id].visit_count)
+                .unwrap_or(0)
+        })
     }
 
     /// Get Q values (average cumulative reward) for root's direct children.
     pub fn root_q_values(&self) -> [f32; NUM_ACTIONS] {
-        let mut q_values = [0.0f32; NUM_ACTIONS];
         let root = &self.nodes[self.root];
-        for (action, q) in q_values.iter_mut().enumerate() {
-            if let Some(child_id) = root.children[action] {
-                let child = &self.nodes[child_id];
-                if child.visit_count > 0 {
-                    *q = child.total_value / child.visit_count as f32;
-                }
-            }
-        }
-        q_values
+        std::array::from_fn(|action| {
+            root.children[action]
+                .map(|child_id| &self.nodes[child_id])
+                .filter(|child| child.visit_count > 0)
+                .map(|child| child.total_value / child.visit_count as f32)
+                .unwrap_or(0.0)
+        })
     }
 
     /// Apply Dirichlet noise to root node priors for exploration diversity.
@@ -345,7 +333,6 @@ impl MctsTree {
     /// Get the MCTS policy (normalized visit counts) with temperature.
     pub fn get_policy(&self, temperature: f32) -> [f32; NUM_ACTIONS] {
         let counts = self.root_visit_counts();
-        let mut policy = [0.0f32; NUM_ACTIONS];
 
         if temperature < 0.01 {
             // Greedy: all weight on most-visited action
@@ -353,52 +340,45 @@ impl MctsTree {
                 .max_by_key(|(_, &n)| n)
                 .map(|(i, _)| i)
                 .unwrap_or(0);
+            let mut policy = [0.0f32; NUM_ACTIONS];
             policy[best] = 1.0;
+            policy
         } else {
             // Temperature-scaled
             let inv_temp = 1.0 / temperature;
-            for i in 0..NUM_ACTIONS {
-                policy[i] = (counts[i] as f32).powf(inv_temp);
-            }
+            let mut policy: [f32; NUM_ACTIONS] =
+                std::array::from_fn(|i| (counts[i] as f32).powf(inv_temp));
             let sum: f32 = policy.iter().sum();
             if sum > 0.0 {
-                for p in &mut policy {
-                    *p /= sum;
-                }
+                policy.iter_mut().for_each(|p| *p /= sum);
             }
+            policy
         }
-
-        policy
     }
 }
 
 /// Compute masked softmax over logits.
 fn masked_softmax(logits: &[f32], mask: &[bool; NUM_ACTIONS]) -> [f32; NUM_ACTIONS] {
-    let mut result = [0.0f32; NUM_ACTIONS];
-
     // Find max for numerical stability
-    let mut max_logit = f32::NEG_INFINITY;
-    for i in 0..NUM_ACTIONS {
-        if mask[i] && logits.get(i).copied().unwrap_or(f32::NEG_INFINITY) > max_logit {
-            max_logit = logits[i];
-        }
-    }
+    let max_logit = (0..NUM_ACTIONS)
+        .filter(|&i| mask[i])
+        .filter_map(|i| logits.get(i).copied())
+        .fold(f32::NEG_INFINITY, f32::max);
+
     if max_logit == f32::NEG_INFINITY {
-        return result; // No valid actions
+        return [0.0f32; NUM_ACTIONS]; // No valid actions
     }
 
-    let mut sum = 0.0f32;
-    for i in 0..NUM_ACTIONS {
+    let mut result: [f32; NUM_ACTIONS] = std::array::from_fn(|i| {
         if mask[i] {
-            let exp = (logits.get(i).copied().unwrap_or(f32::NEG_INFINITY) - max_logit).exp();
-            result[i] = exp;
-            sum += exp;
+            (logits.get(i).copied().unwrap_or(f32::NEG_INFINITY) - max_logit).exp()
+        } else {
+            0.0
         }
-    }
+    });
+    let sum: f32 = result.iter().sum();
     if sum > 0.0 {
-        for r in &mut result {
-            *r /= sum;
-        }
+        result.iter_mut().for_each(|r| *r /= sum);
     }
 
     result
@@ -410,20 +390,15 @@ fn masked_softmax(logits: &[f32], mask: &[bool; NUM_ACTIONS]) -> [f32; NUM_ACTIO
 fn sample_dirichlet(alpha: f32, n: usize, seed: u64) -> Vec<f32> {
     let mut rng_state = seed.wrapping_add(1); // avoid 0
 
-    let mut samples = Vec::with_capacity(n);
-    for i in 0..n {
-        let g = sample_gamma(alpha, &mut rng_state, i as u64);
-        samples.push(g);
-    }
+    let mut samples: Vec<f32> = (0..n)
+        .map(|i| sample_gamma(alpha, &mut rng_state, i as u64))
+        .collect();
     let sum: f32 = samples.iter().sum();
     if sum > 0.0 {
-        for s in &mut samples {
-            *s /= sum;
-        }
+        samples.iter_mut().for_each(|s| *s /= sum);
     } else {
         // Fallback: uniform
-        let u = 1.0 / n as f32;
-        samples.fill(u);
+        samples.fill(1.0 / n as f32);
     }
     samples
 }

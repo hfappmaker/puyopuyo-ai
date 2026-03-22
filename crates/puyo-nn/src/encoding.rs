@@ -33,19 +33,15 @@ pub fn board_to_tensor_data(board: &Board) -> [f32; TENSOR_SIZE] {
                 data[ch4_offset + row * COLS + col] = 1.0;
 
                 // Channel 5: adjacency (same-color neighbor count / 4.0)
-                let mut count = 0u8;
-                if col > 0 && board.get(col - 1, row) == color {
-                    count += 1;
-                }
-                if col + 1 < COLS && board.get(col + 1, row) == color {
-                    count += 1;
-                }
-                if row > 0 && board.get(col, row - 1) == color {
-                    count += 1;
-                }
-                if row + 1 < ROWS && board.get(col, row + 1) == color {
-                    count += 1;
-                }
+                let count = [
+                    col > 0 && board.get(col - 1, row) == color,
+                    col + 1 < COLS && board.get(col + 1, row) == color,
+                    row > 0 && board.get(col, row - 1) == color,
+                    row + 1 < ROWS && board.get(col, row + 1) == color,
+                ]
+                .iter()
+                .filter(|&&b| b)
+                .count();
                 data[ch5_offset + row * COLS + col] = count as f32 / 4.0;
             }
         }
