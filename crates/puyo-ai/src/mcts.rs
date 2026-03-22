@@ -451,6 +451,10 @@ fn xorshift64_f64(state: &mut u64, mix: u64) -> f64 {
     s ^= s << 13;
     s ^= s >> 7;
     s ^= s << 17;
+    // Guard against zero state (xorshift gets stuck at 0)
+    if s == 0 {
+        s = 0x5a17a453cc79b7d1;
+    }
     *state = s;
     (s >> 11) as f64 / ((1u64 << 53) as f64)
 }
@@ -485,7 +489,10 @@ fn sample_piece(seed1: u64, seed2: u64, seed3: u64) -> Piece {
     x = x ^ (x >> 31);
 
     let axis = ((x % NUM_COLORS as u64) as u8) + 1;
-    let sat = (((x >> 16) % NUM_COLORS as u64) as u8) + 1;
+    // Re-mix for independent satellite color
+    x = (x ^ (x >> 30)).wrapping_mul(0x517cc1b727220a95);
+    x = x ^ (x >> 27);
+    let sat = ((x % NUM_COLORS as u64) as u8) + 1;
     Piece::new(
         puyo_core::board::PuyoColor::from_u8(axis),
         puyo_core::board::PuyoColor::from_u8(sat),
