@@ -47,6 +47,8 @@ struct MctsNode {
     immediate_reward: f32,
     /// Game state at this node.
     state: GameSnapshot,
+    /// Cached valid action mask (derived from board + current piece, immutable per node).
+    valid_mask: [bool; NUM_ACTIONS],
     /// Depth from root (root = 0).
     depth: u32,
 }
@@ -75,6 +77,7 @@ impl MctsTree {
             next: *next,
             next_next: *next_next,
         };
+        let valid_mask = compute_valid_mask(&state.board, &state.current);
         let root = MctsNode {
             visit_count: 0,
             total_value: 0.0,
@@ -86,6 +89,7 @@ impl MctsTree {
             terminal: state.board.is_game_over(),
             immediate_reward: 0.0,
             state,
+            valid_mask,
             depth: 0,
         };
         MctsTree {
@@ -138,16 +142,25 @@ impl MctsTree {
             0.0
         };
 
-        // Backpropagate
-        let mut backup = value;
-        for &(parent_id, act) in path.iter().rev() {
+        // Backpropagate: compute cumulative values (immutable)
+        let backups: Vec<f32> = path
+            .iter()
+            .rev()
+            .scan(value, |acc, &(parent_id, act)| {
+                if let Some(cid) = self.nodes[parent_id].children[act] {
+                    *acc = self.nodes[cid].immediate_reward + self.gamma * *acc;
+                }
+                Some(*acc)
+            })
+            .collect();
+
+        // Backpropagate: apply updates (mutable)
+        for (&(parent_id, act), backup) in path.iter().rev().zip(&backups) {
             if let Some(cid) = self.nodes[parent_id].children[act] {
-                let reward = self.nodes[cid].immediate_reward;
-                backup = reward + self.gamma * backup;
-                self.min_value = self.min_value.min(backup);
-                self.max_value = self.max_value.max(backup);
+                self.min_value = self.min_value.min(*backup);
+                self.max_value = self.max_value.max(*backup);
                 self.nodes[cid].visit_count += 1;
-                self.nodes[cid].total_value += backup;
+                self.nodes[cid].total_value += *backup;
             }
         }
         self.nodes[self.root].visit_count += 1;
@@ -170,9 +183,7 @@ impl MctsTree {
         let parent_visits = node.visit_count.max(1) as f32;
         let sqrt_parent = parent_visits.sqrt();
 
-        let mask = compute_valid_mask(&node.state.board, &node.state.current);
-
-        mask.iter()
+        node.valid_mask.iter()
             .enumerate()
             .filter(|(_, &is_valid)| is_valid)
             .map(|(action, _)| {
@@ -238,6 +249,7 @@ impl MctsTree {
         };
 
         let parent_depth = self.nodes[parent_id].depth;
+        let valid_mask = compute_valid_mask(&child_state.board, &child_state.current);
         let child = MctsNode {
             visit_count: 0,
             total_value: 0.0,
@@ -249,6 +261,7 @@ impl MctsTree {
             terminal,
             immediate_reward,
             state: child_state,
+            valid_mask,
             depth: parent_depth + 1,
         };
 
@@ -284,8 +297,7 @@ impl MctsTree {
         let v = value_inverse_transform(v_raw);
 
         // Compute masked softmax for priors
-        let mask = compute_valid_mask(&self.nodes[node_id].state.board, &self.nodes[node_id].state.current);
-        let priors = masked_softmax(&logits_vec, &mask);
+        let priors = masked_softmax(&logits_vec, &self.nodes[node_id].valid_mask);
 
         // Store logits and priors
         let mut stored_logits = [0.0f32; NUM_ACTIONS];
@@ -320,20 +332,22 @@ impl MctsTree {
     }
 
     /// Run Sequential Halving over the considered actions, then spend remaining budget.
+    /// Returns the final completed Q-values to avoid redundant recomputation.
     fn sequential_halving(
         &mut self,
         considered: &mut Vec<usize>,
         scores: &mut [f32; NUM_ACTIONS],
         gumbels: &[f32; NUM_ACTIONS],
-        root_logits: &[f32; NUM_ACTIONS],
-        mask: &[bool; NUM_ACTIONS],
         remaining_budget: usize,
         model: &PuyoNet<InferBackend>,
         device: &<InferBackend as Backend>::Device,
         config: &MctsConfig,
-    ) {
+    ) -> [f32; NUM_ACTIONS] {
+        let root_logits = self.nodes[self.root].logits;
+        let mask = self.nodes[self.root].valid_mask;
+
         if remaining_budget == 0 {
-            return;
+            return compute_completed_q(self, &mask);
         }
 
         let num_phases = {
@@ -358,18 +372,10 @@ impl MctsTree {
             let phases_left = num_phases - phase;
             let sims_per_action = (budget_remaining / (phases_left * n_actions)).max(1);
 
-            for &a in considered.iter() {
-                for _ in 0..sims_per_action {
-                    if budget_used >= remaining_budget {
-                        break;
-                    }
-                    self.simulate_from_root_action(a, model, device, config.c_puct);
-                    budget_used += 1;
-                }
-            }
+            budget_used += self.run_simulations(considered, budget_used, remaining_budget, sims_per_action, model, device, config.c_puct);
 
-            let q_completed = compute_completed_q(self, mask);
-            let sigma_bar = compute_sigma_bar(self, &q_completed, mask, considered, config.c_visit);
+            let q_completed = compute_completed_q(self, &mask);
+            let sigma_bar = compute_sigma_bar(self, &q_completed, &mask, considered, config.c_visit);
 
             for &a in considered.iter() {
                 scores[a] = gumbels[a] + root_logits[a] + sigma_bar[a];
@@ -381,15 +387,34 @@ impl MctsTree {
         }
 
         // Spend remaining budget on surviving action(s)
-        while budget_used < remaining_budget {
-            for &a in considered.iter() {
-                if budget_used >= remaining_budget {
-                    break;
+        self.run_simulations(considered, budget_used, remaining_budget, usize::MAX, model, device, config.c_puct);
+
+        compute_completed_q(self, &mask)
+    }
+
+    /// Run simulations on the considered actions, up to `sims_per_action` each,
+    /// respecting the total budget. Returns the number of simulations run.
+    fn run_simulations(
+        &mut self,
+        considered: &[usize],
+        budget_used: usize,
+        total_budget: usize,
+        sims_per_action: usize,
+        model: &PuyoNet<InferBackend>,
+        device: &<InferBackend as Backend>::Device,
+        c_puct: f32,
+    ) -> usize {
+        let mut count = 0usize;
+        for &a in considered {
+            for _ in 0..sims_per_action {
+                if budget_used + count >= total_budget {
+                    return count;
                 }
-                self.simulate_from_root_action(a, model, device, config.c_puct);
-                budget_used += 1;
+                self.simulate_from_root_action(a, model, device, c_puct);
+                count += 1;
             }
         }
+        count
     }
 }
 
@@ -437,7 +462,7 @@ fn sample_gumbel(state: &mut u64, mix: u64) -> f32 {
 }
 
 /// Compute a simple FNV-1a hash of the board state.
-fn board_hash(board: &Board) -> u64 {
+pub fn board_hash(board: &Board) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
     for col in 0..COLS {
         for row in 0..ROWS {
@@ -573,12 +598,12 @@ pub fn mcts_search(
 
     // 1. Expand root (1 NN evaluation)
     if config.num_simulations == 0 || tree.nodes[tree.root].terminal {
-        let mask = compute_valid_mask(board, current);
+        let mask = tree.nodes[tree.root].valid_mask;
         return (masked_softmax(&[0.0f32; NUM_ACTIONS], &mask), [0.0; NUM_ACTIONS]);
     }
     tree.expand_root(model, device);
 
-    let mask = compute_valid_mask(board, current);
+    let mask = tree.nodes[tree.root].valid_mask;
     let root_logits = tree.nodes[tree.root].logits;
 
     // Collect valid actions
@@ -604,18 +629,16 @@ pub fn mcts_search(
 
     // 3. Select top-m actions by initial score
     let m = config.m.min(valid_actions.len());
-    let mut considered: Vec<usize> = valid_actions.clone();
+    let mut considered = valid_actions;
     considered.sort_by(|&a, &b| scores[b].partial_cmp(&scores[a]).unwrap_or(std::cmp::Ordering::Equal));
     considered.truncate(m);
 
     // 4. Sequential Halving + spend remaining budget
     let remaining_budget = config.num_simulations.saturating_sub(1); // root expansion used 1
-    tree.sequential_halving(
+    let q_completed = tree.sequential_halving(
         &mut considered,
         &mut scores,
         &gumbels,
-        &root_logits,
-        &mask,
         remaining_budget,
         model,
         device,
@@ -623,7 +646,6 @@ pub fn mcts_search(
     );
 
     // 5. Compute improved policy target
-    let q_completed = compute_completed_q(&tree, &mask);
     let improved_policy = compute_improved_policy(&root_logits, &q_completed, &mask, config.c_visit, config.c_scale);
 
     (improved_policy, tree.root_q_values())

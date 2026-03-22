@@ -7,7 +7,7 @@ use puyo_nn::encoding::{board_to_tensor_data, context_to_tensor_data, CONTEXT_TE
 use puyo_nn::model::PuyoNet;
 
 use crate::eval::Evaluator;
-use crate::mcts::mcts_search;
+use crate::mcts::{board_hash, mcts_search};
 use crate::placement::{compute_valid_mask, index_to_placement, NUM_ACTIONS};
 
 type InferBackend = NdArray;
@@ -98,12 +98,7 @@ impl Evaluator for NnEvaluator {
 
         // MCTS mode: use Gumbel tree search
         if let Some(ref mcts_config) = self.mcts_config {
-            // Deterministic seed from board state
-            let mut seed = 0u64;
-            for col in 0..COLS {
-                seed = seed.wrapping_mul(6364136223846793005)
-                    .wrapping_add(board.columns[col].len() as u64);
-            }
+            let seed = board_hash(board);
 
             let (policy, q_values) = mcts_search(
                 board,
