@@ -13,7 +13,7 @@ const POOL_W: usize = 3;
 const HIDDEN_SIZE: usize = 256;
 const NUM_ACTIONS: usize = 24; // 6 cols × 4 orientations
 const BACKBONE_OUTPUT: usize = HEAD_CHANNELS * POOL_H * POOL_W; // 1536
-const HEAD_DROPOUT: f64 = 0.1;
+const HEAD_DROPOUT: f64 = 0.2;
 
 /// FiLM parameters generated from context (pieces).
 const FILM_HIDDEN: usize = 128;
@@ -90,8 +90,8 @@ impl<B: Backend> ResidualBlock<B> {
 ///     → split into 6 × (gamma[64], beta[64]) for each residual block
 ///   Backbone: stem (6ch → 64ch) → (GroupNorm + FiLM) ResidualBlock ×6 (64ch) → head_conv (64ch → 128ch)
 ///     → AdaptiveAvgPool → flatten [1536]
-///   Policy Head: Linear(1536→256) → ReLU → Dropout(0.1) → Linear(256→24)
-///   Value Head:  Linear(1536→256) → ReLU → Dropout(0.1) → Linear(256→1)
+///   Policy Head: Linear(1536→256) → ReLU → Dropout(0.2) → Linear(256→24)
+///   Value Head:  Linear(1536→256) → ReLU → Dropout(0.2) → Linear(256→1)
 ///
 /// Board input: [batch, 6, 14, 6]
 /// Context input: [batch, 24] (pieces one-hot encoding)

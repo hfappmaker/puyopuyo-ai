@@ -42,7 +42,7 @@ struct Args {
 fn parse_args() -> Args {
     let args: Vec<String> = std::env::args().collect();
     let mut result = Args {
-        num_games: 100,
+        num_games: 300,
         num_simulations: 64,
         c_puct: 1.5,
         seed_offset: 200_000,
