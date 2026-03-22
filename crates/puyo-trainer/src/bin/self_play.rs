@@ -11,6 +11,7 @@ use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 
 use puyo_ai::mcts::mcts_search;
+use puyo_ai::nn_eval::MctsConfig;
 use puyo_ai::placement::NUM_ACTIONS;
 use puyo_core::game::{GamePhase, GameState};
 use puyo_nn::encoding::{board_to_tensor_data, context_to_tensor_data, CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
@@ -117,6 +118,15 @@ fn play_one_game(
     let mut move_records: Vec<MoveRecord> = Vec::new();
     let mut move_count = 0u32;
 
+    let mcts_config = MctsConfig {
+        num_simulations: args.num_simulations,
+        c_puct: args.c_puct,
+        m: args.m,
+        c_visit: args.c_visit,
+        c_scale: args.c_scale,
+        gamma: GAMMA,
+    };
+
     while game.phase != GamePhase::GameOver {
         if game.phase != GamePhase::Falling {
             break;
@@ -149,12 +159,7 @@ fn play_one_game(
             &game.next_next_piece,
             model,
             device,
-            args.num_simulations,
-            args.c_puct,
-            GAMMA,
-            args.m,
-            args.c_visit,
-            args.c_scale,
+            &mcts_config,
             gumbel_seed,
         );
 

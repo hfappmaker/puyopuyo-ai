@@ -8,6 +8,7 @@ use puyo_nn::model::PuyoNet;
 
 use puyo_nn::value_transform::value_inverse_transform;
 
+use crate::nn_eval::MctsConfig;
 use crate::placement::{compute_valid_mask, index_to_placement, simulate_placement, NUM_ACTIONS};
 
 type InferBackend = NdArray;
@@ -317,6 +318,79 @@ impl MctsTree {
                 .unwrap_or(0.0)
         })
     }
+
+    /// Run Sequential Halving over the considered actions, then spend remaining budget.
+    fn sequential_halving(
+        &mut self,
+        considered: &mut Vec<usize>,
+        scores: &mut [f32; NUM_ACTIONS],
+        gumbels: &[f32; NUM_ACTIONS],
+        root_logits: &[f32; NUM_ACTIONS],
+        mask: &[bool; NUM_ACTIONS],
+        remaining_budget: usize,
+        model: &PuyoNet<InferBackend>,
+        device: &<InferBackend as Backend>::Device,
+        config: &MctsConfig,
+    ) {
+        if remaining_budget == 0 {
+            return;
+        }
+
+        let num_phases = {
+            let mut phases = 0u32;
+            let mut n = considered.len();
+            while n > 1 {
+                n = (n + 1) / 2;
+                phases += 1;
+            }
+            phases.max(1) as usize
+        };
+
+        let mut budget_used = 0usize;
+
+        for phase in 0..num_phases {
+            if considered.len() <= 1 {
+                break;
+            }
+
+            let n_actions = considered.len();
+            let budget_remaining = remaining_budget.saturating_sub(budget_used);
+            let phases_left = num_phases - phase;
+            let sims_per_action = (budget_remaining / (phases_left * n_actions)).max(1);
+
+            for &a in considered.iter() {
+                for _ in 0..sims_per_action {
+                    if budget_used >= remaining_budget {
+                        break;
+                    }
+                    self.simulate_from_root_action(a, model, device, config.c_puct);
+                    budget_used += 1;
+                }
+            }
+
+            let q_completed = compute_completed_q(self, mask);
+            let sigma_bar = compute_sigma_bar(self, &q_completed, mask, considered, config.c_visit);
+
+            for &a in considered.iter() {
+                scores[a] = gumbels[a] + root_logits[a] + sigma_bar[a];
+            }
+
+            let keep = (n_actions + 1) / 2;
+            considered.sort_by(|&a, &b| scores[b].partial_cmp(&scores[a]).unwrap_or(std::cmp::Ordering::Equal));
+            considered.truncate(keep);
+        }
+
+        // Spend remaining budget on surviving action(s)
+        while budget_used < remaining_budget {
+            for &a in considered.iter() {
+                if budget_used >= remaining_budget {
+                    break;
+                }
+                self.simulate_from_root_action(a, model, device, config.c_puct);
+                budget_used += 1;
+            }
+        }
+    }
 }
 
 /// Compute masked softmax over logits.
@@ -485,7 +559,6 @@ fn compute_sigma_bar(
 ///
 /// Returns (improved_policy, q_values).
 /// `seed` is used for deterministic Gumbel noise sampling.
-#[allow(clippy::too_many_arguments)]
 pub fn mcts_search(
     board: &Board,
     current: &Piece,
@@ -493,18 +566,13 @@ pub fn mcts_search(
     next_next: &Piece,
     model: &PuyoNet<InferBackend>,
     device: &<InferBackend as Backend>::Device,
-    num_simulations: usize,
-    c_puct: f32,
-    gamma: f32,
-    m: usize,
-    c_visit: f32,
-    c_scale: f32,
+    config: &MctsConfig,
     seed: u64,
 ) -> ([f32; NUM_ACTIONS], [f32; NUM_ACTIONS]) {
-    let mut tree = MctsTree::new(board, current, next, next_next, gamma);
+    let mut tree = MctsTree::new(board, current, next, next_next, config.gamma);
 
     // 1. Expand root (1 NN evaluation)
-    if num_simulations == 0 || tree.nodes[tree.root].terminal {
+    if config.num_simulations == 0 || tree.nodes[tree.root].terminal {
         let mask = compute_valid_mask(board, current);
         return (masked_softmax(&[0.0f32; NUM_ACTIONS], &mask), [0.0; NUM_ACTIONS]);
     }
@@ -526,8 +594,8 @@ pub fn mcts_search(
 
     // 2. Sample Gumbel noise and compute initial scores: g(a) + logit(a)
     let mut rng_state = seed.wrapping_add(0xdeadbeef);
-    let mut scores = [f32::NEG_INFINITY; NUM_ACTIONS];
     let mut gumbels = [0.0f32; NUM_ACTIONS];
+    let mut scores = [f32::NEG_INFINITY; NUM_ACTIONS];
     for &a in &valid_actions {
         let g = sample_gumbel(&mut rng_state, a as u64);
         gumbels[a] = g;
@@ -535,83 +603,28 @@ pub fn mcts_search(
     }
 
     // 3. Select top-m actions by initial score
-    let m = m.min(valid_actions.len());
+    let m = config.m.min(valid_actions.len());
     let mut considered: Vec<usize> = valid_actions.clone();
     considered.sort_by(|&a, &b| scores[b].partial_cmp(&scores[a]).unwrap_or(std::cmp::Ordering::Equal));
     considered.truncate(m);
 
-    // 4. Sequential Halving
-    let remaining_budget = num_simulations.saturating_sub(1); // root expansion used 1
+    // 4. Sequential Halving + spend remaining budget
+    let remaining_budget = config.num_simulations.saturating_sub(1); // root expansion used 1
+    tree.sequential_halving(
+        &mut considered,
+        &mut scores,
+        &gumbels,
+        &root_logits,
+        &mask,
+        remaining_budget,
+        model,
+        device,
+        config,
+    );
 
-    if remaining_budget == 0 {
-        let q_completed = compute_completed_q(&tree, &mask);
-        let improved = compute_improved_policy(&root_logits, &q_completed, &mask, c_visit, c_scale);
-        return (improved, tree.root_q_values());
-    }
-
-    // Compute number of halving phases
-    let num_phases = {
-        let mut phases = 0u32;
-        let mut n = considered.len();
-        while n > 1 {
-            n = (n + 1) / 2;
-            phases += 1;
-        }
-        phases.max(1) as usize
-    };
-
-    let mut budget_used = 0usize;
-
-    for phase in 0..num_phases {
-        if considered.len() <= 1 {
-            break;
-        }
-
-        // Simulations per action in this phase
-        let n_actions = considered.len();
-        let budget_remaining = remaining_budget.saturating_sub(budget_used);
-        let phases_left = num_phases - phase;
-        let sims_per_action = (budget_remaining / (phases_left * n_actions)).max(1);
-
-        // Run simulations for each considered action
-        for &a in &considered {
-            for _ in 0..sims_per_action {
-                if budget_used >= remaining_budget {
-                    break;
-                }
-                tree.simulate_from_root_action(a, model, device, c_puct);
-                budget_used += 1;
-            }
-        }
-
-        // Update scores with completed Q-values
-        let q_completed = compute_completed_q(&tree, &mask);
-        let sigma_bar = compute_sigma_bar(&tree, &q_completed, &mask, &considered, c_visit);
-
-        for &a in &considered {
-            scores[a] = gumbels[a] + root_logits[a] + sigma_bar[a];
-        }
-
-        // Halve: keep top ceil(n_actions / 2)
-        let keep = (n_actions + 1) / 2;
-        considered.sort_by(|&a, &b| scores[b].partial_cmp(&scores[a]).unwrap_or(std::cmp::Ordering::Equal));
-        considered.truncate(keep);
-    }
-
-    // 5. Spend remaining budget on surviving action(s)
-    while budget_used < remaining_budget {
-        for &a in &considered {
-            if budget_used >= remaining_budget {
-                break;
-            }
-            tree.simulate_from_root_action(a, model, device, c_puct);
-            budget_used += 1;
-        }
-    }
-
-    // 6. Compute improved policy target
+    // 5. Compute improved policy target
     let q_completed = compute_completed_q(&tree, &mask);
-    let improved_policy = compute_improved_policy(&root_logits, &q_completed, &mask, c_visit, c_scale);
+    let improved_policy = compute_improved_policy(&root_logits, &q_completed, &mask, config.c_visit, config.c_scale);
 
     (improved_policy, tree.root_q_values())
 }

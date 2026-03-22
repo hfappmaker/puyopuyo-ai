@@ -155,21 +155,21 @@ pub fn mcts_search(
     next_next: &Piece,
     model: &PuyoNet<NdArray>,
     device: &<NdArray as Backend>::Device,
-    num_simulations: usize,
-    c_puct: f32,
-    gamma: f32,
-    m: usize,
-    c_visit: f32,
-    c_scale: f32,
+    config: &MctsConfig,
     seed: u64,
 ) -> ([f32; 24], [f32; 24])
 ```
 
-- **入力**: 盤面、3ツモ、NNモデル、デバイス、探索パラメータ（シミュレーション回数、PUCT定数、割引率、Top-kサンプル数m、Q値スケーリングc_visit/c_scale、Gumbelシード）
+- **入力**: 盤面、3ツモ、NNモデル、デバイス、`MctsConfig`（探索パラメータ一式）、Gumbelシード
 - **出力**: (24次元のimproved policy, 24次元のQ値)
+
+`MctsConfig`のフィールド:
+- `num_simulations`: シミュレーション回数（デフォルト64）
+- `c_puct`: PUCT定数（デフォルト1.5）
 - `m`: 初期にGumbel-Top-kで選択するアクション数（デフォルト16）
 - `c_visit`: completed Q-valuesのスケーリング係数（デフォルト50.0）
 - `c_scale`: advantageのスケールパラメータ（デフォルト1.0）
+- `gamma`: 将来報酬の割引率（デフォルト0.99）
 
 ## 共通ユーティリティ（placement.rs）
 

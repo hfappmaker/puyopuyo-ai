@@ -22,6 +22,8 @@ pub struct MctsConfig {
     pub c_visit: f32,
     /// Scale parameter for advantage computation.
     pub c_scale: f32,
+    /// Discount factor for future rewards.
+    pub gamma: f32,
 }
 
 impl Default for MctsConfig {
@@ -32,6 +34,7 @@ impl Default for MctsConfig {
             m: 16,
             c_visit: 50.0,
             c_scale: 1.0,
+            gamma: 0.99,
         }
     }
 }
@@ -109,12 +112,7 @@ impl Evaluator for NnEvaluator {
                 next_next,
                 &self.model,
                 &self.device,
-                mcts_config.num_simulations,
-                mcts_config.c_puct,
-                0.99,
-                mcts_config.m,
-                mcts_config.c_visit,
-                mcts_config.c_scale,
+                mcts_config,
                 seed,
             );
 
