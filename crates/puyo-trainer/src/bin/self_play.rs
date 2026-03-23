@@ -110,6 +110,7 @@ struct MoveRecord {
 struct GameResult {
     samples: Vec<AlphaZeroSample>,
     max_chain: u32,
+    total_reward: f32,
 }
 
 /// Play one self-play game and return training samples.
@@ -185,6 +186,7 @@ fn play_one_game(
 
     // Compute discounted cumulative rewards (backwards) with bootstrap for truncated games
     let num_moves = move_records.len();
+    let total_reward: f32 = move_records.iter().map(|r| r.reward).sum();
     let truncated = move_count >= MAX_TURNS && game.phase != GamePhase::GameOver;
     let mut samples = Vec::new();
     if num_moves > 0 {
@@ -215,6 +217,7 @@ fn play_one_game(
     GameResult {
         samples,
         max_chain: game.max_chain,
+        total_reward,
     }
 }
 
@@ -275,6 +278,7 @@ fn main() {
     let total_samples = AtomicU64::new(0);
     let total_max_chain = AtomicU32::new(0);
     let total_chain_sum = AtomicU64::new(0);
+    let total_reward_sum = AtomicU64::new(0);
 
     // Distribute games across threads, each thread returns its results via JoinHandle
     let games_per_thread = args.num_games.div_ceil(num_threads as u64);
@@ -292,6 +296,7 @@ fn main() {
                 let total_samples = &total_samples;
                 let total_max_chain = &total_max_chain;
                 let total_chain_sum = &total_chain_sum;
+                let total_reward_sum = &total_reward_sum;
                 let start_time = &start_time;
 
                 s.spawn(move || {
@@ -305,6 +310,7 @@ fn main() {
                         total_samples.fetch_add(result.samples.len() as u64, Ordering::Relaxed);
                         total_max_chain.fetch_max(result.max_chain, Ordering::Relaxed);
                         total_chain_sum.fetch_add(result.max_chain as u64, Ordering::Relaxed);
+                        total_reward_sum.fetch_add(result.total_reward as u64, Ordering::Relaxed);
 
                         // Print progress (minor interleaving between threads is acceptable)
                         let elapsed = start_time.elapsed().as_secs_f64();
@@ -313,11 +319,14 @@ fn main() {
                         let max_chain = total_max_chain.load(Ordering::Relaxed);
                         let chain_sum = total_chain_sum.load(Ordering::Relaxed);
                         let avg_chain = chain_sum as f64 / done as f64;
+                        let reward_sum = total_reward_sum.load(Ordering::Relaxed);
+                        let avg_reward = reward_sum as f64 / done as f64;
                         let eta = (args.num_games - done) as f64 / games_per_sec;
                         println!(
-                            "[{:>4}/{}] samples: {:>6} | chain(game/max/avg): {}/{}/{:.1} | {:.2} games/s | ETA: {:.0}s",
+                            "[{:>4}/{}] samples: {:>6} | chain(game/max/avg): {}/{}/{:.1} | reward(game/avg): {}/{:.0} | {:.2} games/s | ETA: {:.0}s",
                             done, args.num_games, samples_so_far,
                             result.max_chain, max_chain, avg_chain,
+                            result.total_reward as u64, avg_reward,
                             games_per_sec, eta,
                         );
 
