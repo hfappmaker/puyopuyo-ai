@@ -132,18 +132,9 @@ fn play_one_game(
         gamma: args.gamma,
     };
 
-    while game.phase != GamePhase::GameOver {
-        if game.phase != GamePhase::Falling {
-            break;
-        }
-        if move_count >= MAX_TURNS {
-            break;
-        }
+    while game.phase != GamePhase::GameOver && move_count < MAX_TURNS {
 
-        let current_piece = match &game.current_piece {
-            Some(fp) => fp.piece,
-            None => break,
-        };
+        let current_piece = game.current_piece.as_ref().unwrap().piece;
 
         // Encode state
         let board_data = board_to_tensor_data(&game.board).to_vec();
