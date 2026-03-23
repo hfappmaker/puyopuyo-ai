@@ -34,7 +34,6 @@ struct Args {
     seed_offset: u64,
     m: usize,
     c_visit: f32,
-    c_scale: f32,
     gamma: f32,
     output_path: String,
 }
@@ -47,8 +46,7 @@ fn parse_args() -> Args {
         c_puct: 1.5,
         seed_offset: 200_000,
         m: 16,
-        c_visit: 50.0,
-        c_scale: 1.0,
+        c_visit: 5.0,
         gamma: 0.95,
         output_path: DEFAULT_OUTPUT_PATH.to_string(),
     };
@@ -84,10 +82,6 @@ fn parse_args() -> Args {
             "--c-visit" => {
                 i += 1;
                 result.c_visit = next_val(i, "--c-visit").parse().expect("--c-visit requires float");
-            }
-            "--c-scale" => {
-                i += 1;
-                result.c_scale = next_val(i, "--c-scale").parse().expect("--c-scale requires float");
             }
             "--gamma" => {
                 i += 1;
@@ -135,7 +129,6 @@ fn play_one_game(
         c_puct: args.c_puct,
         m: args.m,
         c_visit: args.c_visit,
-        c_scale: args.c_scale,
         gamma: args.gamma,
     };
 
@@ -240,9 +233,9 @@ fn main() {
     println!("Backend: NdArray (CPU) — Gumbel MCTS self-play (parallel)");
 
     println!(
-        "games={}, simulations={}, c_puct={}, m={}, c_visit={}, c_scale={}, gamma={}, seed_offset={}",
+        "games={}, simulations={}, c_puct={}, m={}, c_visit={}, gamma={}, seed_offset={}",
         args.num_games, args.num_simulations, args.c_puct, args.m,
-        args.c_visit, args.c_scale, args.gamma, args.seed_offset,
+        args.c_visit, args.gamma, args.seed_offset,
     );
 
     let device: <InferBackend as Backend>::Device = Default::default();

@@ -118,7 +118,7 @@ Q_normalized = (Q - Q_min) / (Q_max - Q_min)
 3. **初期スコア計算**: `score(a) = g(a) + logit(a)` でTop-m アクションを選択
 4. **Sequential Halving**: 各フェーズで残りアクションにシミュレーションを均等割当 → `simulate_from_root_action` でルートアクションを強制して探索 → completed Q-values と sigma_bar でスコア更新 → 上位半分を残す
 5. **残り予算消化**: 生存アクションに残りシミュレーションを投入
-6. **Improved Policy計算**: `π_improved(a) ∝ π(a) · exp(advantage(a) · c_visit / c_scale)` で改善されたポリシーターゲットを生成
+6. **Improved Policy計算**: `π_improved(a) ∝ π(a) · exp(advantage(a) · c_visit)` で改善されたポリシーターゲットを生成
 
 内部ノード（ルート以外）では従来のPUCT選択を使用する。
 
@@ -167,8 +167,7 @@ pub fn mcts_search(
 - `num_simulations`: シミュレーション回数（デフォルト64）
 - `c_puct`: PUCT定数（デフォルト1.5）
 - `m`: 初期にGumbel-Top-kで選択するアクション数（デフォルト16）
-- `c_visit`: completed Q-valuesのスケーリング係数（デフォルト1.0）
-- `c_scale`: advantageのスケールパラメータ（デフォルト1.0）
+- `c_visit`: advantageのスケーリング係数（デフォルト5.0）
 - `gamma`: 将来報酬の割引率（デフォルト0.95）
 
 ## 共通ユーティリティ（placement.rs）

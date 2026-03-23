@@ -12,8 +12,7 @@ SIMS_STEP="${SIMS_STEP:-0}"        # イテレーションごとの増加量
 SIMS_MAX="${SIMS_MAX:-64}"         # シミュレーション上限
 C_PUCT="${C_PUCT:-1.5}"
 M="${M:-16}"                        # Gumbel Top-k初期サンプル数
-C_VISIT="${C_VISIT:-50.0}"          # Q値スケーリング
-C_SCALE="${C_SCALE:-1.0}"           # スケールパラメータ
+C_VISIT="${C_VISIT:-5.0}"            # Q値スケーリング
 GAMMA="${GAMMA:-0.95}"              # 割引率
 REPLAY_WINDOW="${REPLAY_WINDOW:-1}"  # 直近N個のイテレーションデータを保持
 LOG_FILE="artifacts/alphazero-loop.log"
@@ -55,7 +54,6 @@ while true; do
         --seed-offset "$SEED_OFFSET" \
         --m "$M" \
         --c-visit "$C_VISIT" \
-        --c-scale "$C_SCALE" \
         --gamma "$GAMMA" \
         --output "$OUTPUT_FILE" \
         2>&1 | tee -a "$LOG_FILE"

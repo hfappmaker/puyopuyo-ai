@@ -20,8 +20,6 @@ pub struct MctsConfig {
     pub m: usize,
     /// Q-value scaling for advantage computation.
     pub c_visit: f32,
-    /// Scale parameter for advantage computation.
-    pub c_scale: f32,
     /// Discount factor for future rewards.
     pub gamma: f32,
 }
@@ -32,8 +30,7 @@ impl Default for MctsConfig {
             num_simulations: 64,
             c_puct: 1.5,
             m: 16,
-            c_visit: 50.0,
-            c_scale: 1.0,
+            c_visit: 5.0,
             gamma: 0.95,
         }
     }

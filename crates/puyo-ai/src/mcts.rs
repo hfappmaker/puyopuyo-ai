@@ -548,17 +548,16 @@ fn normalize_q_minmax(
 }
 
 /// Compute the improved policy target from logits and completed Q-values.
-/// π_improved(a) ∝ π(a) · exp(advantage(a) · c_visit / c_scale)
+/// π_improved(a) ∝ π(a) · exp(advantage(a) · c_visit)
 ///
 /// Q-values are min-max normalized to [0,1] before computing advantages,
-/// so that c_visit/c_scale operates on a consistent scale regardless of
+/// so that c_visit operates on a consistent scale regardless of
 /// the raw reward magnitude (following Gumbel MuZero paper assumptions).
 fn compute_improved_policy(
     logits: &[f32; NUM_ACTIONS],
     q_completed: &[f32; NUM_ACTIONS],
     mask: &[bool; NUM_ACTIONS],
     c_visit: f32,
-    c_scale: f32,
 ) -> [f32; NUM_ACTIONS] {
     let q_normalized = normalize_q_minmax(q_completed, mask);
 
@@ -569,12 +568,12 @@ fn compute_improved_policy(
         .map(|a| priors[a] * q_normalized[a])
         .sum();
 
-    // Compute improved logits: logit(a) + advantage(a) * c_visit / c_scale
+    // Compute improved logits: logit(a) + advantage(a) * c_visit
     let mut improved_logits = [f32::NEG_INFINITY; NUM_ACTIONS];
     for a in 0..NUM_ACTIONS {
         if mask[a] {
             let advantage = q_normalized[a] - v_mixed;
-            improved_logits[a] = logits[a] + advantage * c_visit / c_scale;
+            improved_logits[a] = logits[a] + advantage * c_visit;
         }
     }
 
@@ -678,7 +677,7 @@ pub fn mcts_search(
     );
 
     // 5. Compute improved policy target
-    let improved_policy = compute_improved_policy(&root_logits, &q_completed, &mask, config.c_visit, config.c_scale);
+    let improved_policy = compute_improved_policy(&root_logits, &q_completed, &mask, config.c_visit);
 
     (improved_policy, tree.root_q_values())
 }
@@ -754,7 +753,7 @@ mod tests {
         mask[1] = true;
         mask[2] = true;
 
-        let policy = compute_improved_policy(&logits, &q, &mask, 50.0, 1.0);
+        let policy = compute_improved_policy(&logits, &q, &mask, 5.0);
 
         let sum: f32 = policy.iter().sum();
         assert!((sum - 1.0).abs() < 1e-5, "Improved policy should sum to 1.0, got {}", sum);
