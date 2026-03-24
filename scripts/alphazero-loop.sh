@@ -7,9 +7,9 @@ cd "$PROJECT_ROOT"
 
 # 設定（環境変数でオーバーライド可能）
 GAMES="${GAMES:-300}"
-SIMS_BASE="${SIMS_BASE:-64}"        # シミュレーション初期値
+SIMS_BASE="${SIMS_BASE:-200}"       # シミュレーション初期値
 SIMS_STEP="${SIMS_STEP:-0}"        # イテレーションごとの増加量
-SIMS_MAX="${SIMS_MAX:-64}"         # シミュレーション上限
+SIMS_MAX="${SIMS_MAX:-200}"        # シミュレーション上限
 C_PUCT="${C_PUCT:-1.5}"
 M="${M:-16}"                        # Gumbel Top-k初期サンプル数
 C_VISIT="${C_VISIT:-5.0}"            # Q値スケーリング
