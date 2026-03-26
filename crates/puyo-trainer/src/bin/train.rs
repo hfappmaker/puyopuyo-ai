@@ -351,14 +351,27 @@ fn train_alphazero(data_dir: Option<&str>) {
         }
     }
 
-    // Validation data: no augmentation (consistent evaluation)
-    let val_samples: Vec<AlphaZeroSample> = val_indices.iter()
-        .map(|&idx| dataset.samples[idx].clone())
-        .collect();
+    // Augment validation data with all 24 color permutations (consistent with train)
+    let mut val_samples = Vec::with_capacity(val_indices.len() * 24);
+    for &idx in val_indices {
+        let sample = &dataset.samples[idx];
+        for perm in &all_perms {
+            let mut bd = sample.board_data.clone();
+            let mut cd = sample.context_data.clone();
+            puyo_trainer::data::apply_color_perm_board(&mut bd, perm);
+            puyo_trainer::data::apply_color_perm_context(&mut cd, perm);
+            val_samples.push(AlphaZeroSample {
+                board_data: bd,
+                context_data: cd,
+                mcts_policy: sample.mcts_policy.clone(),
+                value_target: sample.value_target,
+            });
+        }
+    }
     drop(dataset);
 
-    println!("Color augmentation: {} -> {} train samples (x24), {} val samples",
-        num_samples, train_augmented.len(), val_samples.len());
+    println!("Color augmentation (x24): {} -> {} train, {} -> {} val",
+        train_indices.len(), train_augmented.len(), val_indices.len(), val_samples.len());
 
     let train_samples = train_augmented;
     let val_samples = val_samples;
