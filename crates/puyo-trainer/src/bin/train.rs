@@ -14,7 +14,7 @@ use puyo_core::board::{COLS, ROWS};
 use puyo_nn::encoding::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS, TENSOR_SIZE};
 use puyo_nn::model::PuyoNetConfig;
 use puyo_nn::value_transform::value_transform;
-use puyo_trainer::data::{AlphaZeroDataset, Dataset};
+use puyo_trainer::data::{AlphaZeroDataset, AlphaZeroSample, Dataset};
 
 #[cfg(feature = "gpu")]
 type TrainBackend = Autodiff<CudaJit<f32>>;
@@ -324,19 +324,44 @@ fn train_alphazero(data_dir: Option<&str>) {
     let num_samples = dataset.samples.len();
     println!("Loaded {} total samples", num_samples);
 
-    // Shuffle before split to avoid systematic bias (games are sequential)
+    // Split BEFORE augmentation to prevent data leakage
+    // (same sample's color variants must not appear in both train and val)
     let mut sample_indices: Vec<usize> = (0..num_samples).collect();
     shuffle_indices(&mut sample_indices, 12345);
-    let mut shuffled_samples = Vec::with_capacity(num_samples);
-    for &idx in &sample_indices {
-        shuffled_samples.push(dataset.samples[idx].clone());
-    }
-    let dataset = AlphaZeroDataset { samples: shuffled_samples };
-
     let split = (num_samples as f64 * TRAIN_SPLIT_RATIO) as usize;
-    let train_samples = &dataset.samples[..split];
-    let val_samples = &dataset.samples[split..];
-    println!("Train: {}, Val: {}", train_samples.len(), val_samples.len());
+    let train_indices = &sample_indices[..split];
+    let val_indices = &sample_indices[split..];
+
+    // Augment training data with all 24 color permutations
+    let all_perms = puyo_trainer::data::all_color_permutations();
+    let mut train_augmented = Vec::with_capacity(train_indices.len() * 24);
+    for &idx in train_indices {
+        let sample = &dataset.samples[idx];
+        for perm in &all_perms {
+            let mut bd = sample.board_data.clone();
+            let mut cd = sample.context_data.clone();
+            puyo_trainer::data::apply_color_perm_board(&mut bd, perm);
+            puyo_trainer::data::apply_color_perm_context(&mut cd, perm);
+            train_augmented.push(AlphaZeroSample {
+                board_data: bd,
+                context_data: cd,
+                mcts_policy: sample.mcts_policy.clone(),
+                value_target: sample.value_target,
+            });
+        }
+    }
+
+    // Validation data: no augmentation (consistent evaluation)
+    let val_samples: Vec<AlphaZeroSample> = val_indices.iter()
+        .map(|&idx| dataset.samples[idx].clone())
+        .collect();
+    drop(dataset);
+
+    println!("Color augmentation: {} -> {} train samples (x24), {} val samples",
+        num_samples, train_augmented.len(), val_samples.len());
+
+    let train_samples = train_augmented;
+    let val_samples = val_samples;
 
     let config = PuyoNetConfig::new();
 
@@ -457,7 +482,7 @@ fn train_alphazero(data_dir: Option<&str>) {
 
         let val_model = model.valid();
         let val_device: <InnerBackend as Backend>::Device = Default::default();
-        let (val_p, val_v) = compute_val_loss_alphazero(&val_model, val_samples, &val_device);
+        let (val_p, val_v) = compute_val_loss_alphazero(&val_model, &val_samples, &val_device);
         let val_total = val_p + val_v * VALUE_LOSS_WEIGHT;
 
         println!(
