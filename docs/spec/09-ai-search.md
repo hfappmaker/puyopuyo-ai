@@ -153,14 +153,13 @@ pub fn mcts_search(
     current: &Piece,
     next: &Piece,
     next_next: &Piece,
-    model: &PuyoNet<NdArray>,
-    device: &<NdArray as Backend>::Device,
+    provider: &dyn InferenceProvider,
     config: &MctsConfig,
     seed: u64,
-) -> ([f32; 24], [f32; 24])
+) -> ([f32; NUM_ACTIONS], [f32; NUM_ACTIONS])
 ```
 
-- **入力**: 盤面、3ツモ、NNモデル、デバイス、`MctsConfig`（探索パラメータ一式）、Gumbelシード
+- **入力**: 盤面、3ツモ、`InferenceProvider`（推論プロバイダ）、`MctsConfig`（探索パラメータ一式）、Gumbelシード
 - **出力**: (24次元のimproved policy, 24次元のQ値)
 
 `MctsConfig`のフィールド:

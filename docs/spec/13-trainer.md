@@ -144,21 +144,21 @@ AdamConfig::new().with_weight_decay(Some(WeightDecayConfig::new(1e-4))).init()
 ## Phase 3: 自己対戦強化学習 (`self-play`)
 
 Gumbel MCTS ベースの AlphaZero self-play ループ。Dual Head Network（`PuyoNet`）の Policy Head と Value Head を使った Gumbel MCTS 探索でゲームをプレイし、訓練データを生成する。
-各ゲームは `std::thread::scope` により並列実行される（スレッド数 = CPU コア数）。各スレッドがモデルのクローンを所有し、独立にゲームを処理する。
+CPU モードでは `std::thread::scope` により並列実行され、各スレッドがモデルのクローンを所有して独立にゲームを処理する。GPU モードでは専用の推論サーバースレッド（`inference_server`）がバッチ推論を処理し、ゲームスレッド（デフォルト64）が `InferenceClient` 経由で推論リクエストを送信する。`--threads` 引数でスレッド数を指定可能。
 
 ### CLI引数
 
 | 引数 | 型 | デフォルト | 説明 |
 |------|-----|----------|------|
-| `--games` | 整数 | 100 | 自己対戦ゲーム数 |
+| `--games` | 整数 | 300 | 自己対戦ゲーム数 |
 | `--simulations` | 整数 | 64 | MCTS シミュレーション回数/手 |
 | `--c-puct` | 小数 | 1.5 | 内部ノードのPUCT探索定数 |
 | `--seed-offset` | 整数 | 200,000 | RNG シードオフセット（seed = seed_offset + game_idx） |
 | `--m` | 整数 | 16 | Gumbel Top-k 初期サンプル数 |
-| `--c-visit` | 小数 | 50.0 | Q値スケーリング係数 |
-| `--c-scale` | 小数 | 1.0 | Advantage スケールパラメータ |
+| `--c-visit` | 小数 | 5.0 | Q値スケーリング係数 |
 | `--gamma` | 小数 | 0.95 | 将来報酬の割引率 |
 | `--output` | 文字列 | `data/alphazero_data.bin` | 出力ファイルパス |
+| `--threads` | 整数 | CPUコア数（GPU: 64） | 並列ゲームスレッド数 |
 
 `--seed-offset` により、複数回の self-play 実行で異なるゲームデータを生成できる。
 
