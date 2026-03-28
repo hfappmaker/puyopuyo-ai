@@ -34,9 +34,9 @@ const MODEL_PATH: &str = "artifacts/puyo_model";
 const DEFAULT_OUTPUT_PATH: &str = "data/alphazero_data.bin";
 const MAX_TURNS: u32 = 50;
 #[cfg(feature = "gpu")]
-const DEFAULT_GPU_THREADS: usize = 64;
+const DEFAULT_GPU_THREADS: usize = 128;
 #[cfg(feature = "gpu")]
-const DEFAULT_MAX_BATCH_SIZE: usize = 64;
+const DEFAULT_MAX_BATCH_SIZE: usize = 128;
 
 struct Args {
     num_games: u64,
