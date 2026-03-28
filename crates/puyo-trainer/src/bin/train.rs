@@ -32,11 +32,12 @@ const LR_MAX: f64 = 5e-4;
 const LR_MIN: f64 = 1e-5;
 const EARLY_STOPPING_PATIENCE: usize = 5;
 
-// AlphaZero-specific training parameters
-const AZ_NUM_EPOCHS: usize = 40;
+// AlphaZero-specific training parameters (step-based)
+const AZ_NUM_STEPS: usize = 1000;
+const AZ_VAL_INTERVAL: usize = 100;
+const AZ_EARLY_STOPPING_PATIENCE: usize = 5; // in val_interval units (= 500 steps)
 const AZ_LR_MAX: f64 = 2e-4;
 const AZ_LR_MIN: f64 = 1e-5;
-const AZ_EARLY_STOPPING_PATIENCE: usize = 10;
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
 const NUM_ACTIONS: usize = 24;
 const VALUE_LOSS_WEIGHT: f32 = 0.5;
@@ -325,33 +326,14 @@ fn train_alphazero(data_dir: Option<&str>) {
     println!("Loaded {} total samples", num_samples);
 
     // Split BEFORE augmentation to prevent data leakage
-    // (same sample's color variants must not appear in both train and val)
     let mut sample_indices: Vec<usize> = (0..num_samples).collect();
     shuffle_indices(&mut sample_indices, 12345);
     let split = (num_samples as f64 * TRAIN_SPLIT_RATIO) as usize;
-    let train_indices = &sample_indices[..split];
+    let train_indices: Vec<usize> = sample_indices[..split].to_vec();
     let val_indices = &sample_indices[split..];
 
-    // Augment training data with all 24 color permutations
+    // Validation data: pre-expand all 24 color permutations (for consistent evaluation)
     let all_perms = puyo_trainer::data::all_color_permutations();
-    let mut train_augmented = Vec::with_capacity(train_indices.len() * 24);
-    for &idx in train_indices {
-        let sample = &dataset.samples[idx];
-        for perm in &all_perms {
-            let mut bd = sample.board_data.clone();
-            let mut cd = sample.context_data.clone();
-            puyo_trainer::data::apply_color_perm_board(&mut bd, perm);
-            puyo_trainer::data::apply_color_perm_context(&mut cd, perm);
-            train_augmented.push(AlphaZeroSample {
-                board_data: bd,
-                context_data: cd,
-                mcts_policy: sample.mcts_policy.clone(),
-                value_target: sample.value_target,
-            });
-        }
-    }
-
-    // Augment validation data with all 24 color permutations (consistent with train)
     let mut val_samples = Vec::with_capacity(val_indices.len() * 24);
     for &idx in val_indices {
         let sample = &dataset.samples[idx];
@@ -368,18 +350,19 @@ fn train_alphazero(data_dir: Option<&str>) {
             });
         }
     }
+
+    // Training data: keep original samples, apply random color perm on-the-fly
+    let train_samples: Vec<AlphaZeroSample> = train_indices.iter()
+        .map(|&idx| dataset.samples[idx].clone())
+        .collect();
     drop(dataset);
 
-    println!("Color augmentation (x24): {} -> {} train, {} -> {} val",
-        train_indices.len(), train_augmented.len(), val_indices.len(), val_samples.len());
-
-    let train_samples = train_augmented;
-    let val_samples = val_samples;
+    println!("Train: {} samples (color augmented on-the-fly), Val: {} samples (x24 pre-expanded)",
+        train_samples.len(), val_samples.len());
 
     let config = PuyoNetConfig::new();
 
     // Try to load existing model, otherwise init fresh
-    // Use catch_unwind because burn may panic on incompatible model files
     let mut model = {
         let device_clone = device.clone();
         let load_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -410,110 +393,119 @@ fn train_alphazero(data_dir: Option<&str>) {
         }
     };
 
-    let num_epochs = AZ_NUM_EPOCHS;
-    let patience_limit = AZ_EARLY_STOPPING_PATIENCE;
-
     let mut optim = AdamConfig::new()
         .with_weight_decay(Some(WeightDecayConfig::new(1e-4)))
         .init();
     let mut best_val_loss = f32::MAX;
     let mut patience_counter = 0usize;
 
-    println!("AlphaZero training: {} epochs, LR {:.0e}->{:.0e}, patience={}",
-        num_epochs, AZ_LR_MAX, AZ_LR_MIN, patience_limit);
+    println!("AlphaZero training: {} steps, val every {} steps, LR {:.0e}->{:.0e}, patience={}",
+        AZ_NUM_STEPS, AZ_VAL_INTERVAL, AZ_LR_MAX, AZ_LR_MIN, AZ_EARLY_STOPPING_PATIENCE);
 
-    for epoch in 0..num_epochs {
+    let mut rng_state: u64 = 42;
+    let mut running_p_loss = 0.0f32;
+    let mut running_v_loss = 0.0f32;
+    let mut running_count = 0usize;
+
+    for step in 0..AZ_NUM_STEPS {
         let lr = AZ_LR_MIN
             + 0.5 * (AZ_LR_MAX - AZ_LR_MIN)
-            * (1.0 + (std::f64::consts::PI * epoch as f64 / num_epochs as f64).cos());
-        let mut epoch_policy_loss = 0.0f32;
-        let mut epoch_value_loss = 0.0f32;
-        let mut num_batches = 0;
+            * (1.0 + (std::f64::consts::PI * step as f64 / AZ_NUM_STEPS as f64).cos());
 
-        let mut indices: Vec<usize> = (0..train_samples.len()).collect();
-        shuffle_indices(&mut indices, epoch as u64);
+        // Sample a random mini-batch with on-the-fly color augmentation
+        let batch_size = BATCH_SIZE.min(train_samples.len());
+        let mut board_data = Vec::with_capacity(batch_size * TENSOR_SIZE);
+        let mut context_data = Vec::with_capacity(batch_size * CONTEXT_TENSOR_SIZE);
+        let mut policy_targets = Vec::with_capacity(batch_size * NUM_ACTIONS);
+        let mut value_targets = Vec::with_capacity(batch_size);
 
-        for batch_start in (0..train_samples.len()).step_by(BATCH_SIZE) {
-            let batch_end = (batch_start + BATCH_SIZE).min(train_samples.len());
-            let batch_size = batch_end - batch_start;
-            if batch_size == 0 { break; }
+        for _ in 0..batch_size {
+            // Random sample index
+            rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let idx = (rng_state >> 33) as usize % train_samples.len();
+            let sample = &train_samples[idx];
 
-            let mut board_data = Vec::with_capacity(batch_size * TENSOR_SIZE);
-            let mut context_data = Vec::with_capacity(batch_size * CONTEXT_TENSOR_SIZE);
-            let mut policy_targets = Vec::with_capacity(batch_size * NUM_ACTIONS);
-            let mut value_targets = Vec::with_capacity(batch_size);
+            // Random color permutation
+            rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(3);
+            let perm_idx = (rng_state >> 33) as usize % all_perms.len();
+            let perm = &all_perms[perm_idx];
 
-            for &idx in &indices[batch_start..batch_end] {
-                let sample = &train_samples[idx];
-                board_data.extend_from_slice(&sample.board_data);
-                context_data.extend_from_slice(&sample.context_data);
-                policy_targets.extend_from_slice(&sample.mcts_policy);
-                value_targets.push(sample.value_target);
-            }
+            let mut bd = sample.board_data.clone();
+            let mut cd = sample.context_data.clone();
+            puyo_trainer::data::apply_color_perm_board(&mut bd, perm);
+            puyo_trainer::data::apply_color_perm_context(&mut cd, perm);
 
-            let board_inputs = Tensor::<TrainBackend, 1>::from_floats(board_data.as_slice(), &device)
-                .reshape([batch_size, NUM_CHANNELS, ROWS, COLS]);
-            let context_inputs = Tensor::<TrainBackend, 1>::from_floats(context_data.as_slice(), &device)
-                .reshape([batch_size, CONTEXT_TENSOR_SIZE]);
-
-            // Forward pass
-            let (logits, value) = model.forward(board_inputs, context_inputs);
-
-            // Policy loss: cross-entropy with soft MCTS targets
-            let policy_loss = cross_entropy_loss_soft(logits, &policy_targets, &device);
-
-            let value_loss = value_mse_loss(value, &value_targets, &device);
-
-            // Total loss (value loss weighted to balance with policy loss)
-            let p_loss_val = policy_loss.clone().into_data().to_vec::<f32>().expect("Failed to extract policy loss")[0];
-            let v_loss_val = value_loss.clone().into_data().to_vec::<f32>().expect("Failed to extract value loss")[0];
-            let total_loss = policy_loss + value_loss * VALUE_LOSS_WEIGHT;
-
-            epoch_policy_loss += p_loss_val;
-            epoch_value_loss += v_loss_val;
-            num_batches += 1;
-
-            let grads = total_loss.backward();
-            let grads = GradientsParams::from_grads(grads, &model);
-            model = optim.step(lr, model, grads);
-
-            if num_batches % 50 == 0 {
-                let total_batches = train_samples.len().div_ceil(BATCH_SIZE);
-                eprint!(
-                    "\r  batch {}/{} p_loss={:.4} v_loss={:.4}",
-                    num_batches, total_batches,
-                    epoch_policy_loss / num_batches as f32,
-                    epoch_value_loss / num_batches as f32,
-                );
-            }
+            board_data.extend_from_slice(&bd);
+            context_data.extend_from_slice(&cd);
+            policy_targets.extend_from_slice(&sample.mcts_policy);
+            value_targets.push(sample.value_target);
         }
-        eprintln!();
 
-        let avg_p = epoch_policy_loss / num_batches as f32;
-        let avg_v = epoch_value_loss / num_batches as f32;
-        let avg_total = avg_p + avg_v * VALUE_LOSS_WEIGHT;
+        let board_inputs = Tensor::<TrainBackend, 1>::from_floats(board_data.as_slice(), &device)
+            .reshape([batch_size, NUM_CHANNELS, ROWS, COLS]);
+        let context_inputs = Tensor::<TrainBackend, 1>::from_floats(context_data.as_slice(), &device)
+            .reshape([batch_size, CONTEXT_TENSOR_SIZE]);
 
-        let val_model = model.valid();
-        let val_device: <InnerBackend as Backend>::Device = Default::default();
-        let (val_p, val_v) = compute_val_loss_alphazero(&val_model, &val_samples, &val_device);
-        let val_total = val_p + val_v * VALUE_LOSS_WEIGHT;
+        let (logits, value) = model.forward(board_inputs, context_inputs);
 
-        println!(
-            "Epoch {}/{}: train(p={:.6}, v={:.6}, t={:.6}), val(p={:.6}, v={:.6}, t={:.6}), lr={:.6}",
-            epoch + 1, num_epochs, avg_p, avg_v, avg_total, val_p, val_v, val_total, lr,
-        );
+        let policy_loss = cross_entropy_loss_soft(logits, &policy_targets, &device);
+        let value_loss = value_mse_loss(value, &value_targets, &device);
 
-        if val_total < best_val_loss {
-            best_val_loss = val_total;
-            patience_counter = 0;
-            model.valid().save_file(MODEL_PATH, &BinFileRecorder::<FullPrecisionSettings>::new()).expect("Failed to save model");
-            println!("  -> Best model saved (val_loss={:.6})", val_total);
-        } else {
-            patience_counter += 1;
-            println!("  -> No improvement ({}/{})", patience_counter, patience_limit);
-            if patience_counter >= patience_limit {
-                println!("Early stopping triggered at epoch {}", epoch + 1);
-                break;
+        let p_loss_val = policy_loss.clone().into_data().to_vec::<f32>().expect("Failed to extract policy loss")[0];
+        let v_loss_val = value_loss.clone().into_data().to_vec::<f32>().expect("Failed to extract value loss")[0];
+        let total_loss = policy_loss + value_loss * VALUE_LOSS_WEIGHT;
+
+        running_p_loss += p_loss_val;
+        running_v_loss += v_loss_val;
+        running_count += 1;
+
+        let grads = total_loss.backward();
+        let grads = GradientsParams::from_grads(grads, &model);
+        model = optim.step(lr, model, grads);
+
+        if (step + 1) % 50 == 0 {
+            eprint!(
+                "\r  step {}/{} p_loss={:.4} v_loss={:.4} lr={:.6}",
+                step + 1, AZ_NUM_STEPS,
+                running_p_loss / running_count as f32,
+                running_v_loss / running_count as f32,
+                lr,
+            );
+        }
+
+        // Validation at intervals
+        if (step + 1) % AZ_VAL_INTERVAL == 0 {
+            eprintln!();
+            let avg_p = running_p_loss / running_count as f32;
+            let avg_v = running_v_loss / running_count as f32;
+            let avg_total = avg_p + avg_v * VALUE_LOSS_WEIGHT;
+
+            let val_model = model.valid();
+            let val_device: <InnerBackend as Backend>::Device = Default::default();
+            let (val_p, val_v) = compute_val_loss_alphazero(&val_model, &val_samples, &val_device);
+            let val_total = val_p + val_v * VALUE_LOSS_WEIGHT;
+
+            println!(
+                "Step {}/{}: train(p={:.6}, v={:.6}, t={:.6}), val(p={:.6}, v={:.6}, t={:.6}), lr={:.6}",
+                step + 1, AZ_NUM_STEPS, avg_p, avg_v, avg_total, val_p, val_v, val_total, lr,
+            );
+
+            running_p_loss = 0.0;
+            running_v_loss = 0.0;
+            running_count = 0;
+
+            if val_total < best_val_loss {
+                best_val_loss = val_total;
+                patience_counter = 0;
+                model.valid().save_file(MODEL_PATH, &BinFileRecorder::<FullPrecisionSettings>::new()).expect("Failed to save model");
+                println!("  -> Best model saved (val_loss={:.6})", val_total);
+            } else {
+                patience_counter += 1;
+                println!("  -> No improvement ({}/{})", patience_counter, AZ_EARLY_STOPPING_PATIENCE);
+                if patience_counter >= AZ_EARLY_STOPPING_PATIENCE {
+                    println!("Early stopping triggered at step {}", step + 1);
+                    break;
+                }
             }
         }
     }
