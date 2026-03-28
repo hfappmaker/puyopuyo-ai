@@ -4,8 +4,9 @@ use burn::backend::Autodiff;
 #[cfg(feature = "gpu")]
 use burn::backend::CudaJit;
 use burn::module::AutodiffModule;
-use burn::optim::{AdamConfig, GradientsParams, Optimizer};
+use burn::optim::{SgdConfig, GradientsParams, Optimizer};
 use burn::optim::decay::WeightDecayConfig;
+use burn::optim::momentum::MomentumConfig;
 use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 use burn::tensor::backend::AutodiffBackend;
@@ -28,14 +29,19 @@ const BATCH_SIZE: usize = 512;
 #[cfg(not(feature = "gpu"))]
 const BATCH_SIZE: usize = 64;
 const NUM_EPOCHS: usize = 50;
-const LR_MAX: f64 = 5e-4;
-const LR_MIN: f64 = 1e-5;
+const LR_MAX: f64 = 0.1;
+const LR_MIN: f64 = 1e-3;
 const EARLY_STOPPING_PATIENCE: usize = 5;
 
 // AlphaZero-specific training parameters (step-based)
 const AZ_NUM_STEPS: usize = 1000;
-const AZ_LR_MAX: f64 = 2e-4;
-const AZ_LR_MIN: f64 = 1e-5;
+// Global step LR schedule (AlphaZero-style 3-stage drop)
+const AZ_LR_STAGES: [(usize, f64); 4] = [
+    (0,     0.1),    // step 0〜30k: LR = 0.1
+    (30000, 0.01),   // step 30k〜60k: LR = 0.01
+    (60000, 0.001),  // step 60k〜90k: LR = 0.001
+    (90000, 0.0001), // step 90k〜: LR = 0.0001
+];
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
 const NUM_ACTIONS: usize = 24;
 const VALUE_LOSS_WEIGHT: f32 = 0.5;
@@ -116,6 +122,17 @@ fn cross_entropy_loss_soft<B: Backend>(logits: Tensor<B, 2>, targets_flat: &[f32
     selected.neg() / (batch_size as f32)
 }
 
+/// Get learning rate based on global step (AlphaZero-style stage drop).
+fn az_lr_for_global_step(global_step: usize) -> f64 {
+    let mut lr = AZ_LR_STAGES[0].1;
+    for &(threshold, stage_lr) in &AZ_LR_STAGES {
+        if global_step >= threshold {
+            lr = stage_lr;
+        }
+    }
+    lr
+}
+
 fn main() {
     std::fs::create_dir_all("artifacts").expect("Failed to create artifacts directory");
 
@@ -123,6 +140,9 @@ fn main() {
     let alphazero_mode = args.iter().any(|a| a == "--alphazero");
     let data_dir = args.iter().position(|a| a == "--data-dir")
         .map(|i| args[i + 1].clone());
+    let global_step = args.iter().position(|a| a == "--global-step")
+        .map(|i| args[i + 1].parse::<usize>().expect("--global-step requires integer"))
+        .unwrap_or(0);
 
     #[cfg(feature = "gpu")]
     println!("Backend: CUDA (GPU)");
@@ -131,7 +151,7 @@ fn main() {
 
     if alphazero_mode {
         println!("Mode: AlphaZero (Policy CE + Value MSE)");
-        train_alphazero(data_dir.as_deref());
+        train_alphazero(data_dir.as_deref(), global_step);
     } else {
         println!("Mode: Supervised (Policy CE only)");
         train_supervised();
@@ -158,7 +178,8 @@ fn train_supervised() {
 
     let config = PuyoNetConfig::new();
     let mut model = config.init::<TrainBackend>(&device);
-    let mut optim = AdamConfig::new()
+    let mut optim = SgdConfig::new()
+        .with_momentum(Some(MomentumConfig::new().with_momentum(0.9)))
         .with_weight_decay(Some(WeightDecayConfig::new(1e-4)))
         .init();
     let mut best_val_loss = f32::MAX;
@@ -290,7 +311,7 @@ fn compute_val_loss_supervised(
 // AlphaZero training (from self-play data)
 // ---------------------------------------------------------------------------
 
-fn train_alphazero(data_dir: Option<&str>) {
+fn train_alphazero(data_dir: Option<&str>, global_step_start: usize) {
     let device: <TrainBackend as Backend>::Device = Default::default();
 
     let dataset = if let Some(dir) = data_dir {
@@ -362,12 +383,15 @@ fn train_alphazero(data_dir: Option<&str>) {
         }
     };
 
-    let mut optim = AdamConfig::new()
+    let mut optim = SgdConfig::new()
+        .with_momentum(Some(MomentumConfig::new().with_momentum(0.9)))
         .with_weight_decay(Some(WeightDecayConfig::new(1e-4)))
         .init();
 
-    println!("AlphaZero training: {} steps, LR {:.0e}->{:.0e}",
-        AZ_NUM_STEPS, AZ_LR_MAX, AZ_LR_MIN);
+    let start_lr = az_lr_for_global_step(global_step_start);
+    let end_lr = az_lr_for_global_step(global_step_start + AZ_NUM_STEPS);
+    println!("AlphaZero training: {} steps, global_step={}, LR {:.0e} (end ~{:.0e})",
+        AZ_NUM_STEPS, global_step_start, start_lr, end_lr);
 
     let mut rng_state: u64 = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -378,9 +402,7 @@ fn train_alphazero(data_dir: Option<&str>) {
     let mut running_count = 0usize;
 
     for step in 0..AZ_NUM_STEPS {
-        let lr = AZ_LR_MIN
-            + 0.5 * (AZ_LR_MAX - AZ_LR_MIN)
-            * (1.0 + (std::f64::consts::PI * step as f64 / AZ_NUM_STEPS as f64).cos());
+        let lr = az_lr_for_global_step(global_step_start + step);
 
         // Sample a random mini-batch with on-the-fly color augmentation
         let batch_size = BATCH_SIZE.min(train_samples.len());
@@ -451,7 +473,12 @@ fn train_alphazero(data_dir: Option<&str>) {
     // Save model (always — no val-based selection, performance judged by self-play)
     model.valid().save_file(MODEL_PATH, &BinFileRecorder::<FullPrecisionSettings>::new()).expect("Failed to save model");
 
-    println!("AlphaZero training complete. final train_loss(p={:.6}, v={:.6})", final_p, final_v);
+    let global_step_end = global_step_start + AZ_NUM_STEPS;
+    println!("AlphaZero training complete. final train_loss(p={:.6}, v={:.6}) global_step={}", final_p, final_v, global_step_end);
+
+    // Write final global step to file for loop script
+    std::fs::write("artifacts/global_step.txt", global_step_end.to_string())
+        .expect("Failed to write global_step.txt");
 }
 
 // ---------------------------------------------------------------------------

@@ -177,6 +177,7 @@ CPU モードでは `std::thread::scope` により並列実行され、各スレ
 | `--output` | 文字列 | `data/alphazero_data.bin` | 出力ファイルパス |
 | `--threads` | 整数 | CPUコア数（GPU: 128） | 並列ゲームスレッド数 |
 | `--batch-size` | 整数 | 128（GPU のみ） | GPU 推論サーバーの最大バッチサイズ |
+| `--min-chain` | 整数 | 0（無効） | 最低連鎖数フィルタ。指定値未満のmax_chainのゲームを除外 |
 
 `--seed-offset` により、複数回の self-play 実行で異なるゲームデータを生成できる。
 
@@ -240,6 +241,9 @@ bash scripts/alphazero-loop.sh
 
 # パラメータをオーバーライド
 GAMES=200 SIMULATIONS=50 bash scripts/alphazero-loop.sh
+
+# 5連鎖以上のゲームのみ学習データとして保存
+MIN_CHAIN=5 bash scripts/alphazero-loop.sh
 ```
 
 - イテレーション番号は `artifacts/iteration.txt` に永続化（中断・再開に対応）

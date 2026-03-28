@@ -49,6 +49,7 @@ struct Args {
     output_path: String,
     threads: Option<usize>,
     batch_size: Option<usize>,
+    min_chain: u32,
 }
 
 fn parse_args() -> Args {
@@ -64,6 +65,7 @@ fn parse_args() -> Args {
         output_path: DEFAULT_OUTPUT_PATH.to_string(),
         threads: None,
         batch_size: None,
+        min_chain: 0,
     };
     let next_val = |i: usize, flag: &str| -> &String {
         args.get(i).unwrap_or_else(|| {
@@ -113,6 +115,10 @@ fn parse_args() -> Args {
             "--batch-size" => {
                 i += 1;
                 result.batch_size = Some(next_val(i, "--batch-size").parse().expect("--batch-size requires integer"));
+            }
+            "--min-chain" => {
+                i += 1;
+                result.min_chain = next_val(i, "--min-chain").parse().expect("--min-chain requires integer");
             }
             other => eprintln!("Unknown option: {} (ignoring)", other),
         }
@@ -407,9 +413,21 @@ where
 
     let mut dataset = AlphaZeroDataset::new();
     let mut final_max_chain = 0u32;
+    let mut filtered_games = 0u32;
+    let total_games = game_results.len() as u32;
     for result in game_results {
         final_max_chain = final_max_chain.max(result.max_chain);
-        dataset.samples.extend(result.samples);
+        if result.max_chain >= args.min_chain {
+            dataset.samples.extend(result.samples);
+            filtered_games += 1;
+        }
+    }
+
+    if args.min_chain > 0 {
+        println!(
+            "Chain filter: {}/{} games passed (min_chain={})",
+            filtered_games, total_games, args.min_chain
+        );
     }
 
     println!(

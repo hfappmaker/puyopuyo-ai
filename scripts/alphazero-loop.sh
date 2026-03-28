@@ -15,6 +15,7 @@ M="${M:-16}"                        # Gumbel Top-k初期サンプル数
 C_VISIT="${C_VISIT:-5.0}"            # Q値スケーリング
 GAMMA="${GAMMA:-0.95}"              # 割引率
 REPLAY_WINDOW="${REPLAY_WINDOW:-5}"  # 直近N個のイテレーションデータを保持
+MIN_CHAIN="${MIN_CHAIN:-5}"          # 最低連鎖数フィルタ（0=無効）
 LOG_FILE="artifacts/alphazero-loop.log"
 
 # イテレーションカウンタ（永続化）
@@ -25,13 +26,21 @@ else
     ITERATION=1
 fi
 
+# グローバルステップカウンタ（永続化、LRスケジュール用）
+GLOBAL_STEP_FILE="artifacts/global_step.txt"
+if [ -f "$GLOBAL_STEP_FILE" ]; then
+    GLOBAL_STEP=$(cat "$GLOBAL_STEP_FILE")
+else
+    GLOBAL_STEP=0
+fi
+
 log() {
     local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
     echo "$msg"
     echo "$msg" >> "$LOG_FILE"
 }
 
-log "=== AlphaZero Loop Start (iteration=$ITERATION, games=$GAMES, sims=$SIMS_BASE+$SIMS_STEP/iter, max=$SIMS_MAX) ==="
+log "=== AlphaZero Loop Start (iteration=$ITERATION, games=$GAMES, sims=$SIMS_BASE+$SIMS_STEP/iter, max=$SIMS_MAX, min_chain=$MIN_CHAIN) ==="
 
 while true; do
     # シミュレーション数: SIMS_BASE + (ITERATION - 1) * SIMS_STEP（上限 SIMS_MAX）
@@ -40,7 +49,7 @@ while true; do
         SIMS=$SIMS_MAX
     fi
 
-    log "--- Iteration $ITERATION (sims=$SIMS) ---"
+    log "--- Iteration $ITERATION (sims=$SIMS, global_step=$GLOBAL_STEP) ---"
     SEED_OFFSET=$((ITERATION * GAMES))
 
     OUTPUT_FILE="data/alphazero_iter_${ITERATION}.bin"
@@ -55,6 +64,7 @@ while true; do
         --m "$M" \
         --c-visit "$C_VISIT" \
         --gamma "$GAMMA" \
+        --min-chain "$MIN_CHAIN" \
         --output "$OUTPUT_FILE" \
         2>&1 | tee -a "$LOG_FILE"
 
@@ -74,9 +84,15 @@ while true; do
     git commit -m "alphazero: iter $ITERATION self-play (games=$GAMES, sims=$SIMS)" || true
 
     # 4. Train (GPU) with replay buffer
-    log "Train start (AlphaZero mode, replay buffer)"
+    log "Train start (AlphaZero mode, replay buffer, global_step=$GLOBAL_STEP)"
     cargo run --release -p puyo-trainer --bin train -- --alphazero --data-dir data \
+        --global-step "$GLOBAL_STEP" \
         2>&1 | tee -a "$LOG_FILE"
+
+    # Update global step from training output
+    if [ -f "$GLOBAL_STEP_FILE" ]; then
+        GLOBAL_STEP=$(cat "$GLOBAL_STEP_FILE")
+    fi
 
     # 5. Git commit model
     git add artifacts/puyo_model.bin
