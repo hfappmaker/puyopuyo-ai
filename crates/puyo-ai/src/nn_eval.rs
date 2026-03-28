@@ -5,9 +5,10 @@ use puyo_core::board::{Board, COLS, ROWS};
 use puyo_core::piece::{Piece, Placement};
 use puyo_nn::encoding::{board_to_tensor_data, context_to_tensor_data, CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
 use puyo_nn::model::PuyoNet;
+use puyo_nn::value_transform::value_inverse_transform;
 
 use crate::eval::Evaluator;
-use crate::mcts::{board_hash, mcts_search};
+use crate::mcts::{board_hash, mcts_search, InferenceProvider};
 use crate::placement::{compute_valid_mask, index_to_placement, NUM_ACTIONS};
 
 type InferBackend = NdArray;
@@ -36,11 +37,58 @@ impl Default for MctsConfig {
     }
 }
 
+/// Direct (single-sample) inference using a burn backend.
+/// Used for CPU inference (NdArray) in WASM and single-threaded scenarios.
+pub struct DirectInference<B: Backend> {
+    model: PuyoNet<B>,
+    device: B::Device,
+}
+
+impl<B: Backend> DirectInference<B> {
+    pub fn new(model: PuyoNet<B>, device: B::Device) -> Self {
+        Self { model, device }
+    }
+
+    pub fn model(&self) -> &PuyoNet<B> {
+        &self.model
+    }
+
+    pub fn device(&self) -> &B::Device {
+        &self.device
+    }
+}
+
+impl<B: Backend> Clone for DirectInference<B> {
+    fn clone(&self) -> Self {
+        Self {
+            model: self.model.clone(),
+            device: self.device.clone(),
+        }
+    }
+}
+
+impl<B: Backend> InferenceProvider for DirectInference<B> {
+    fn infer(&self, board_data: &[f32], context_data: &[f32]) -> (Vec<f32>, f32) {
+        let board_tensor = Tensor::<B, 1>::from_floats(board_data, &self.device)
+            .reshape([1, NUM_CHANNELS, ROWS, COLS]);
+        let context_tensor = Tensor::<B, 1>::from_floats(context_data, &self.device)
+            .reshape([1, CONTEXT_TENSOR_SIZE]);
+
+        let (logits, value) = self.model.forward(board_tensor, context_tensor);
+
+        let logits_vec = logits.into_data().to_vec::<f32>().expect("Failed to extract logits tensor");
+        let value_scalar = value.into_data().to_vec::<f32>().expect("Failed to extract value tensor");
+        let v_raw = if value_scalar.is_empty() { 0.0 } else { value_scalar[0] };
+        let v = value_inverse_transform(v_raw);
+
+        (logits_vec, v)
+    }
+}
+
 /// Neural network evaluator using the dual-head PuyoNet.
 /// Supports two modes: Policy-only (fast, for WASM) and MCTS (for training).
 pub struct NnEvaluator {
-    model: PuyoNet<InferBackend>,
-    device: <InferBackend as Backend>::Device,
+    provider: DirectInference<InferBackend>,
     mcts_config: Option<MctsConfig>,
 }
 
@@ -50,8 +98,7 @@ impl NnEvaluator {
         device: <InferBackend as Backend>::Device,
     ) -> Self {
         Self {
-            model,
-            device,
+            provider: DirectInference::new(model, device),
             mcts_config: None,
         }
     }
@@ -64,11 +111,11 @@ impl NnEvaluator {
 
     /// Get access to the model (for MCTS in self-play).
     pub fn model(&self) -> &PuyoNet<InferBackend> {
-        &self.model
+        self.provider.model()
     }
 
     pub fn device(&self) -> &<InferBackend as Backend>::Device {
-        &self.device
+        self.provider.device()
     }
 }
 
@@ -95,8 +142,7 @@ impl Evaluator for NnEvaluator {
                 current,
                 next,
                 next_next,
-                &self.model,
-                &self.device,
+                &self.provider,
                 mcts_config,
                 seed,
             );
@@ -118,18 +164,7 @@ impl Evaluator for NnEvaluator {
         let board_data = board_to_tensor_data(board);
         let context_data = context_to_tensor_data(current, next, next_next);
 
-        let board_tensor =
-            Tensor::<InferBackend, 1>::from_floats(board_data.as_slice(), &self.device)
-                .reshape([1, NUM_CHANNELS, ROWS, COLS]);
-        let context_tensor =
-            Tensor::<InferBackend, 1>::from_floats(context_data.as_slice(), &self.device)
-                .reshape([1, CONTEXT_TENSOR_SIZE]);
-
-        let (logits, _value) = self.model.forward(board_tensor, context_tensor);
-        let logits_vec = match logits.into_data().to_vec::<f32>() {
-            Ok(v) => v,
-            Err(_) => return None,
-        };
+        let (logits_vec, _value) = self.provider.infer(&board_data, &context_data);
 
         // Masked argmax
         let mut best_index = 0;

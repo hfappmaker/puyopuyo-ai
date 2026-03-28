@@ -6,6 +6,7 @@ edition = "2021"
 [features]
 default = []
 nn = ["puyo-nn", "burn"]
+cuda = ["nn", "burn/cuda-jit"]
 
 [dependencies]
 puyo-core = { path = "../puyo-core" }

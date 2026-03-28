@@ -2,30 +2,41 @@
 //!
 //! Plays games using Gumbel MCTS + neural network, collects training data,
 //! and saves it for the training binary.
-//! Games are parallelized across threads for speed.
+//!
+//! CPU mode: each thread clones the model and runs NdArray inference.
+//! GPU mode: a dedicated GPU thread batches inference requests from game threads.
 
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
-use burn::backend::ndarray::NdArray;
 use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 
 use puyo_ai::hash_util::splitmix64;
-use puyo_ai::mcts::mcts_search;
+use puyo_ai::mcts::{mcts_search, InferenceProvider};
 use puyo_ai::nn_eval::MctsConfig;
 use puyo_ai::placement::NUM_ACTIONS;
 use puyo_core::game::{GamePhase, GameState};
-use puyo_nn::encoding::{board_to_tensor_data, context_to_tensor_data, CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
-use puyo_nn::value_transform::value_inverse_transform;
+use puyo_nn::encoding::{board_to_tensor_data, context_to_tensor_data};
 use puyo_nn::model::{PuyoNet, PuyoNetConfig};
 use puyo_trainer::data::{AlphaZeroDataset, AlphaZeroSample};
 
-// MCTS uses NdArray backend (CPU) for inference during self-play.
-type InferBackend = NdArray;
+#[cfg(not(feature = "gpu"))]
+use burn::backend::ndarray::NdArray;
+#[cfg(not(feature = "gpu"))]
+use puyo_ai::nn_eval::DirectInference;
+
+#[cfg(feature = "gpu")]
+use burn::backend::CudaJit;
+#[cfg(feature = "gpu")]
+use puyo_ai::inference_server;
 
 const MODEL_PATH: &str = "artifacts/puyo_model";
 const DEFAULT_OUTPUT_PATH: &str = "data/alphazero_data.bin";
 const MAX_TURNS: u32 = 50;
+#[cfg(feature = "gpu")]
+const DEFAULT_GPU_THREADS: usize = 64;
+#[cfg(feature = "gpu")]
+const DEFAULT_MAX_BATCH_SIZE: usize = 64;
 
 struct Args {
     num_games: u64,
@@ -36,6 +47,7 @@ struct Args {
     c_visit: f32,
     gamma: f32,
     output_path: String,
+    threads: Option<usize>,
 }
 
 fn parse_args() -> Args {
@@ -49,6 +61,7 @@ fn parse_args() -> Args {
         c_visit: 5.0,
         gamma: 0.95,
         output_path: DEFAULT_OUTPUT_PATH.to_string(),
+        threads: None,
     };
     let next_val = |i: usize, flag: &str| -> &String {
         args.get(i).unwrap_or_else(|| {
@@ -91,6 +104,10 @@ fn parse_args() -> Args {
                 i += 1;
                 result.output_path = next_val(i, "--output").clone();
             }
+            "--threads" => {
+                i += 1;
+                result.threads = Some(next_val(i, "--threads").parse().expect("--threads requires integer"));
+            }
             other => eprintln!("Unknown option: {} (ignoring)", other),
         }
         i += 1;
@@ -103,7 +120,7 @@ struct MoveRecord {
     board_data: Vec<f32>,
     context_data: Vec<f32>,
     mcts_policy: Vec<f32>,
-    reward: f32, // game score for this move
+    reward: f32,
 }
 
 /// Result from a single self-play game.
@@ -116,8 +133,7 @@ struct GameResult {
 /// Play one self-play game and return training samples.
 fn play_one_game(
     game_idx: u64,
-    model: &PuyoNet<InferBackend>,
-    device: &<InferBackend as Backend>::Device,
+    provider: &dyn InferenceProvider,
     args: &Args,
 ) -> GameResult {
     let seed = args.seed_offset + game_idx;
@@ -134,10 +150,8 @@ fn play_one_game(
     };
 
     while game.phase != GamePhase::GameOver && move_count < MAX_TURNS {
-
         let current_piece = game.current_piece.as_ref().unwrap().piece;
 
-        // Encode state
         let board_data = board_to_tensor_data(&game.board).to_vec();
         let context_data = context_to_tensor_data(
             &current_piece,
@@ -146,8 +160,6 @@ fn play_one_game(
         )
         .to_vec();
 
-        // Run Gumbel MCTS (Gumbel noise provides exploration, no Dirichlet needed)
-        // Use splitmix64-style hash mixing to decorrelate seeds across consecutive moves
         let gumbel_seed = splitmix64(
             seed.wrapping_mul(6364136223846793005)
                 .wrapping_add(move_count as u64),
@@ -157,14 +169,11 @@ fn play_one_game(
             &current_piece,
             &game.next_piece,
             &game.next_next_piece,
-            model,
-            device,
+            provider,
             &mcts_config,
             gumbel_seed,
         );
 
-        // Select action: sample from improved policy
-        // Use splitmix64-style hash mixing to decorrelate from gumbel_seed
         let selection_seed = splitmix64(
             seed.wrapping_add(move_count as u64)
                 .wrapping_add(0x9e3779b97f4a7c15),
@@ -184,15 +193,13 @@ fn play_one_game(
         move_count += 1;
     }
 
-    // Compute discounted cumulative rewards (backwards) with bootstrap for truncated games
     let num_moves = move_records.len();
     let total_reward: f32 = move_records.iter().map(|r| r.reward).sum();
     let truncated = move_count >= MAX_TURNS && game.phase != GamePhase::GameOver;
     let mut samples = Vec::new();
     if num_moves > 0 {
-        // Bootstrap: if game was truncated (not game over), estimate remaining value with NN
         let bootstrap_value = if truncated {
-            estimate_value(model, &game, device)
+            estimate_value(provider, &game)
         } else {
             0.0
         };
@@ -221,10 +228,38 @@ fn play_one_game(
     }
 }
 
+fn load_model<B: Backend>(device: &B::Device) -> PuyoNet<B> {
+    let config = PuyoNetConfig::new();
+    let load_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
+        config
+            .init::<B>(device)
+            .load_file(MODEL_PATH, &recorder, device)
+    }));
+    match load_result {
+        Ok(Ok(m)) => {
+            println!("Loaded existing model from {}", MODEL_PATH);
+            m
+        }
+        Ok(Err(e)) => {
+            println!(
+                "Failed to load model from {}: {}. Initializing random weights",
+                MODEL_PATH, e
+            );
+            config.init::<B>(device)
+        }
+        Err(_) => {
+            println!(
+                "Model file {} is incompatible with current architecture. Initializing random weights",
+                MODEL_PATH
+            );
+            config.init::<B>(device)
+        }
+    }
+}
+
 fn main() {
     let args = parse_args();
-
-    println!("Backend: NdArray (CPU) — Gumbel MCTS self-play (parallel)");
 
     println!(
         "games={}, simulations={}, c_puct={}, m={}, c_visit={}, gamma={}, seed_offset={}",
@@ -232,65 +267,88 @@ fn main() {
         args.c_visit, args.gamma, args.seed_offset,
     );
 
-    let device: <InferBackend as Backend>::Device = Default::default();
+    #[cfg(feature = "gpu")]
+    {
+        main_gpu(args);
+        return;
+    }
 
-    // Load model (fall back to random initialization if no model exists or load fails)
-    let config = PuyoNetConfig::new();
-    let model = {
-        let device_clone = device;
-        let load_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
-            config
-                .init::<InferBackend>(&device_clone)
-                .load_file(MODEL_PATH, &recorder, &device_clone)
-        }));
-        match load_result {
-            Ok(Ok(m)) => {
-                println!("Loaded existing model from {}", MODEL_PATH);
-                m
-            }
-            Ok(Err(e)) => {
-                println!(
-                    "Failed to load model from {}: {}. Initializing random weights",
-                    MODEL_PATH, e
-                );
-                config.init::<InferBackend>(&device)
-            }
-            Err(_) => {
-                println!(
-                    "Model file {} is incompatible with current architecture. Initializing random weights",
-                    MODEL_PATH
-                );
-                config.init::<InferBackend>(&device)
-            }
-        }
-    };
+    #[cfg(not(feature = "gpu"))]
+    {
+        main_cpu(args);
+    }
+}
 
-    let num_threads = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4);
+#[cfg(not(feature = "gpu"))]
+fn main_cpu(args: Args) {
+    println!("Backend: NdArray (CPU) — Gumbel MCTS self-play (parallel)");
+    let device: <NdArray as Backend>::Device = Default::default();
+    let model = load_model::<NdArray>(&device);
+
+    let num_threads = args.threads.unwrap_or_else(|| {
+        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
+    });
     println!("Using {} threads for parallel self-play", num_threads);
 
+    // CPU: clone model per thread (NdArray model is not Sync)
+    run_games_parallel(&args, num_threads, |thread_idx| {
+        let thread_provider = DirectInference::new(model.clone(), device);
+        (thread_provider, thread_idx)
+    });
+}
+
+#[cfg(feature = "gpu")]
+fn main_gpu(args: Args) {
+    type GpuBackend = CudaJit<f32>;
+
+    println!("Backend: CudaJit (GPU) — Gumbel MCTS self-play (batched)");
+    let device: <GpuBackend as Backend>::Device = Default::default();
+    let model = load_model::<GpuBackend>(&device);
+
+    let num_threads = args.threads.unwrap_or(DEFAULT_GPU_THREADS);
+    println!(
+        "Using {} game threads, max_batch_size={}",
+        num_threads, DEFAULT_MAX_BATCH_SIZE,
+    );
+
+    let client = inference_server::start_inference_server(model, device, DEFAULT_MAX_BATCH_SIZE);
+
+    // GPU: clone client per thread (InferenceClient is Send+Clone)
+    run_games_parallel(&args, num_threads, |_| {
+        let thread_client = client.clone();
+        (thread_client, 0usize)
+    });
+}
+
+/// Run self-play games in parallel.
+/// `make_provider_data` is called once per thread from the main thread,
+/// returning a tuple of (provider, extra_data). The provider must be Send.
+fn run_games_parallel<F, P>(args: &Args, num_threads: usize, make_provider_data: F)
+where
+    F: Fn(usize) -> (P, usize),
+    P: InferenceProvider + Send,
+{
     let start_time = std::time::Instant::now();
 
-    // Shared counters for progress reporting (atomic-only, no Mutex)
     let games_done = AtomicU64::new(0);
     let total_samples = AtomicU64::new(0);
     let total_max_chain = AtomicU32::new(0);
     let total_chain_sum = AtomicU64::new(0);
     let total_reward_sum = AtomicU64::new(0);
 
-    // Distribute games across threads, each thread returns its results via JoinHandle
     let games_per_thread = args.num_games.div_ceil(num_threads as u64);
 
+    // Pre-create providers on main thread
+    let providers: Vec<P> = (0..num_threads).map(|i| make_provider_data(i).0).collect();
+
     let game_results: Vec<GameResult> = std::thread::scope(|s| {
-        let handles: Vec<_> = (0..num_threads)
-            .map(|thread_idx| {
+        let handles: Vec<_> = providers
+            .into_iter()
+            .enumerate()
+            .map(|(thread_idx, thread_provider)| {
                 let start = thread_idx as u64 * games_per_thread;
                 let end = (start + games_per_thread).min(args.num_games);
 
-                let thread_model = model.clone();
-                let device = &device;
                 let args = &args;
                 let games_done = &games_done;
                 let total_samples = &total_samples;
@@ -302,17 +360,14 @@ fn main() {
                 s.spawn(move || {
                     let mut thread_results = Vec::new();
                     for game_idx in start..end {
-                        let result =
-                            play_one_game(game_idx, &thread_model, device, args);
+                        let result = play_one_game(game_idx, &thread_provider, args);
 
-                        // Update progress atomically
                         let done = games_done.fetch_add(1, Ordering::Relaxed) + 1;
                         total_samples.fetch_add(result.samples.len() as u64, Ordering::Relaxed);
                         total_max_chain.fetch_max(result.max_chain, Ordering::Relaxed);
                         total_chain_sum.fetch_add(result.max_chain as u64, Ordering::Relaxed);
                         total_reward_sum.fetch_add(result.total_reward as u64, Ordering::Relaxed);
 
-                        // Print progress (minor interleaving between threads is acceptable)
                         let elapsed = start_time.elapsed().as_secs_f64();
                         let games_per_sec = done as f64 / elapsed;
                         let samples_so_far = total_samples.load(Ordering::Relaxed);
@@ -337,14 +392,12 @@ fn main() {
             })
             .collect();
 
-        // Collect in thread_idx order → deterministic sample ordering
         handles
             .into_iter()
             .flat_map(|h| h.join().unwrap())
             .collect()
     });
 
-    // Aggregate results
     let mut dataset = AlphaZeroDataset::new();
     let mut final_max_chain = 0u32;
     for result in game_results {
@@ -365,11 +418,9 @@ fn main() {
 }
 
 /// Estimate the value of the current game state using the neural network.
-/// Used for bootstrapping when the game is truncated at MAX_TURNS.
 fn estimate_value(
-    model: &PuyoNet<InferBackend>,
+    provider: &dyn InferenceProvider,
     game: &GameState,
-    device: &<InferBackend as burn::prelude::Backend>::Device,
 ) -> f32 {
     let current_piece = match &game.current_piece {
         Some(fp) => fp.piece,
@@ -382,22 +433,12 @@ fn estimate_value(
         &game.next_next_piece,
     );
 
-    let board_tensor =
-        burn::tensor::Tensor::<InferBackend, 1>::from_floats(board_data.as_slice(), device)
-            .reshape([1, NUM_CHANNELS, puyo_core::board::ROWS, puyo_core::board::COLS]);
-    let context_tensor =
-        burn::tensor::Tensor::<InferBackend, 1>::from_floats(context_data.as_slice(), device)
-            .reshape([1, CONTEXT_TENSOR_SIZE]);
-
-    let (_logits, value) = model.forward(board_tensor, context_tensor);
-    let value_scalar = value.into_data().to_vec::<f32>().expect("Failed to extract value tensor");
-    let v_raw = value_scalar[0];
-    value_inverse_transform(v_raw)
+    let (_logits, value) = provider.infer(&board_data, &context_data);
+    value
 }
 
 /// Select an action by sampling from the MCTS policy.
 fn select_from_policy(policy: &[f32; NUM_ACTIONS], seed: u64) -> usize {
-    // Deterministic sampling using hash
     let x = splitmix64(seed.wrapping_mul(6364136223846793005).wrapping_add(1));
 
     let r = (x as f64) / (u64::MAX as f64);
@@ -408,7 +449,6 @@ fn select_from_policy(policy: &[f32; NUM_ACTIONS], seed: u64) -> usize {
             return i;
         }
     }
-    // Fallback: return the action with highest probability
     policy
         .iter()
         .enumerate()

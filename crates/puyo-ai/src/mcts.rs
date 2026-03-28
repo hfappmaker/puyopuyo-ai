@@ -1,17 +1,19 @@
-use burn::backend::ndarray::NdArray;
-use burn::prelude::*;
-
 use puyo_core::board::{Board, COLS, ROWS};
 use puyo_core::piece::Piece;
-use puyo_nn::encoding::{context_to_tensor_data, board_to_tensor_data, CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
-use puyo_nn::model::PuyoNet;
-
-use puyo_nn::value_transform::value_inverse_transform;
+use puyo_nn::encoding::{context_to_tensor_data, board_to_tensor_data};
 
 use crate::nn_eval::MctsConfig;
 use crate::placement::{compute_valid_mask, index_to_placement, simulate_placement, NUM_ACTIONS};
 
-type InferBackend = NdArray;
+/// Trait abstracting NN inference so MCTS is backend-agnostic.
+/// Implementations: `DirectInference` (single-sample, any burn backend),
+/// `BatchedInference` (GPU batched via inference server).
+pub trait InferenceProvider {
+    /// Run the neural network on a single board+context input.
+    /// Returns (logits[NUM_ACTIONS], value_transformed).
+    /// The value is already inverse-transformed (raw cumulative reward scale).
+    fn infer(&self, board_data: &[f32], context_data: &[f32]) -> (Vec<f32>, f32);
+}
 
 /// Number of puyo colors for random tsumo generation.
 const NUM_COLORS: u32 = 4;
@@ -105,10 +107,9 @@ impl MctsTree {
     /// Expand the root node and return the value estimate.
     fn expand_root(
         &mut self,
-        model: &PuyoNet<InferBackend>,
-        device: &<InferBackend as Backend>::Device,
+        provider: &dyn InferenceProvider,
     ) -> f32 {
-        let v = self.expand_node(self.root, model, device);
+        let v = self.expand_node(self.root, provider);
         self.root_value = v;
         self.nodes[self.root].visit_count += 1;
         v
@@ -118,8 +119,7 @@ impl MctsTree {
     fn simulate_from_root_action(
         &mut self,
         action: usize,
-        model: &PuyoNet<InferBackend>,
-        device: &<InferBackend as Backend>::Device,
+        provider: &dyn InferenceProvider,
         c_puct: f32,
     ) {
         let child_id = self.get_or_create_child(self.root, action);
@@ -137,7 +137,7 @@ impl MctsTree {
         let value = if self.nodes[node_id].terminal {
             0.0
         } else if !self.nodes[node_id].expanded {
-            self.expand_node(node_id, model, device)
+            self.expand_node(node_id, provider)
         } else {
             0.0
         };
@@ -274,8 +274,7 @@ impl MctsTree {
     fn expand_node(
         &mut self,
         node_id: usize,
-        model: &PuyoNet<InferBackend>,
-        device: &<InferBackend as Backend>::Device,
+        provider: &dyn InferenceProvider,
     ) -> f32 {
         let state = &self.nodes[node_id].state;
 
@@ -284,17 +283,7 @@ impl MctsTree {
             &state.current, &state.next, &state.next_next,
         );
 
-        let board_tensor = Tensor::<InferBackend, 1>::from_floats(board_data.as_slice(), device)
-            .reshape([1, NUM_CHANNELS, ROWS, COLS]);
-        let context_tensor = Tensor::<InferBackend, 1>::from_floats(context_data.as_slice(), device)
-            .reshape([1, CONTEXT_TENSOR_SIZE]);
-
-        let (logits, value) = model.forward(board_tensor, context_tensor);
-
-        let logits_vec = logits.into_data().to_vec::<f32>().expect("Failed to extract logits tensor");
-        let value_scalar = value.into_data().to_vec::<f32>().expect("Failed to extract value tensor");
-        let v_raw = if value_scalar.is_empty() { 0.0 } else { value_scalar[0] };
-        let v = value_inverse_transform(v_raw);
+        let (logits_vec, v) = provider.infer(&board_data, &context_data);
 
         // Compute masked softmax for priors
         let priors = masked_softmax(&logits_vec, &self.nodes[node_id].valid_mask);
@@ -339,8 +328,7 @@ impl MctsTree {
         scores: &mut [f32; NUM_ACTIONS],
         gumbels: &[f32; NUM_ACTIONS],
         remaining_budget: usize,
-        model: &PuyoNet<InferBackend>,
-        device: &<InferBackend as Backend>::Device,
+        provider: &dyn InferenceProvider,
         config: &MctsConfig,
     ) -> [f32; NUM_ACTIONS] {
         let root_logits = self.nodes[self.root].logits;
@@ -372,7 +360,7 @@ impl MctsTree {
             let phases_left = num_phases - phase;
             let sims_per_action = (budget_remaining / (phases_left * n_actions)).max(1);
 
-            budget_used += self.run_simulations(considered, budget_used, remaining_budget, sims_per_action, model, device, config.c_puct);
+            budget_used += self.run_simulations(considered, budget_used, remaining_budget, sims_per_action, provider, config.c_puct);
 
             let q_completed = compute_completed_q(self, &mask);
             let sigma_bar = compute_sigma_bar(self, &q_completed, &mask, considered, config.c_visit);
@@ -387,7 +375,7 @@ impl MctsTree {
         }
 
         // Spend remaining budget on surviving action(s)
-        self.run_simulations(considered, budget_used, remaining_budget, usize::MAX, model, device, config.c_puct);
+        self.run_simulations(considered, budget_used, remaining_budget, usize::MAX, provider, config.c_puct);
 
         compute_completed_q(self, &mask)
     }
@@ -400,8 +388,7 @@ impl MctsTree {
         budget_used: usize,
         total_budget: usize,
         sims_per_action: usize,
-        model: &PuyoNet<InferBackend>,
-        device: &<InferBackend as Backend>::Device,
+        provider: &dyn InferenceProvider,
         c_puct: f32,
     ) -> usize {
         let mut count = 0usize;
@@ -410,7 +397,7 @@ impl MctsTree {
                 if budget_used + count >= total_budget {
                     return count;
                 }
-                self.simulate_from_root_action(a, model, device, c_puct);
+                self.simulate_from_root_action(a, provider, c_puct);
                 count += 1;
             }
         }
@@ -620,8 +607,7 @@ pub fn mcts_search(
     current: &Piece,
     next: &Piece,
     next_next: &Piece,
-    model: &PuyoNet<InferBackend>,
-    device: &<InferBackend as Backend>::Device,
+    provider: &dyn InferenceProvider,
     config: &MctsConfig,
     seed: u64,
 ) -> ([f32; NUM_ACTIONS], [f32; NUM_ACTIONS]) {
@@ -632,7 +618,7 @@ pub fn mcts_search(
         let mask = tree.nodes[tree.root].valid_mask;
         return (masked_softmax(&[0.0f32; NUM_ACTIONS], &mask), [0.0; NUM_ACTIONS]);
     }
-    tree.expand_root(model, device);
+    tree.expand_root(provider);
 
     let mask = tree.nodes[tree.root].valid_mask;
     let root_logits = tree.nodes[tree.root].logits;
@@ -671,8 +657,7 @@ pub fn mcts_search(
         &mut scores,
         &gumbels,
         remaining_budget,
-        model,
-        device,
+        provider,
         config,
     );
 

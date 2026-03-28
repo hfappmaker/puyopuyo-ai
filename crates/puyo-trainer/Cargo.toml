@@ -17,7 +17,7 @@ path = "src/bin/self_play.rs"
 
 [features]
 default = ["gpu"]
-gpu = ["burn/cuda-jit", "burn/fusion", "burn/autotune"]
+gpu = ["burn/cuda-jit", "burn/fusion", "burn/autotune", "puyo-ai/cuda"]
 cpu = ["burn/ndarray"]
 
 [dependencies]
