@@ -4,7 +4,7 @@ use burn::backend::Autodiff;
 #[cfg(feature = "gpu")]
 use burn::backend::CudaJit;
 use burn::module::AutodiffModule;
-use burn::optim::{SgdConfig, GradientsParams, Optimizer};
+use burn::optim::{SgdConfig, GradientsParams, GradientsAccumulator, Optimizer};
 use burn::optim::decay::WeightDecayConfig;
 use burn::optim::momentum::MomentumConfig;
 use burn::prelude::*;
@@ -35,6 +35,7 @@ const EARLY_STOPPING_PATIENCE: usize = 5;
 
 // AlphaZero-specific training parameters (step-based)
 const AZ_NUM_STEPS: usize = 1000;
+const ACCUM_STEPS: usize = 4; // gradient accumulation: effective batch = BATCH_SIZE * ACCUM_STEPS
 // Global step LR schedule (AlphaZero-style 3-stage drop)
 const AZ_LR_STAGES: [(usize, f64); 4] = [
     (0,     0.1),    // step 0〜300k: LR = 0.1
@@ -400,59 +401,65 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize) {
     let mut running_p_loss = 0.0f32;
     let mut running_v_loss = 0.0f32;
     let mut running_count = 0usize;
+    let mut accum: GradientsAccumulator<puyo_nn::model::PuyoNet<TrainBackend>> = GradientsAccumulator::new();
 
     for step in 0..AZ_NUM_STEPS {
         let lr = az_lr_for_global_step(global_step_start + step);
 
-        // Sample a random mini-batch with on-the-fly color augmentation
-        let batch_size = BATCH_SIZE.min(train_samples.len());
-        let mut board_data = Vec::with_capacity(batch_size * TENSOR_SIZE);
-        let mut context_data = Vec::with_capacity(batch_size * CONTEXT_TENSOR_SIZE);
-        let mut policy_targets = Vec::with_capacity(batch_size * NUM_ACTIONS);
-        let mut value_targets = Vec::with_capacity(batch_size);
+        // Gradient accumulation: run ACCUM_STEPS micro-batches per optimizer step
+        for _micro in 0..ACCUM_STEPS {
+            let batch_size = BATCH_SIZE.min(train_samples.len());
+            let mut board_data = Vec::with_capacity(batch_size * TENSOR_SIZE);
+            let mut context_data = Vec::with_capacity(batch_size * CONTEXT_TENSOR_SIZE);
+            let mut policy_targets = Vec::with_capacity(batch_size * NUM_ACTIONS);
+            let mut value_targets = Vec::with_capacity(batch_size);
 
-        for _ in 0..batch_size {
-            // Random sample index
-            rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
-            let idx = (rng_state >> 33) as usize % train_samples.len();
-            let sample = &train_samples[idx];
+            for _ in 0..batch_size {
+                rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let idx = (rng_state >> 33) as usize % train_samples.len();
+                let sample = &train_samples[idx];
 
-            // Random color permutation
-            rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(3);
-            let perm_idx = (rng_state >> 33) as usize % all_perms.len();
-            let perm = &all_perms[perm_idx];
+                rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(3);
+                let perm_idx = (rng_state >> 33) as usize % all_perms.len();
+                let perm = &all_perms[perm_idx];
 
-            let mut bd = sample.board_data.clone();
-            let mut cd = sample.context_data.clone();
-            puyo_trainer::data::apply_color_perm_board(&mut bd, perm);
-            puyo_trainer::data::apply_color_perm_context(&mut cd, perm);
+                let mut bd = sample.board_data.clone();
+                let mut cd = sample.context_data.clone();
+                puyo_trainer::data::apply_color_perm_board(&mut bd, perm);
+                puyo_trainer::data::apply_color_perm_context(&mut cd, perm);
 
-            board_data.extend_from_slice(&bd);
-            context_data.extend_from_slice(&cd);
-            policy_targets.extend_from_slice(&sample.mcts_policy);
-            value_targets.push(sample.value_target);
+                board_data.extend_from_slice(&bd);
+                context_data.extend_from_slice(&cd);
+                policy_targets.extend_from_slice(&sample.mcts_policy);
+                value_targets.push(sample.value_target);
+            }
+
+            let board_inputs = Tensor::<TrainBackend, 1>::from_floats(board_data.as_slice(), &device)
+                .reshape([batch_size, NUM_CHANNELS, ROWS, COLS]);
+            let context_inputs = Tensor::<TrainBackend, 1>::from_floats(context_data.as_slice(), &device)
+                .reshape([batch_size, CONTEXT_TENSOR_SIZE]);
+
+            let (logits, value) = model.forward(board_inputs, context_inputs);
+
+            let policy_loss = cross_entropy_loss_soft(logits, &policy_targets, &device);
+            let value_loss = value_mse_loss(value, &value_targets, &device);
+
+            let p_loss_val = policy_loss.clone().into_data().to_vec::<f32>().expect("Failed to extract policy loss")[0];
+            let v_loss_val = value_loss.clone().into_data().to_vec::<f32>().expect("Failed to extract value loss")[0];
+            // Scale loss by 1/ACCUM_STEPS so accumulated gradients average correctly
+            let total_loss = (policy_loss + value_loss * VALUE_LOSS_WEIGHT) / (ACCUM_STEPS as f32);
+
+            running_p_loss += p_loss_val;
+            running_v_loss += v_loss_val;
+            running_count += 1;
+
+            let grads = total_loss.backward();
+            let grads = GradientsParams::from_grads(grads, &model);
+            accum.accumulate(&model, grads);
         }
 
-        let board_inputs = Tensor::<TrainBackend, 1>::from_floats(board_data.as_slice(), &device)
-            .reshape([batch_size, NUM_CHANNELS, ROWS, COLS]);
-        let context_inputs = Tensor::<TrainBackend, 1>::from_floats(context_data.as_slice(), &device)
-            .reshape([batch_size, CONTEXT_TENSOR_SIZE]);
-
-        let (logits, value) = model.forward(board_inputs, context_inputs);
-
-        let policy_loss = cross_entropy_loss_soft(logits, &policy_targets, &device);
-        let value_loss = value_mse_loss(value, &value_targets, &device);
-
-        let p_loss_val = policy_loss.clone().into_data().to_vec::<f32>().expect("Failed to extract policy loss")[0];
-        let v_loss_val = value_loss.clone().into_data().to_vec::<f32>().expect("Failed to extract value loss")[0];
-        let total_loss = policy_loss + value_loss * VALUE_LOSS_WEIGHT;
-
-        running_p_loss += p_loss_val;
-        running_v_loss += v_loss_val;
-        running_count += 1;
-
-        let grads = total_loss.backward();
-        let grads = GradientsParams::from_grads(grads, &model);
+        // Apply accumulated gradients
+        let grads = accum.grads();
         model = optim.step(lr, model, grads);
 
         if (step + 1) % 50 == 0 {
