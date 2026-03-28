@@ -48,6 +48,7 @@ struct Args {
     gamma: f32,
     output_path: String,
     threads: Option<usize>,
+    batch_size: Option<usize>,
 }
 
 fn parse_args() -> Args {
@@ -62,6 +63,7 @@ fn parse_args() -> Args {
         gamma: 0.95,
         output_path: DEFAULT_OUTPUT_PATH.to_string(),
         threads: None,
+        batch_size: None,
     };
     let next_val = |i: usize, flag: &str| -> &String {
         args.get(i).unwrap_or_else(|| {
@@ -107,6 +109,10 @@ fn parse_args() -> Args {
             "--threads" => {
                 i += 1;
                 result.threads = Some(next_val(i, "--threads").parse().expect("--threads requires integer"));
+            }
+            "--batch-size" => {
+                i += 1;
+                result.batch_size = Some(next_val(i, "--batch-size").parse().expect("--batch-size requires integer"));
             }
             other => eprintln!("Unknown option: {} (ignoring)", other),
         }
@@ -306,12 +312,13 @@ fn main_gpu(args: Args) {
     let model = load_model::<GpuBackend>(&device);
 
     let num_threads = args.threads.unwrap_or(DEFAULT_GPU_THREADS);
+    let batch_size = args.batch_size.unwrap_or(DEFAULT_MAX_BATCH_SIZE);
     println!(
         "Using {} game threads, max_batch_size={}",
-        num_threads, DEFAULT_MAX_BATCH_SIZE,
+        num_threads, batch_size,
     );
 
-    let client = inference_server::start_inference_server(model, device, DEFAULT_MAX_BATCH_SIZE);
+    let client = inference_server::start_inference_server(model, device, batch_size);
 
     // GPU: clone client per thread (InferenceClient is Send+Clone)
     run_games_parallel(&args, num_threads, |_| {
