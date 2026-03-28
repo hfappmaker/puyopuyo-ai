@@ -14,7 +14,7 @@ use puyo_core::board::{COLS, ROWS};
 use puyo_nn::encoding::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS, TENSOR_SIZE};
 use puyo_nn::model::PuyoNetConfig;
 use puyo_nn::value_transform::value_transform;
-use puyo_trainer::data::{AlphaZeroDataset, AlphaZeroSample, Dataset};
+use puyo_trainer::data::{AlphaZeroDataset, Dataset};
 
 #[cfg(feature = "gpu")]
 type TrainBackend = Autodiff<CudaJit<f32>>;
@@ -34,8 +34,6 @@ const EARLY_STOPPING_PATIENCE: usize = 5;
 
 // AlphaZero-specific training parameters (step-based)
 const AZ_NUM_STEPS: usize = 1000;
-const AZ_VAL_INTERVAL: usize = 100;
-const AZ_EARLY_STOPPING_PATIENCE: usize = 5; // in val_interval units (= 500 steps)
 const AZ_LR_MAX: f64 = 2e-4;
 const AZ_LR_MIN: f64 = 1e-5;
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
@@ -325,40 +323,11 @@ fn train_alphazero(data_dir: Option<&str>) {
     let num_samples = dataset.samples.len();
     println!("Loaded {} total samples", num_samples);
 
-    // Split BEFORE augmentation to prevent data leakage
-    let mut sample_indices: Vec<usize> = (0..num_samples).collect();
-    shuffle_indices(&mut sample_indices, 12345);
-    let split = (num_samples as f64 * TRAIN_SPLIT_RATIO) as usize;
-    let train_indices: Vec<usize> = sample_indices[..split].to_vec();
-    let val_indices = &sample_indices[split..];
-
-    // Validation data: pre-expand all 24 color permutations (for consistent evaluation)
+    // All data used for training (no val split — performance judged by self-play reward)
     let all_perms = puyo_trainer::data::all_color_permutations();
-    let mut val_samples = Vec::with_capacity(val_indices.len() * 24);
-    for &idx in val_indices {
-        let sample = &dataset.samples[idx];
-        for perm in &all_perms {
-            let mut bd = sample.board_data.clone();
-            let mut cd = sample.context_data.clone();
-            puyo_trainer::data::apply_color_perm_board(&mut bd, perm);
-            puyo_trainer::data::apply_color_perm_context(&mut cd, perm);
-            val_samples.push(AlphaZeroSample {
-                board_data: bd,
-                context_data: cd,
-                mcts_policy: sample.mcts_policy.clone(),
-                value_target: sample.value_target,
-            });
-        }
-    }
+    let train_samples = dataset.samples;
 
-    // Training data: keep original samples, apply random color perm on-the-fly
-    let train_samples: Vec<AlphaZeroSample> = train_indices.iter()
-        .map(|&idx| dataset.samples[idx].clone())
-        .collect();
-    drop(dataset);
-
-    println!("Train: {} samples (color augmented on-the-fly), Val: {} samples (x24 pre-expanded)",
-        train_samples.len(), val_samples.len());
+    println!("Train: {} samples (color augmented on-the-fly, no val split)", train_samples.len());
 
     let config = PuyoNetConfig::new();
 
@@ -396,11 +365,9 @@ fn train_alphazero(data_dir: Option<&str>) {
     let mut optim = AdamConfig::new()
         .with_weight_decay(Some(WeightDecayConfig::new(1e-4)))
         .init();
-    let mut best_val_loss = f32::MAX;
-    let mut patience_counter = 0usize;
 
-    println!("AlphaZero training: {} steps, val every {} steps, LR {:.0e}->{:.0e}, patience={}",
-        AZ_NUM_STEPS, AZ_VAL_INTERVAL, AZ_LR_MAX, AZ_LR_MIN, AZ_EARLY_STOPPING_PATIENCE);
+    println!("AlphaZero training: {} steps, LR {:.0e}->{:.0e}",
+        AZ_NUM_STEPS, AZ_LR_MAX, AZ_LR_MIN);
 
     let mut rng_state: u64 = 42;
     let mut running_p_loss = 0.0f32;
@@ -472,91 +439,16 @@ fn train_alphazero(data_dir: Option<&str>) {
                 lr,
             );
         }
-
-        // Validation at intervals
-        if (step + 1) % AZ_VAL_INTERVAL == 0 {
-            eprintln!();
-            let avg_p = running_p_loss / running_count as f32;
-            let avg_v = running_v_loss / running_count as f32;
-            let avg_total = avg_p + avg_v * VALUE_LOSS_WEIGHT;
-
-            let val_model = model.valid();
-            let val_device: <InnerBackend as Backend>::Device = Default::default();
-            let (val_p, val_v) = compute_val_loss_alphazero(&val_model, &val_samples, &val_device);
-            let val_total = val_p + val_v * VALUE_LOSS_WEIGHT;
-
-            println!(
-                "Step {}/{}: train(p={:.6}, v={:.6}, t={:.6}), val(p={:.6}, v={:.6}, t={:.6}), lr={:.6}",
-                step + 1, AZ_NUM_STEPS, avg_p, avg_v, avg_total, val_p, val_v, val_total, lr,
-            );
-
-            running_p_loss = 0.0;
-            running_v_loss = 0.0;
-            running_count = 0;
-
-            if val_total < best_val_loss {
-                best_val_loss = val_total;
-                patience_counter = 0;
-                model.valid().save_file(MODEL_PATH, &BinFileRecorder::<FullPrecisionSettings>::new()).expect("Failed to save model");
-                println!("  -> Best model saved (val_loss={:.6})", val_total);
-            } else {
-                patience_counter += 1;
-                println!("  -> No improvement ({}/{})", patience_counter, AZ_EARLY_STOPPING_PATIENCE);
-                if patience_counter >= AZ_EARLY_STOPPING_PATIENCE {
-                    println!("Early stopping triggered at step {}", step + 1);
-                    break;
-                }
-            }
-        }
     }
+    eprintln!();
 
-    println!("AlphaZero training complete. Best val_loss={:.6}", best_val_loss);
-}
+    let final_p = running_p_loss / running_count as f32;
+    let final_v = running_v_loss / running_count as f32;
 
-fn compute_val_loss_alphazero(
-    model: &puyo_nn::model::PuyoNet<InnerBackend>,
-    val_samples: &[puyo_trainer::data::AlphaZeroSample],
-    device: &<InnerBackend as Backend>::Device,
-) -> (f32, f32) {
-    let mut total_policy_loss = 0.0f32;
-    let mut total_value_loss = 0.0f32;
-    let mut num_batches = 0;
+    // Save model (always — no val-based selection, performance judged by self-play)
+    model.valid().save_file(MODEL_PATH, &BinFileRecorder::<FullPrecisionSettings>::new()).expect("Failed to save model");
 
-    for batch_start in (0..val_samples.len()).step_by(BATCH_SIZE) {
-        let batch_end = (batch_start + BATCH_SIZE).min(val_samples.len());
-        let batch_size = batch_end - batch_start;
-        if batch_size == 0 { break; }
-
-        let mut board_data = Vec::with_capacity(batch_size * TENSOR_SIZE);
-        let mut context_data = Vec::with_capacity(batch_size * CONTEXT_TENSOR_SIZE);
-        let mut policy_targets = Vec::with_capacity(batch_size * NUM_ACTIONS);
-        let mut value_targets = Vec::with_capacity(batch_size);
-
-        for sample in &val_samples[batch_start..batch_end] {
-            board_data.extend_from_slice(&sample.board_data);
-            context_data.extend_from_slice(&sample.context_data);
-            policy_targets.extend_from_slice(&sample.mcts_policy);
-            value_targets.push(sample.value_target);
-        }
-
-        let board_inputs = Tensor::<InnerBackend, 1>::from_floats(board_data.as_slice(), device)
-            .reshape([batch_size, NUM_CHANNELS, ROWS, COLS]);
-        let context_inputs = Tensor::<InnerBackend, 1>::from_floats(context_data.as_slice(), device)
-            .reshape([batch_size, CONTEXT_TENSOR_SIZE]);
-
-        let (logits, value) = model.forward(board_inputs, context_inputs);
-
-        let policy_loss = cross_entropy_loss_soft(logits, &policy_targets, device);
-        total_policy_loss += policy_loss.into_data().to_vec::<f32>().expect("Failed to extract policy loss")[0];
-
-        let value_loss = value_mse_loss(value, &value_targets, device);
-        total_value_loss += value_loss.into_data().to_vec::<f32>().expect("Failed to extract value loss")[0];
-
-        num_batches += 1;
-    }
-
-    let n = num_batches.max(1) as f32;
-    (total_policy_loss / n, total_value_loss / n)
+    println!("AlphaZero training complete. final train_loss(p={:.6}, v={:.6})", final_p, final_v);
 }
 
 // ---------------------------------------------------------------------------
