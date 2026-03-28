@@ -1,5 +1,13 @@
 # スコア計算仕様
 
+## 関数
+
+```rust
+pub fn calculate_step_score(chain_num: u32, groups: &[Group]) -> u32
+```
+
+1ステップ（1連鎖分）のスコアを計算する。`groups` が空なら 0 を返す。
+
 ## 計算式
 
 ```

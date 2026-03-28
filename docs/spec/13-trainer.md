@@ -96,40 +96,57 @@ SimulationEvaluator AI に自動対戦させ、訓練データを収集する。
 
 ## Phase 2: 教師あり学習 (`train`)
 
-生成データで Dual Head Network（`PuyoNet`）を学習する。`--alphazero` フラグで AlphaZero モード（Policy CE + Value MSE）と教師ありモード（Policy CE のみ）を切り替える。AlphaZero モードでは value_target に MuZero Invertible Value Transform（`value_transform()`）を適用してから MSE 損失を計算する（詳細は `docs/spec/12-nn.md` の Value Transform セクション参照）。バックエンドは `NdArray`（CPU）または `CudaJit`（GPU、`gpu` feature flag）+ `Autodiff`。
+生成データで Dual Head Network（`PuyoNet`）を学習する。`--alphazero` フラグで AlphaZero モード（Soft Policy CE + Value MSE）と教師ありモード（Hard Policy CE + Value MSE）を切り替える。AlphaZero モードでは value_target に MuZero Invertible Value Transform（`value_transform()`）を適用してから MSE 損失を計算する（詳細は `docs/spec/12-nn.md` の Value Transform セクション参照）。バックエンドは `NdArray`（CPU）または `CudaJit`（GPU、`gpu` feature flag）+ `Autodiff`。
 
 ### パラメータ
 
 | 名前 | 値 | 説明 |
 |------|-----|------|
 | `BATCH_SIZE` | 512 (GPU) / 64 (CPU) | バッチサイズ |
-| `NUM_EPOCHS` | 50（教師あり） / 40（AlphaZero） | 最大エポック数 |
-| `LR_MAX` | 5e-4（教師あり） / 2e-4（AlphaZero） | Cosine Annealing 初期学習率 |
-| `LR_MIN` | 1e-5 | Cosine Annealing 最終学習率 |
-| `EARLY_STOPPING_PATIENCE` | 5（教師あり） / 10（AlphaZero） | Early Stopping の patience（エポック数） |
+| `NUM_EPOCHS` | 50 | 教師あり学習の最大エポック数 |
+| `LR_MAX` / `LR_MIN` | 5e-4 / 1e-5 | 教師あり学習の Cosine Annealing 学習率範囲 |
+| `AZ_NUM_STEPS` | 1,000 | AlphaZero 学習のステップ数（エポックではなくステップベース） |
+| `AZ_LR_MAX` / `AZ_LR_MIN` | 2e-4 / 1e-5 | AlphaZero 学習の Cosine Annealing 学習率範囲 |
+| `EARLY_STOPPING_PATIENCE` | 5 | 教師あり学習の Early Stopping patience（AlphaZero モードでは不使用） |
+| `TRAIN_SPLIT_RATIO` | 0.9 | 教師あり学習の訓練/検証データ分割比率 |
+| `VALUE_LOSS_WEIGHT` | 0.5 | Value 損失の重み係数 |
 | `MODEL_PATH` | `artifacts/puyo_model` | モデル保存先 |
 
 ### 学習率スケジューラ（Cosine Annealing）
 
-エポック単位で学習率を Cosine 減衰させる。
+教師あり学習ではエポック単位、AlphaZero 学習ではステップ単位で学習率を Cosine 減衰させる。
 
 ```
+# 教師あり学習
 lr(epoch) = LR_MIN + 0.5 × (LR_MAX - LR_MIN) × (1 + cos(π × epoch / NUM_EPOCHS))
+
+# AlphaZero 学習
+lr(step) = AZ_LR_MIN + 0.5 × (AZ_LR_MAX - AZ_LR_MIN) × (1 + cos(π × step / AZ_NUM_STEPS))
 ```
 
-### Early Stopping
+### Early Stopping（教師あり学習のみ）
 
-Validation loss が `EARLY_STOPPING_PATIENCE` エポック連続で改善しない場合、学習を早期終了する。Validation loss が改善するたびにベストモデルを保存する。
+Validation loss が `EARLY_STOPPING_PATIENCE` エポック連続で改善しない場合、学習を早期終了する。Validation loss が改善するたびにベストモデルを保存する。AlphaZero モードでは Early Stopping を使用せず、全ステップ完了後にモデルを保存する（性能は self-play の報酬で判断）。
 
-### 手順
+### 教師あり学習の手順
 
 1. データを `TRAIN_SPLIT_RATIO`（0.9）で訓練/検証に分割
 2. エポックごとに Cosine Annealing で学習率を計算
 3. LCG（PCG family パラメータ: `6364136223846793005`, `1`）ベースのシャッフル → ミニバッチ学習
-4. 損失関数: Policy は Cross-Entropy（action_index を正解ラベルとして使用）
+4. 損失関数: Policy は Cross-Entropy（action_index を正解ラベルとして使用）+ Value は MSE（`value_transform` 適用）
 5. 最適化: Adam（Weight decay 1e-4 付き）
 6. Validation loss 改善時にベストモデルを `BinFileRecorder` で保存
 7. Early Stopping 判定（patience=5）
+
+### AlphaZero 学習の手順
+
+1. 全データを訓練に使用（val split なし — 性能は self-play の報酬で判断）
+2. ステップごとに Cosine Annealing で学習率を計算（`AZ_LR_MAX` → `AZ_LR_MIN`）
+3. 各ステップでランダムミニバッチをサンプリングし、オンザフライで色置換データ拡張を適用
+4. 損失関数: Policy は Soft Cross-Entropy（MCTS 訪問分布を正解ラベル、無効アクションをマスク）+ Value は MSE（`value_transform` 適用、重み `VALUE_LOSS_WEIGHT=0.5`）
+5. 最適化: Adam（Weight decay 1e-4 付き）
+6. 全ステップ完了後にモデルを `BinFileRecorder` で保存
+7. 既存モデルがあれば読み込んで継続学習（なければランダム初期化）
 
 #### Weight Decay
 
@@ -144,7 +161,7 @@ AdamConfig::new().with_weight_decay(Some(WeightDecayConfig::new(1e-4))).init()
 ## Phase 3: 自己対戦強化学習 (`self-play`)
 
 Gumbel MCTS ベースの AlphaZero self-play ループ。Dual Head Network（`PuyoNet`）の Policy Head と Value Head を使った Gumbel MCTS 探索でゲームをプレイし、訓練データを生成する。
-CPU モードでは `std::thread::scope` により並列実行され、各スレッドがモデルのクローンを所有して独立にゲームを処理する。GPU モードでは専用の推論サーバースレッド（`inference_server`）がバッチ推論を処理し、ゲームスレッド（デフォルト64）が `InferenceClient` 経由で推論リクエストを送信する。`--threads` 引数でスレッド数を指定可能。
+CPU モードでは `std::thread::scope` により並列実行され、各スレッドがモデルのクローンを所有して独立にゲームを処理する。GPU モードでは専用の推論サーバースレッド（`inference_server`）がバッチ推論を処理し、ゲームスレッド（デフォルト128）が `InferenceClient` 経由で推論リクエストを送信する。`--threads` 引数でスレッド数を指定可能。
 
 ### CLI引数
 
@@ -158,7 +175,8 @@ CPU モードでは `std::thread::scope` により並列実行され、各スレ
 | `--c-visit` | 小数 | 5.0 | Q値スケーリング係数 |
 | `--gamma` | 小数 | 0.95 | 将来報酬の割引率 |
 | `--output` | 文字列 | `data/alphazero_data.bin` | 出力ファイルパス |
-| `--threads` | 整数 | CPUコア数（GPU: 64） | 並列ゲームスレッド数 |
+| `--threads` | 整数 | CPUコア数（GPU: 128） | 並列ゲームスレッド数 |
+| `--batch-size` | 整数 | 128（GPU のみ） | GPU 推論サーバーの最大バッチサイズ |
 
 `--seed-offset` により、複数回の self-play 実行で異なるゲームデータを生成できる。
 
@@ -182,17 +200,15 @@ Gumbel AlphaZero では、各手番でGumbel(0,1)ノイズをサンプリング�
 5. `AlphaZeroSample`（board_data, context_data, mcts_policy, value_target）を生成し、出力ファイル（デフォルト: `data/alphazero_data.bin`、`--output` で変更可能）に保存
 6. 生成データは `train --alphazero` で Policy Head（Cross-Entropy 損失）と Value Head（MSE 損失、MuZero Invertible Value Transform 適用、重み `VALUE_LOSS_WEIGHT=0.5`）を同時に学習
 
-#### AlphaZero 学習のデータシャッフル
+#### AlphaZero 学習のデータサンプリング
 
-AlphaZero モードでは、train/val 分割の**前に**全データをシャッフルしてから分割する。
-
-自己対局データはゲーム単位で連続して格納されるため、シャッフルなしで分割すると訓練/検証データがゲームの前半/後半に偏る（系統的バイアス）。事前シャッフルにより、各分割セットにゲームの多様な局面が均一に含まれる。
+AlphaZero モードでは val split を行わず、全データを訓練に使用する。各ステップでランダムにミニバッチをサンプリングする（LCG ベースの乱数でインデックスを選択）。エポック単位のシャッフルではなくステップ単位のランダムサンプリングにより、データの偏りを回避する。
 
 ### 色置換データ拡張（Color Permutation Augmentation）
 
 学習時に各サンプルに対してランダムな色置換を適用し、データを実質24倍に拡張する。ぷよぷよでは4色の入れ替えはゲームの意味を変えないため、等価な訓練データを生成できる。
 
-- **適用タイミング**: データロード後、train/val分割前に全24置換を展開（14,000サンプル → 336,000サンプル）
+- **適用タイミング**: AlphaZero 学習時の各ステップで、ミニバッチサンプリングと同時にオンザフライで適用（ランダムに1置換を選択）
 - **置換数**: 4! = 24通り（恒等置換を含む）
 - **適用対象**: `board_data`（ch0-3の色one-hotチャンネルを入れ替え）と `context_data`（6つの4要素one-hotブロックを入れ替え）
 - **不変項目**: `mcts_policy`（アクションは列×方向で色に依存しない）、`value_target`（累積スコア）、`board_data` の ch4（占有）・ch5（隣接度）
@@ -209,7 +225,7 @@ AlphaZero モードでは、train/val 分割の**前に**全データをシャ�
 
 ```bash
 cargo run --bin generate-data            # Phase 1: データ生成
-cargo run --bin train                    # Phase 2: 教師あり学習（Policy CE のみ）
+cargo run --bin train                    # Phase 2: 教師あり学習（Policy CE + Value MSE）
 cargo run --bin self-play                # Phase 3: 自己対戦データ生成
 cargo run --bin train -- --alphazero     # Phase 3: AlphaZero 学習（Policy CE + Value MSE）
 ```

@@ -28,6 +28,13 @@ pub struct Board {
 | Blue | 青 | 3 |
 | Yellow | 黄 | 4 |
 
+### メソッド
+
+| メソッド | 説明 |
+|---------|------|
+| `PuyoColor::from_u8(v)` | `u8` から `PuyoColor` に変換する。1=Red, 2=Green, 3=Blue, 4=Yellow、それ以外は `Empty` |
+| `is_color(self)` | `Empty` でなければ `true` を返す |
+
 ## 定数
 
 | 定数 | 値 | 説明 |
@@ -41,6 +48,9 @@ pub struct Board {
 
 | 操作 | 説明 |
 |------|------|
+| `new()` | 全セルが `Empty` の空盤面を生成する。`Default` トレイトも実装されている |
+| `get(col, row)` | 指定セルの `PuyoColor` を返す |
+| `set(col, row, color)` | 指定セルに `PuyoColor` を設定する |
 | `drop_puyo(col, color)` | 指定列にぷよを落とし、積まれた行を返す。列が満杯なら `assert` でパニック |
 | `apply_gravity()` | 行0〜12のぷよを落下させて空隙を埋める。行13（最上非可視行）は対象外 |
 | `column_height(col)` | 指定列の高さ（底からの連続した非空セル数）をボトムアップ走査で返す。行13に孤立ぷよがあっても無視される |

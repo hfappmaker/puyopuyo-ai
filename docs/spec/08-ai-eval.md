@@ -21,6 +21,21 @@ pub trait Evaluator {
 | `NnEvaluator`（Policy-only） | 探索なし、NN 1回推論で直接選択 | Dual Head Network の Policy Head（マスク付き argmax） |
 | `NnEvaluator`（MCTS） | Gumbel MCTS（Sequential Halving + PUCT） | Dual Head Network の Policy + Value Head |
 
+## モジュール構成（puyo-ai）
+
+```
+puyo-ai/src/
+├── lib.rs                # 公開モジュール宣言
+├── eval.rs               # Evaluator トレイト + SimulationEvaluator
+├── placement.rs          # 配置列挙・シミュレーション・インデックス変換
+├── hash_util.rs          # splitmix64 ハッシュユーティリティ
+├── nn_eval.rs            # [nn] NnEvaluator + MctsConfig + DirectInference
+├── mcts.rs               # [nn] Gumbel MCTS 探索（MctsTree, InferenceProvider トレイト）
+└── inference_server.rs   # [nn] GPU バッチ推論サーバー（InferenceClient）
+```
+
+`[nn]` マーク付きモジュールは `#[cfg(feature = "nn")]` で条件コンパイルされる。
+
 ## 共通定数
 
 - `W_GAME_OVER`（`-1000000.0`）: ゲームオーバー状態の盤面に割り当てるスコア。`SimulationEvaluator` で使用
@@ -106,6 +121,31 @@ Dual Head Network（`PuyoNet`）で盤面とコンテキスト情報（3ツモ�
 | `compute_valid_mask(board, piece) -> [bool; 24]` | 合法配置に対応するインデックスを `true` にしたマスク配列を返す |
 
 出力次元は24（6列 × 4方向）で、各インデックスは `col * 4 + orientation` に対応する。
+
+### InferenceProvider トレイト
+
+MCTS が NN バックエンドに依存しないよう、推論を抽象化するトレイト（`mcts.rs` に定義）。
+
+```rust
+pub trait InferenceProvider {
+    /// Returns (logits[NUM_ACTIONS], value_transformed).
+    /// value は inverse-transform 済み（生の累積報酬スケール）。
+    fn infer(&self, board_data: &[f32], context_data: &[f32]) -> (Vec<f32>, f32);
+}
+```
+
+| 実装 | 説明 |
+|------|------|
+| `DirectInference<B: Backend>` | 単一サンプル推論。NdArray バックエンド（CPU）で使用。`NnEvaluator` 内部で保持 |
+| `InferenceClient` | GPU バッチ推論サーバーへのクライアント。`inference_server.rs` で定義。`Clone` 可能で各ゲームスレッドに配布 |
+
+### GPU バッチ推論サーバー（inference_server.rs）
+
+`start_inference_server<B: Backend>(model, device, max_batch_size) -> InferenceClient`
+
+- GPU スレッドがモデルを保持し、バッチ forward pass を実行
+- N 個のゲームスレッドが `InferenceClient` 経由でリクエストを送信・ブロック
+- greedy バッチング: 最初のリクエスト到着後、`max_batch_size` まで `try_recv` で追加収集
 
 ### 特徴
 

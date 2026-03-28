@@ -93,8 +93,15 @@ Gumbel AlphaZero（Danihelka et al. 2022）に基づくモンテカルロ木探�
 
 | 構造体 | 説明 |
 |--------|------|
-| `MctsTree` | 探索木全体を管理。`gamma: f32` で割引率、`root_value: f32` でルートの価値推定を保持 |
-| `MctsNode` | 探索木の各ノード。訪問回数・累積価値・prior・子ノード等を保持。`priors: [f32; 24]` と `logits: [f32; 24]` にNN展開時の出力を保存。`immediate_reward: f32` で即時報酬（連鎖スコア）を保持 |
+| `MctsTree` | 探索木全体を管理。`gamma: f32` で割引率、`root_value: f32` でルートの価値推定、`min_value`/`max_value` でMin-Max正規化範囲を保持 |
+| `MctsNode` | 探索木の各ノード。`visit_count: u32`、`total_value: f32`、`prior: f32`、`priors: [f32; 24]`、`logits: [f32; 24]`、`children: [Option<usize>; 24]`、`expanded: bool`、`terminal: bool`、`immediate_reward: f32`（連鎖スコア）、`valid_mask: [bool; 24]`、`depth: u32` を保持 |
+
+`MctsTree` の公開メソッド:
+
+| メソッド | 説明 |
+|---------|------|
+| `new(board, current, next, next_next, gamma) -> Self` | 探索木を初期化。ルートノードを作成 |
+| `root_q_values() -> [f32; 24]` | ルート直下の各アクションの平均累積報酬（Q値）を返す |
 
 ### ランダムツモの扱い
 
@@ -145,6 +152,16 @@ sigma_bar(a) = (c_visit + N_max) × q_normalized(a)
 
 標準Gumbel(0,1)分布からサンプリング: `g = -log(-log(u))` (u ~ Uniform(0,1))。既存の `xorshift64_f64` PRNGを使用。Gumbelノイズにより探索の多様性が確保されるため、Dirichletノイズは不要。
 
+### InferenceProvider トレイト
+
+MCTS がNN推論バックエンドに依存しないよう抽象化するトレイト。詳細は `docs/spec/08-ai-eval.md` を参照。
+
+```rust
+pub trait InferenceProvider {
+    fn infer(&self, board_data: &[f32], context_data: &[f32]) -> (Vec<f32>, f32);
+}
+```
+
 ### API
 
 ```rust
@@ -171,7 +188,21 @@ pub fn mcts_search(
 
 ## 共通ユーティリティ（placement.rs）
 
-- `simulate_placement(board, piece, placement)`: 配置シミュレーション。一時的な `GameState` でピースを設置し連鎖解決。結果の盤面と `ChainResult` を返す。元の盤面は変更されない
-- `enumerate_placements(board, piece)`: 盤面上の全合法配置を列挙する
+- `simulate_placement(board, piece, placement) -> (Board, ChainResult)`: 配置シミュレーション。一時的な `GameState` でピースを設置し連鎖解決。結果の盤面と `ChainResult` を返す。元の盤面は変更されない
+- `enumerate_placements(board, piece) -> Vec<Placement>`: 盤面上の全合法配置を列挙する
+- `NUM_ACTIONS: usize = 24`: 配置インデックスの総数（6列 × 4方向）
+- `placement_to_index(placement) -> usize`: `Placement` を 0〜23 のインデックスに変換（`col * 4 + orientation.as_u8()`）
+- `index_to_placement(index) -> Placement`: インデックスを `Placement` に逆変換。`index >= 24` でパニック
+- `compute_valid_mask(board, piece) -> [bool; 24]`: 合法配置に対応するインデックスを `true` にしたマスク配列を返す
+
+## ハッシュユーティリティ
+
+### hash_util.rs
+
+- `splitmix64(s: u64) -> u64`: splitmix64 finalizer。シード値を分散の良いハッシュに変換する。MCTS 内の `sample_piece` で使用
+
+### mcts.rs 内のハッシュ関数
+
+- `board_hash(board: &Board) -> u64`: 盤面の FNV-1a ハッシュ。MCTS のランダムツモ生成シードおよび `NnEvaluator` の Gumbel シードとして使用。公開関数
 
 2手目以降の探索は各 Evaluator が `find_best_move` 内にインラインで実装する（共通の再帰関数は使用しない）。

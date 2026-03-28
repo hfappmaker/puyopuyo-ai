@@ -11,6 +11,8 @@ pub struct Piece {
 }
 ```
 
+`Piece::new(axis, satellite)` で生成する。
+
 ## 方向 (Orientation)
 
 衛星ぷよは軸ぷよに対して4方向に配置できる。
@@ -38,6 +40,11 @@ pub struct Placement {
 }
 ```
 
+| メソッド | 説明 |
+|---------|------|
+| `new(col, orientation)` | 新しい `Placement` を生成する |
+| `satellite_col()` | 衛星ぷよの列を `Option<usize>` で返す。盤面外（列0でWest、列5でEast）なら `None` |
+
 ## 落下中のぷよ組 (FallingPiece)
 
 ゲームプレイ中のぷよ組の状態を管理する。
@@ -54,6 +61,13 @@ pub struct FallingPiece {
 ## 方向のシリアライズ
 
 `Orientation::as_u8()` メソッドで整数に変換できる（0=North, 1=East, 2=South, 3=West）。WASM境界やレンダリング情報の受け渡しで使用。
+
+## 生成・メソッド
+
+| メソッド | 説明 |
+|---------|------|
+| `FallingPiece::spawn(piece)` | `SPAWN_COL`（列2）・`VISIBLE_ROWS as f32`（12.0）・North方向で出現する `FallingPiece` を生成する |
+| `satellite_pos()` | 衛星ぷよの位置 `(col: i32, row: i32)` を返す |
 
 ## 出現位置
 

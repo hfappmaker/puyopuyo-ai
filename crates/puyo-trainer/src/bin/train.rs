@@ -369,7 +369,10 @@ fn train_alphazero(data_dir: Option<&str>) {
     println!("AlphaZero training: {} steps, LR {:.0e}->{:.0e}",
         AZ_NUM_STEPS, AZ_LR_MAX, AZ_LR_MIN);
 
-    let mut rng_state: u64 = 42;
+    let mut rng_state: u64 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64;
     let mut running_p_loss = 0.0f32;
     let mut running_v_loss = 0.0f32;
     let mut running_count = 0usize;
