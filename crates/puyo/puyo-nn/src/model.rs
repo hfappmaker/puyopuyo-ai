@@ -3,16 +3,22 @@ use burn::nn::pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig};
 use burn::nn::{Dropout, DropoutConfig, GroupNorm, GroupNormConfig, Linear, LinearConfig, PaddingConfig2d, Relu};
 use burn::prelude::*;
 
-use puyo_core::config::{CONTEXT_TENSOR_SIZE, NUM_ACTIONS, NUM_CHANNELS};
+use puyo_core::config::{COLS, CONTEXT_TENSOR_SIZE, NUM_ACTIONS, NUM_CHANNELS};
 
 const RESIDUAL_CHANNELS: usize = 64;
 const NUM_RESIDUAL_BLOCKS: usize = 6;
-const HEAD_CHANNELS: usize = 128;
-const POOL_H: usize = 2;
-const POOL_W: usize = 1;
 const HIDDEN_SIZE: usize = 256;
-const BACKBONE_OUTPUT: usize = HEAD_CHANNELS * POOL_H * POOL_W;
 const HEAD_DROPOUT: f64 = 0.2;
+
+// Policy head: conv-based (空間情報を保持)
+const POLICY_HIDDEN_CHANNELS: usize = 32;
+const POLICY_OUT_CHANNELS: usize = 4; // 4方向 (N/E/S/W)
+
+// Value head
+const VALUE_HEAD_CHANNELS: usize = 128;
+const VALUE_POOL_H: usize = 2;
+const VALUE_POOL_W: usize = 1;
+const VALUE_BACKBONE_OUTPUT: usize = VALUE_HEAD_CHANNELS * VALUE_POOL_H * VALUE_POOL_W;
 
 /// FiLM parameters generated from context (pieces).
 const FILM_HIDDEN: usize = 128;
@@ -87,10 +93,13 @@ impl<B: Backend> ResidualBlock<B> {
 /// Architecture:
 ///   FiLM generator: context(CONTEXT_TENSOR_SIZE) → Linear → ReLU → Linear → FILM_OUTPUT
 ///     → split into NUM_RESIDUAL_BLOCKS × (gamma[ch], beta[ch]) for each residual block
-///   Backbone: stem (NUM_CHANNELS ch → 64ch) → (GroupNorm + FiLM) ResidualBlock ×6 (64ch) → head_conv (64ch → 128ch)
-///     → AdaptiveAvgPool → flatten [BACKBONE_OUTPUT]
-///   Policy Head: Linear(BACKBONE_OUTPUT→HIDDEN_SIZE) → ReLU → Dropout → Linear(HIDDEN_SIZE→NUM_ACTIONS)
-///   Value Head:  Linear(BACKBONE_OUTPUT→HIDDEN_SIZE) → ReLU → Dropout → Linear(HIDDEN_SIZE→1)
+///   Backbone: stem (NUM_CHANNELS ch → 64ch) → (GroupNorm + FiLM) ResidualBlock ×6 (64ch)
+///   Policy Head (conv-based, 空間情報保持):
+///     1×1 conv(64→32) → GroupNorm → ReLU → 1×1 conv(32→4) → AdaptiveAvgPool(1,COLS)
+///     → reshape [batch, 4, COLS] → swap_dims → reshape [batch, NUM_ACTIONS]
+///   Value Head:
+///     1×1 conv(64→128) → ReLU → AdaptiveAvgPool(2,1) → flatten
+///     → Linear(256→256) → ReLU → Dropout → Linear(256→1)
 ///
 /// Board input: [batch, NUM_CHANNELS, ROWS, COLS]
 /// Context input: [batch, CONTEXT_TENSOR_SIZE] (pieces one-hot encoding)
@@ -103,12 +112,14 @@ pub struct PuyoNet<B: Backend> {
     // CNN backbone
     stem: Conv2d<B>,
     res_blocks: Vec<ResidualBlock<B>>,
-    head_conv: Conv2d<B>,
-    pool: AdaptiveAvgPool2d,
-    // Policy head
-    policy_fc1: Linear<B>,
-    policy_fc2: Linear<B>,
+    // Policy head (conv-based)
+    policy_conv1: Conv2d<B>,
+    policy_norm: GroupNorm<B>,
+    policy_conv2: Conv2d<B>,
+    policy_pool: AdaptiveAvgPool2d,
     // Value head
+    value_conv: Conv2d<B>,
+    value_pool: AdaptiveAvgPool2d,
     value_fc1: Linear<B>,
     value_fc2: Linear<B>,
     activation: Relu,
@@ -132,11 +143,18 @@ impl PuyoNetConfig {
                 .with_padding(PaddingConfig2d::Same)
                 .init(device),
             res_blocks,
-            head_conv: Conv2dConfig::new([RESIDUAL_CHANNELS, HEAD_CHANNELS], [1, 1]).init(device),
-            pool: AdaptiveAvgPool2dConfig::new([POOL_H, POOL_W]).init(),
-            policy_fc1: LinearConfig::new(BACKBONE_OUTPUT, HIDDEN_SIZE).init(device),
-            policy_fc2: LinearConfig::new(HIDDEN_SIZE, NUM_ACTIONS).init(device),
-            value_fc1: LinearConfig::new(BACKBONE_OUTPUT, HIDDEN_SIZE).init(device),
+            // Policy head (conv-based)
+            policy_conv1: Conv2dConfig::new([RESIDUAL_CHANNELS, POLICY_HIDDEN_CHANNELS], [1, 1])
+                .init(device),
+            policy_norm: GroupNormConfig::new(1, POLICY_HIDDEN_CHANNELS).init(device),
+            policy_conv2: Conv2dConfig::new([POLICY_HIDDEN_CHANNELS, POLICY_OUT_CHANNELS], [1, 1])
+                .init(device),
+            policy_pool: AdaptiveAvgPool2dConfig::new([1, COLS]).init(),
+            // Value head
+            value_conv: Conv2dConfig::new([RESIDUAL_CHANNELS, VALUE_HEAD_CHANNELS], [1, 1])
+                .init(device),
+            value_pool: AdaptiveAvgPool2dConfig::new([VALUE_POOL_H, VALUE_POOL_W]).init(),
+            value_fc1: LinearConfig::new(VALUE_BACKBONE_OUTPUT, HIDDEN_SIZE).init(device),
             value_fc2: LinearConfig::new(HIDDEN_SIZE, 1).init(device),
             activation: Relu::new(),
             head_dropout: DropoutConfig::new(HEAD_DROPOUT).init(),
@@ -174,24 +192,48 @@ impl<B: Backend> PuyoNet<B> {
             x = block.forward(x, gamma, beta);
         }
 
-        // Backbone head
-        let x = self.head_conv.forward(x);
-        let x = self.activation.forward(x);
-        let x = self.pool.forward(x);
-        let backbone = x.reshape([batch_size, BACKBONE_OUTPUT]);
-
-        // Policy head
-        let p = self.policy_fc1.forward(backbone.clone());
+        // Policy head (conv-based, 空間情報保持)
+        let p = self.policy_conv1.forward(x.clone()); // [batch, 32, 8, 3]
+        let p = self.policy_norm.forward(p);
         let p = self.activation.forward(p);
-        let p = self.head_dropout.forward(p);
-        let policy_logits = self.policy_fc2.forward(p);
+        let p = self.policy_conv2.forward(p); // [batch, 4, 8, 3]
+        let p = self.policy_pool.forward(p); // [batch, 4, 1, 3]
+        let p = p.reshape([batch_size, POLICY_OUT_CHANNELS, COLS]); // [batch, 4, 3]
+        let p = p.swap_dims(1, 2); // [batch, 3, 4] = [batch, cols, orientations]
+        let policy_logits = p.reshape([batch_size, NUM_ACTIONS]); // [batch, 12] = col*4+ori
 
         // Value head (outputs discounted cumulative reward, no activation)
-        let v = self.value_fc1.forward(backbone);
+        let v = self.value_conv.forward(x); // [batch, 128, 8, 3]
+        let v = self.activation.forward(v);
+        let v = self.value_pool.forward(v); // [batch, 128, 2, 1]
+        let v = v.reshape([batch_size, VALUE_BACKBONE_OUTPUT]); // [batch, 256]
+        let v = self.value_fc1.forward(v);
         let v = self.activation.forward(v);
         let v = self.head_dropout.forward(v);
         let value = self.value_fc2.forward(v);
 
         (policy_logits, value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burn::backend::NdArray;
+    use puyo_core::config::ROWS;
+
+    type B = NdArray;
+
+    #[test]
+    fn test_forward_output_shapes() {
+        let device = <B as Backend>::Device::default();
+        let model = PuyoNetConfig::new().init::<B>(&device);
+
+        let board = Tensor::<B, 4>::zeros([2, NUM_CHANNELS, ROWS, COLS], &device);
+        let context = Tensor::<B, 2>::zeros([2, CONTEXT_TENSOR_SIZE], &device);
+        let (policy, value) = model.forward(board, context);
+
+        assert_eq!(policy.dims(), [2, NUM_ACTIONS]);
+        assert_eq!(value.dims(), [2, 1]);
     }
 }
