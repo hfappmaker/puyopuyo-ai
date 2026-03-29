@@ -24,7 +24,8 @@
         "bierner.markdown-mermaid",
         "ms-toolsai.jupyter",
         "ms-python.python",
-        "ms-vscode.wasm-dwarf-debugging"
+        "ms-vscode.wasm-dwarf-debugging",
+        "vadimcn.vscode-lldb"
       ]
     }
   },
