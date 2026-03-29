@@ -26,7 +26,10 @@
                 "args": [
                     "run",
                     "--bin=train",
-                    "--package=puyo-trainer"
+                    "--package=puyo-trainer",
+                    "--",
+                    "--alphazero",
+                    "--data-dir", "data"
                 ]
             },
             "args": []
