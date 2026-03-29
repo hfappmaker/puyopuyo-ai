@@ -7,7 +7,9 @@ use burn::record::{BinBytesRecorder, FullPrecisionSettings, Recorder};
 use puyo_ai::eval::{Evaluator, SimulationEvaluator};
 use puyo_ai::nn_eval::{MctsConfig, NnEvaluator};
 use puyo_ai::placement::enumerate_placements;
+use puyo_ai::puyo_game::PuyoGame;
 use puyo_core::game::{GamePhase, GameState};
+use puyo_core::puyo_game::PuyoState;
 use puyo_nn::model::{PuyoNet, PuyoNetConfig};
 
 type InferBackend = NdArray;
@@ -15,7 +17,7 @@ type InferBackend = NdArray;
 #[wasm_bindgen]
 pub struct WasmGame {
     state: GameState,
-    evaluator: Box<dyn Evaluator>,
+    evaluator: Box<dyn Evaluator<PuyoGame>>,
 }
 
 #[wasm_bindgen]
@@ -196,12 +198,14 @@ impl WasmGame {
             None => return vec![],
         };
 
-        let result = self.evaluator.find_best_move(
-            &self.state.board,
-            &current_piece,
-            &self.state.next_piece,
-            &self.state.next_next_piece,
-        );
+        let puyo_state = PuyoState {
+            board: self.state.board.clone(),
+            current: current_piece,
+            next: self.state.next_piece,
+            next_next: self.state.next_next_piece,
+        };
+
+        let result = self.evaluator.find_best_move(&puyo_state);
 
         match result {
             Some((placement, score)) => {
@@ -229,12 +233,14 @@ impl WasmGame {
             None => return 0,
         };
 
-        let result = self.evaluator.find_best_move(
-            &self.state.board,
-            &current_piece,
-            &self.state.next_piece,
-            &self.state.next_next_piece,
-        );
+        let puyo_state = PuyoState {
+            board: self.state.board.clone(),
+            current: current_piece,
+            next: self.state.next_piece,
+            next_next: self.state.next_next_piece,
+        };
+
+        let result = self.evaluator.find_best_move(&puyo_state);
 
         match result {
             Some((placement, _score)) => {

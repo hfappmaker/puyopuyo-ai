@@ -1,15 +1,19 @@
 use burn::backend::ndarray::NdArray;
 use burn::prelude::*;
 
-use puyo_core::board::{Board, COLS, ROWS};
-use puyo_core::piece::{Piece, Placement};
-use puyo_nn::encoding::{board_to_tensor_data, context_to_tensor_data, CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
+use game_core::Game;
+use puyo_core::board::{COLS, ROWS};
+use puyo_core::piece::Placement;
+use puyo_core::puyo_game::{
+    board_to_tensor_data, context_to_tensor_data, PuyoState, CONTEXT_TENSOR_SIZE, NUM_CHANNELS,
+};
 use puyo_nn::model::PuyoNet;
 use puyo_nn::value_transform::value_inverse_transform;
 
 use crate::eval::Evaluator;
-use crate::mcts::{board_hash, mcts_search, InferenceProvider};
+use crate::mcts::{mcts_search, InferenceProvider};
 use crate::placement::{compute_valid_mask, index_to_placement, NUM_ACTIONS};
+use crate::puyo_game::PuyoGame;
 
 type InferBackend = NdArray;
 
@@ -120,28 +124,22 @@ impl NnEvaluator {
 }
 
 
-impl Evaluator for NnEvaluator {
+impl Evaluator<PuyoGame> for NnEvaluator {
     fn find_best_move(
         &self,
-        board: &Board,
-        current: &Piece,
-        next: &Piece,
-        next_next: &Piece,
+        state: &PuyoState,
     ) -> Option<(Placement, f64)> {
-        let mask = compute_valid_mask(board, current);
+        let mask = compute_valid_mask(&state.board, &state.current);
         if !mask.iter().any(|&v| v) {
             return None;
         }
 
         // MCTS mode: use Gumbel tree search
         if let Some(ref mcts_config) = self.mcts_config {
-            let seed = board_hash(board);
+            let seed = PuyoGame::state_hash(state);
 
-            let (policy, q_values) = mcts_search(
-                board,
-                current,
-                next,
-                next_next,
+            let (policy, q_values) = mcts_search::<PuyoGame>(
+                state,
                 &self.provider,
                 mcts_config,
                 seed,
@@ -161,8 +159,8 @@ impl Evaluator for NnEvaluator {
         }
 
         // Policy-only mode (fast, for WASM)
-        let board_data = board_to_tensor_data(board);
-        let context_data = context_to_tensor_data(current, next, next_next);
+        let board_data = board_to_tensor_data(&state.board);
+        let context_data = context_to_tensor_data(&state.current, &state.next, &state.next_next);
 
         let (logits_vec, _value) = self.provider.infer(&board_data, &context_data);
 

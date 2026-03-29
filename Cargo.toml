@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/game-core",
     "crates/puyo-core",
     "crates/puyo-ai",
     "crates/puyo-nn",

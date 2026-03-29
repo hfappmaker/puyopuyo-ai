@@ -1,7 +1,7 @@
 use crate::board::{Board, PuyoColor, COLS, ROWS, SPAWN_COL, VISIBLE_ROWS};
 
 /// Orientation of the satellite puyo relative to the axis puyo.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Orientation {
     North, // satellite above axis
     East,  // satellite right of axis
@@ -68,7 +68,7 @@ impl Piece {
 }
 
 /// A specific placement: which column the axis lands in and the orientation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Placement {
     pub col: usize, // axis column (0..COLS-1)
     pub orientation: Orientation,

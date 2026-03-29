@@ -1,7 +1,9 @@
+use game_core::Game;
 use puyo_ai::eval::{Evaluator, SimulationEvaluator};
 use puyo_ai::placement::placement_to_index;
+use puyo_ai::puyo_game::PuyoGame;
 use puyo_core::game::{GamePhase, GameState};
-use puyo_nn::encoding::{board_to_tensor_data, context_to_tensor_data};
+use puyo_core::puyo_game::PuyoState;
 use puyo_trainer::data::{Dataset, Sample};
 
 const NUM_GAMES: u64 = 10_000;
@@ -36,22 +38,19 @@ fn main() {
                 None => break,
             };
 
+            let puyo_state = PuyoState {
+                board: game.board.clone(),
+                current: current_piece,
+                next: game.next_piece,
+                next_next: game.next_next_piece,
+            };
+
             // Encode board and context BEFORE placement
-            let board_data = board_to_tensor_data(&game.board).to_vec();
-            let context_data = context_to_tensor_data(
-                &current_piece,
-                &game.next_piece,
-                &game.next_next_piece,
-            )
-            .to_vec();
+            let board_data = PuyoGame::encode_board(&puyo_state);
+            let context_data = PuyoGame::encode_context(&puyo_state);
 
             // Find and apply best move
-            let result = evaluator.find_best_move(
-                &game.board,
-                &current_piece,
-                &game.next_piece,
-                &game.next_next_piece,
-            );
+            let result = evaluator.find_best_move(&puyo_state);
 
             match result {
                 Some((placement, score)) => {

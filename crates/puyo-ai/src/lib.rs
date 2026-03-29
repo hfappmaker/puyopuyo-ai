@@ -7,3 +7,4 @@ pub mod mcts;
 #[cfg(feature = "nn")]
 pub mod nn_eval;
 pub mod placement;
+pub mod puyo_game;

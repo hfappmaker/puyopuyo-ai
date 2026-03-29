@@ -9,6 +9,7 @@ nn = ["puyo-nn", "burn"]
 cuda = ["nn", "burn/cuda-jit"]
 
 [dependencies]
+game-core = { path = "../game-core" }
 puyo-core = { path = "../puyo-core" }
 puyo-nn = { path = "../puyo-nn", optional = true }
 burn = { version = "0.16", default-features = false, features = ["ndarray"], optional = true }

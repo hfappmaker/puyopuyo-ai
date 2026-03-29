@@ -11,12 +11,13 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 
+use game_core::Game;
 use puyo_ai::hash_util::splitmix64;
 use puyo_ai::mcts::{mcts_search, InferenceProvider};
 use puyo_ai::nn_eval::MctsConfig;
-use puyo_ai::placement::NUM_ACTIONS;
+use puyo_ai::puyo_game::PuyoGame;
 use puyo_core::game::{GamePhase, GameState};
-use puyo_nn::encoding::{board_to_tensor_data, context_to_tensor_data};
+use puyo_core::puyo_game::PuyoState;
 use puyo_nn::model::{PuyoNet, PuyoNetConfig};
 use puyo_trainer::data::{AlphaZeroDataset, AlphaZeroSample};
 
@@ -164,23 +165,22 @@ fn play_one_game(
     while game.phase != GamePhase::GameOver && move_count < MAX_TURNS {
         let current_piece = game.current_piece.as_ref().unwrap().piece;
 
-        let board_data = board_to_tensor_data(&game.board).to_vec();
-        let context_data = context_to_tensor_data(
-            &current_piece,
-            &game.next_piece,
-            &game.next_next_piece,
-        )
-        .to_vec();
+        let puyo_state = PuyoState {
+            board: game.board.clone(),
+            current: current_piece,
+            next: game.next_piece,
+            next_next: game.next_next_piece,
+        };
+
+        let board_data = PuyoGame::encode_board(&puyo_state);
+        let context_data = PuyoGame::encode_context(&puyo_state);
 
         let gumbel_seed = splitmix64(
             seed.wrapping_mul(6364136223846793005)
                 .wrapping_add(move_count as u64),
         );
-        let (mcts_policy, _q_values) = mcts_search(
-            &game.board,
-            &current_piece,
-            &game.next_piece,
-            &game.next_next_piece,
+        let (mcts_policy, _q_values) = mcts_search::<PuyoGame>(
+            &puyo_state,
             provider,
             &mcts_config,
             gumbel_seed,
@@ -198,7 +198,7 @@ fn play_one_game(
         move_records.push(MoveRecord {
             board_data,
             context_data,
-            mcts_policy: mcts_policy.to_vec(),
+            mcts_policy,
             reward: chain_result.score as f32,
         });
 
@@ -451,19 +451,21 @@ fn estimate_value(
         Some(fp) => fp.piece,
         None => return 0.0,
     };
-    let board_data = board_to_tensor_data(&game.board);
-    let context_data = context_to_tensor_data(
-        &current_piece,
-        &game.next_piece,
-        &game.next_next_piece,
-    );
+    let puyo_state = PuyoState {
+        board: game.board.clone(),
+        current: current_piece,
+        next: game.next_piece,
+        next_next: game.next_next_piece,
+    };
+    let board_data = PuyoGame::encode_board(&puyo_state);
+    let context_data = PuyoGame::encode_context(&puyo_state);
 
     let (_logits, value) = provider.infer(&board_data, &context_data);
     value
 }
 
 /// Select an action by sampling from the MCTS policy.
-fn select_from_policy(policy: &[f32; NUM_ACTIONS], seed: u64) -> usize {
+fn select_from_policy(policy: &[f32], seed: u64) -> usize {
     let x = splitmix64(seed.wrapping_mul(6364136223846793005).wrapping_add(1));
 
     let r = (x as f64) / (u64::MAX as f64);

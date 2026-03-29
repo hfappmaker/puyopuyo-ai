@@ -59,11 +59,13 @@ East/West 配置では軸列・衛星列の両方が到達可能でなければ�
 
 ## find_best_move
 
-`find_best_move` は `Evaluator` トレイトの主要メソッド。各評価器が評価関数・探索深度を含む探索戦略を完全に実装する。
+`find_best_move` は `Evaluator<G: Game>` トレイトの主要メソッド。各評価器が評価関数・探索深度を含む探索戦略を完全に実装する。
 
 ```rust
-fn find_best_move(&self, board: &Board, current: &Piece, next: &Piece, next_next: &Piece) -> Option<(Placement, f64)>
+fn find_best_move(&self, state: &G::State) -> Option<(Placement, f64)>
 ```
+
+ぷよぷよの場合、`G::State` は `PuyoState`（board + 3 pieces）。
 
 | Evaluator | 探索深度 |
 |-----------|----------|
@@ -93,19 +95,19 @@ Gumbel AlphaZero（Danihelka et al. 2022）に基づくモンテカルロ木探�
 
 | 構造体 | 説明 |
 |--------|------|
-| `MctsTree` | 探索木全体を管理。`gamma: f32` で割引率、`root_value: f32` でルートの価値推定、`min_value`/`max_value` でMin-Max正規化範囲を保持 |
-| `MctsNode` | 探索木の各ノード。`visit_count: u32`、`total_value: f32`、`prior: f32`、`priors: [f32; NUM_ACTIONS]`、`logits: [f32; NUM_ACTIONS]`、`children: [Option<usize>; NUM_ACTIONS]`、`expanded: bool`、`terminal: bool`、`immediate_reward: f32`（連鎖スコア）、`valid_mask: [bool; NUM_ACTIONS]`、`depth: u32` を保持 |
+| `MctsTree<G: Game>` | 探索木全体を管理。`Game` トレイトでジェネリック化。`gamma: f32` で割引率、`root_value: f32` でルートの価値推定、`min_value`/`max_value` でMin-Max正規化範囲を保持 |
+| `MctsNode` | 探索木の各ノード。`visit_count: u32`、`total_value: f32`、`prior: f32`、`priors: Vec<f32>`、`logits: Vec<f32>`、`children: Vec<Option<usize>>`、`expanded: bool`、`terminal: bool`、`immediate_reward: f32`（連鎖スコア）、`valid_mask: Vec<bool>`、`depth: u32` を保持。固定長配列から `Vec` に変更されゲーム非依存化 |
 
-`MctsTree` の公開メソッド:
+`MctsTree<G: Game>` の公開メソッド:
 
 | メソッド | 説明 |
 |---------|------|
-| `new(board, current, next, next_next, gamma) -> Self` | 探索木を初期化。ルートノードを作成 |
-| `root_q_values() -> [f32; NUM_ACTIONS]` | ルート直下の各アクションの平均累積報酬（Q値）を返す |
+| `new(state: &G::State, gamma) -> Self` | 探索木を初期化。`G::State`（ぷよぷよの場合は `PuyoState`）からルートノードを作成 |
+| `root_q_values() -> Vec<f32>` | ルート直下の各アクションの平均累積報酬（Q値）を返す |
 
 ### ランダムツモの扱い
 
-3手先以降のツモが不明な場合、決定論的なハッシュ関数（`sample_piece`）でランダムツモを生成する。ノードID、アクションID、および配置後の盤面のFNV-1aハッシュ（`board_hash`）をシードとして使用するため、同じ盤面状態・同じアクションでは常に同じツモが生成される。
+3手先以降のツモが不明な場合、決定論的なハッシュ関数（`sample_piece`）でランダムツモを生成する。ノードID、アクションID、および配置後の盤面のFNV-1aハッシュ（`board_hash`）をシードとして使用するため、同じ盤面状態・同じアクションでは常に同じツモが生成される。`board_hash` と `sample_piece` は `puyo-ai/src/puyo_game.rs` に定義されている（`PuyoGame` の `Game` トレイト実装の一部）。
 
 ### Min-Max Value Normalization（MuZero Reanalyze方式）
 
@@ -165,19 +167,16 @@ pub trait InferenceProvider {
 ### API
 
 ```rust
-pub fn mcts_search(
-    board: &Board,
-    current: &Piece,
-    next: &Piece,
-    next_next: &Piece,
+pub fn mcts_search<G: Game>(
+    state: &G::State,
     provider: &dyn InferenceProvider,
     config: &MctsConfig,
     seed: u64,
-) -> ([f32; NUM_ACTIONS], [f32; NUM_ACTIONS])
+) -> (Vec<f32>, Vec<f32>)
 ```
 
-- **入力**: 盤面、3ツモ、`InferenceProvider`（推論プロバイダ）、`MctsConfig`（探索パラメータ一式）、Gumbelシード
-- **出力**: (NUM_ACTIONS次元のimproved policy, NUM_ACTIONS次元のQ値)
+- **入力**: `G::State`（ぷよぷよの場合は `PuyoState`）、`InferenceProvider`（推論プロバイダ）、`MctsConfig`（探索パラメータ一式）、Gumbelシード
+- **出力**: (NUM_ACTIONS次元のimproved policy, NUM_ACTIONS次元のQ値)。固定長配列から `Vec<f32>` に変更
 
 `MctsConfig`のフィールド:
 - `num_simulations`: シミュレーション回数（デフォルト64）
@@ -201,8 +200,8 @@ pub fn mcts_search(
 
 - `splitmix64(s: u64) -> u64`: splitmix64 finalizer。シード値を分散の良いハッシュに変換する。MCTS 内の `sample_piece` で使用
 
-### mcts.rs 内のハッシュ関数
+### puyo_game.rs 内のハッシュ関数
 
-- `board_hash(board: &Board) -> u64`: 盤面の FNV-1a ハッシュ。MCTS のランダムツモ生成シードおよび `NnEvaluator` の Gumbel シードとして使用。公開関数
+- `board_hash(board: &Board) -> u64`: 盤面の FNV-1a ハッシュ。MCTS のランダムツモ生成シードおよび `NnEvaluator` の Gumbel シードとして使用。`puyo-ai/src/puyo_game.rs` に定義（`mcts.rs` から移動）
 
 2手目以降の探索は各 Evaluator が `find_best_move` 内にインラインで実装する（共通の再帰関数は使用しない）。

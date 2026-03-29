@@ -1,18 +1,19 @@
+use game_core::Game;
 use puyo_core::board::{Board, PuyoColor};
-use puyo_core::piece::{Piece, Placement};
+use puyo_core::piece::Piece;
+use puyo_core::puyo_game::PuyoState;
 
 use crate::placement::{enumerate_placements, simulate_placement};
+use crate::puyo_game::PuyoGame;
 
-/// Trait for board evaluation strategies.
-pub trait Evaluator {
+/// Trait for game evaluation strategies.
+/// Generic over the game type to support different games.
+pub trait Evaluator<G: Game> {
     /// AI最善手を探索する。
     fn find_best_move(
         &self,
-        board: &Board,
-        current: &Piece,
-        next: &Piece,
-        next_next: &Piece,
-    ) -> Option<(Placement, f64)>;
+        state: &G::State,
+    ) -> Option<(G::Action, f64)>;
 
     /// MCTSシミュレーション数を変更する。対応していない評価器では何もしない。
     fn set_num_simulations(&mut self, _num_simulations: usize) {}
@@ -21,15 +22,16 @@ pub trait Evaluator {
 /// Simulation-based evaluator: drops virtual puyos to estimate expected chain score.
 pub struct SimulationEvaluator;
 
-impl Evaluator for SimulationEvaluator {
+impl Evaluator<PuyoGame> for SimulationEvaluator {
     /// BFS順で全深度の盤面を評価し、最高スコアの1手目を返す。
     fn find_best_move(
         &self,
-        board: &Board,
-        current: &Piece,
-        next: &Piece,
-        _next_next: &Piece,
-    ) -> Option<(Placement, f64)> {
+        state: &PuyoState,
+    ) -> Option<(puyo_core::piece::Placement, f64)> {
+        let board = &state.board;
+        let current = &state.current;
+        let next = &state.next;
+
         let placements = enumerate_placements(board, current);
 
         placements
@@ -97,23 +99,38 @@ fn simulate_expected_score(board: &Board) -> f64 {
 mod tests {
     use super::*;
     use puyo_core::board::{PuyoColor, COLS, VISIBLE_ROWS};
+    use puyo_core::piece::Piece;
+
+    fn make_state(board: Board, current: Piece, next: Piece) -> PuyoState {
+        PuyoState {
+            board,
+            current,
+            next,
+            next_next: Piece::new(PuyoColor::Green, PuyoColor::Blue),
+        }
+    }
 
     #[test]
     fn test_depth1_finds_move() {
-        let board = Board::new();
-        let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
+        let state = make_state(
+            Board::new(),
+            Piece::new(PuyoColor::Red, PuyoColor::Blue),
+            Piece::new(PuyoColor::Red, PuyoColor::Blue),
+        );
         let evaluator = SimulationEvaluator;
-        let result = evaluator.find_best_move(&board, &piece, &Piece::new(PuyoColor::Red, PuyoColor::Blue), &Piece::new(PuyoColor::Green, PuyoColor::Blue));
+        let result = evaluator.find_best_move(&state);
         assert!(result.is_some());
     }
 
     #[test]
     fn test_depth2_finds_move() {
-        let board = Board::new();
-        let current = Piece::new(PuyoColor::Red, PuyoColor::Blue);
-        let next = Piece::new(PuyoColor::Green, PuyoColor::Blue);
+        let state = make_state(
+            Board::new(),
+            Piece::new(PuyoColor::Red, PuyoColor::Blue),
+            Piece::new(PuyoColor::Green, PuyoColor::Blue),
+        );
         let evaluator = SimulationEvaluator;
-        let result = evaluator.find_best_move(&board, &current, &next, &Piece::new(PuyoColor::Green, PuyoColor::Blue));
+        let result = evaluator.find_best_move(&state);
         assert!(result.is_some());
     }
 
@@ -131,10 +148,13 @@ mod tests {
             }
         }
 
-        let current = Piece::new(PuyoColor::Red, PuyoColor::Blue);
-        let next = Piece::new(PuyoColor::Green, PuyoColor::Blue);
+        let state = make_state(
+            board,
+            Piece::new(PuyoColor::Red, PuyoColor::Blue),
+            Piece::new(PuyoColor::Green, PuyoColor::Blue),
+        );
         let evaluator = SimulationEvaluator;
-        let result = evaluator.find_best_move(&board, &current, &next, &Piece::new(PuyoColor::Green, PuyoColor::Blue));
+        let result = evaluator.find_best_move(&state);
         assert!(result.is_some());
     }
 
@@ -145,10 +165,13 @@ mod tests {
         board.drop_puyo(0, PuyoColor::Red);
         board.drop_puyo(0, PuyoColor::Red);
 
-        let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
-        let next = Piece::new(PuyoColor::Green, PuyoColor::Blue);
+        let state = make_state(
+            board,
+            Piece::new(PuyoColor::Red, PuyoColor::Blue),
+            Piece::new(PuyoColor::Green, PuyoColor::Blue),
+        );
         let evaluator = SimulationEvaluator;
-        let result = evaluator.find_best_move(&board, &piece, &next, &Piece::new(PuyoColor::Green, PuyoColor::Blue));
+        let result = evaluator.find_best_move(&state);
         assert!(result.is_some());
     }
 
@@ -158,7 +181,6 @@ mod tests {
 
     #[test]
     fn test_simulate_expected_score_empty_board() {
-        // 空盤面: 仮想ぷよを落としても連鎖は起きない → スコア 0 付近
         let board = Board::new();
         let score = simulate_expected_score(&board);
         assert!(
@@ -169,7 +191,6 @@ mod tests {
 
     #[test]
     fn test_simulate_expected_score_near_chain() {
-        // 列0に赤3つ → 赤の仮想ぷよで連鎖発生 → 正のスコア期待
         let mut board = Board::new();
         board.drop_puyo(0, PuyoColor::Red);
         board.drop_puyo(0, PuyoColor::Red);
@@ -183,7 +204,6 @@ mod tests {
 
     #[test]
     fn test_simulate_expected_score_more_potential_is_higher() {
-        // 赤3つ(1連鎖分)と赤3+青3(2連鎖分)で後者が高スコア
         let mut board1 = Board::new();
         board1.drop_puyo(0, PuyoColor::Red);
         board1.drop_puyo(0, PuyoColor::Red);
@@ -207,7 +227,6 @@ mod tests {
 
     #[test]
     fn test_simulate_expected_score_game_over_penalty() {
-        // ほぼ満杯の盤面はゲームオーバーペナルティで大きな負のスコア
         let mut board = Board::new();
         for col in 0..COLS {
             for i in 0..VISIBLE_ROWS {
@@ -228,7 +247,6 @@ mod tests {
 
     #[test]
     fn test_simulate_expected_score_deterministic() {
-        // 同じ盤面に対して常に同じ値を返す（乱数なし）
         let mut board = Board::new();
         board.drop_puyo(2, PuyoColor::Green);
         board.drop_puyo(2, PuyoColor::Green);

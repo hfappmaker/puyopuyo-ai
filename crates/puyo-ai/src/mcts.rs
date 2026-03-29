@@ -1,31 +1,19 @@
-use puyo_core::board::{Board, COLS, NUM_COLORS, ROWS};
-use puyo_core::piece::Piece;
-use puyo_nn::encoding::{context_to_tensor_data, board_to_tensor_data};
+use game_core::Game;
 
 use crate::nn_eval::MctsConfig;
-use crate::placement::{compute_valid_mask, index_to_placement, simulate_placement, NUM_ACTIONS};
 
 /// Trait abstracting NN inference so MCTS is backend-agnostic.
 /// Implementations: `DirectInference` (single-sample, any burn backend),
 /// `BatchedInference` (GPU batched via inference server).
 pub trait InferenceProvider {
     /// Run the neural network on a single board+context input.
-    /// Returns (logits[NUM_ACTIONS], value_transformed).
+    /// Returns (logits[num_actions], value_transformed).
     /// The value is already inverse-transformed (raw cumulative reward scale).
     fn infer(&self, board_data: &[f32], context_data: &[f32]) -> (Vec<f32>, f32);
 }
 
-/// Game snapshot for MCTS nodes.
-#[derive(Clone)]
-struct GameSnapshot {
-    board: Board,
-    current: Piece,
-    next: Piece,
-    next_next: Piece,
-}
-
 /// A node in the MCTS tree (Decision Node).
-struct MctsNode {
+struct MctsNode<G: Game> {
     /// Number of visits.
     visit_count: u32,
     /// Sum of values from all visits (for computing Q = total_value / visit_count).
@@ -33,11 +21,11 @@ struct MctsNode {
     /// Prior probability from the policy network.
     prior: f32,
     /// NN policy priors for each action (set when expanded).
-    priors: [f32; NUM_ACTIONS],
+    priors: Vec<f32>,
     /// Raw NN logits before softmax (set when expanded).
-    logits: [f32; NUM_ACTIONS],
-    /// Children indexed by action (0..NUM_ACTIONS-1). None = not yet expanded for this action.
-    children: [Option<usize>; NUM_ACTIONS],
+    logits: Vec<f32>,
+    /// Children indexed by action (0..num_actions-1). None = not yet expanded for this action.
+    children: Vec<Option<usize>>,
     /// Whether this node has been expanded (network evaluated).
     expanded: bool,
     /// Terminal node (game over or no turns left).
@@ -45,16 +33,16 @@ struct MctsNode {
     /// Immediate reward received when transitioning TO this node (chain score).
     immediate_reward: f32,
     /// Game state at this node.
-    state: GameSnapshot,
-    /// Cached valid action mask (derived from board + current piece, immutable per node).
-    valid_mask: [bool; NUM_ACTIONS],
+    state: G::State,
+    /// Cached valid action mask (derived from state, immutable per node).
+    valid_mask: Vec<bool>,
     /// Depth from root (root = 0).
     depth: u32,
 }
 
 /// MCTS tree.
-pub struct MctsTree {
-    nodes: Vec<MctsNode>,
+pub struct MctsTree<G: Game> {
+    nodes: Vec<MctsNode<G>>,
     root: usize,
     /// Discount factor for future rewards.
     gamma: f32,
@@ -66,28 +54,23 @@ pub struct MctsTree {
     root_value: f32,
 }
 
-impl MctsTree {
+impl<G: Game> MctsTree<G> {
     /// Create a new MCTS tree rooted at the given game state.
     /// `gamma` is the discount factor for future rewards.
-    pub fn new(board: &Board, current: &Piece, next: &Piece, next_next: &Piece, gamma: f32) -> Self {
-        let state = GameSnapshot {
-            board: board.clone(),
-            current: *current,
-            next: *next,
-            next_next: *next_next,
-        };
-        let valid_mask = compute_valid_mask(&state.board, &state.current);
+    pub fn new(state: &G::State, gamma: f32) -> Self {
+        let num_actions = G::num_actions();
+        let valid_mask = G::valid_action_mask(state);
         let root = MctsNode {
             visit_count: 0,
             total_value: 0.0,
             prior: 1.0,
-            priors: [0.0; NUM_ACTIONS],
-            logits: [0.0; NUM_ACTIONS],
-            children: [None; NUM_ACTIONS],
+            priors: vec![0.0; num_actions],
+            logits: vec![0.0; num_actions],
+            children: vec![None; num_actions],
             expanded: false,
-            terminal: state.board.is_game_over(),
+            terminal: G::is_terminal(state),
             immediate_reward: 0.0,
-            state,
+            state: state.clone(),
             valid_mask,
             depth: 0,
         };
@@ -201,7 +184,7 @@ impl MctsTree {
                 let puct = q_normalized + c_puct * prior * sqrt_parent / (1.0 + n);
                 (action, puct)
             })
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(action, _)| action)
             .unwrap_or(0)
     }
@@ -218,46 +201,33 @@ impl MctsTree {
 
     /// Create a child node by simulating an action.
     fn create_child(&mut self, parent_id: usize, action: usize) -> usize {
+        let num_actions = G::num_actions();
         let parent_state = &self.nodes[parent_id].state;
-        let placement = index_to_placement(action);
+        let game_action = G::index_to_action(action);
 
         // Simulate placement
-        let (new_board, chain_result) = simulate_placement(
-            &parent_state.board,
-            &parent_state.current,
-            &placement,
-        );
+        let (mut new_state, action_result) = G::apply_action(parent_state, &game_action);
 
-        let terminal = new_board.is_game_over();
-        let immediate_reward = chain_result.score as f32;
+        let terminal = G::is_terminal(&new_state);
+        let immediate_reward = G::reward(&action_result);
 
-        // Advance pieces: next→current, next_next→next, random→next_next
-        let new_current = parent_state.next;
-        let new_next = parent_state.next_next;
-        // Generate a deterministic "random" piece based on state for reproducibility
-        let board_h = board_hash(&new_board);
-        let new_next_next = sample_piece(parent_id as u64, action as u64, board_h);
-
-        let child_state = GameSnapshot {
-            board: new_board,
-            current: new_current,
-            next: new_next,
-            next_next: new_next_next,
-        };
+        // Advance turn (generate next piece etc.)
+        let state_h = G::state_hash(&new_state);
+        G::advance_turn(&mut new_state, parent_id as u64, action as u64, state_h);
 
         let parent_depth = self.nodes[parent_id].depth;
-        let valid_mask = compute_valid_mask(&child_state.board, &child_state.current);
+        let valid_mask = G::valid_action_mask(&new_state);
         let child = MctsNode {
             visit_count: 0,
             total_value: 0.0,
             prior: self.nodes[parent_id].priors[action],
-            priors: [0.0; NUM_ACTIONS],
-            logits: [0.0; NUM_ACTIONS],
-            children: [None; NUM_ACTIONS],
+            priors: vec![0.0; num_actions],
+            logits: vec![0.0; num_actions],
+            children: vec![None; num_actions],
             expanded: false,
             terminal,
             immediate_reward,
-            state: child_state,
+            state: new_state,
             valid_mask,
             depth: parent_depth + 1,
         };
@@ -275,10 +245,8 @@ impl MctsTree {
     ) -> f32 {
         let state = &self.nodes[node_id].state;
 
-        let board_data = board_to_tensor_data(&state.board);
-        let context_data = context_to_tensor_data(
-            &state.current, &state.next, &state.next_next,
-        );
+        let board_data = G::encode_board(state);
+        let context_data = G::encode_context(state);
 
         let (logits_vec, v) = provider.infer(&board_data, &context_data);
 
@@ -286,19 +254,20 @@ impl MctsTree {
         let priors = masked_softmax(&logits_vec, &self.nodes[node_id].valid_mask);
 
         // Store logits and priors
-        let mut stored_logits = [0.0f32; NUM_ACTIONS];
-        for (i, logit) in logits_vec.iter().enumerate().take(NUM_ACTIONS) {
+        let num_actions = G::num_actions();
+        let mut stored_logits = vec![0.0f32; num_actions];
+        for (i, logit) in logits_vec.iter().enumerate().take(num_actions) {
             stored_logits[i] = *logit;
         }
         self.nodes[node_id].logits = stored_logits;
-        self.nodes[node_id].priors = priors;
 
-        // Update priors of already-created children
+        // Update priors of already-created children before moving priors into node
         for (action, &prior) in priors.iter().enumerate() {
             if let Some(child_id) = self.nodes[node_id].children[action] {
                 self.nodes[child_id].prior = prior;
             }
         }
+        self.nodes[node_id].priors = priors;
 
         self.nodes[node_id].expanded = true;
 
@@ -306,15 +275,18 @@ impl MctsTree {
     }
 
     /// Get Q values (average cumulative reward) for root's direct children.
-    pub fn root_q_values(&self) -> [f32; NUM_ACTIONS] {
+    pub fn root_q_values(&self) -> Vec<f32> {
+        let num_actions = G::num_actions();
         let root = &self.nodes[self.root];
-        std::array::from_fn(|action| {
-            root.children[action]
-                .map(|child_id| &self.nodes[child_id])
-                .filter(|child| child.visit_count > 0)
-                .map(|child| child.total_value / child.visit_count as f32)
-                .unwrap_or(0.0)
-        })
+        (0..num_actions)
+            .map(|action| {
+                root.children[action]
+                    .map(|child_id| &self.nodes[child_id])
+                    .filter(|child| child.visit_count > 0)
+                    .map(|child| child.total_value / child.visit_count as f32)
+                    .unwrap_or(0.0)
+            })
+            .collect()
     }
 
     /// Run Sequential Halving over the considered actions, then spend remaining budget.
@@ -322,14 +294,14 @@ impl MctsTree {
     fn sequential_halving(
         &mut self,
         considered: &mut Vec<usize>,
-        scores: &mut [f32; NUM_ACTIONS],
-        gumbels: &[f32; NUM_ACTIONS],
+        scores: &mut Vec<f32>,
+        gumbels: &[f32],
         remaining_budget: usize,
         provider: &dyn InferenceProvider,
         config: &MctsConfig,
-    ) -> [f32; NUM_ACTIONS] {
-        let root_logits = self.nodes[self.root].logits;
-        let mask = self.nodes[self.root].valid_mask;
+    ) -> Vec<f32> {
+        let root_logits = self.nodes[self.root].logits.clone();
+        let mask = self.nodes[self.root].valid_mask.clone();
 
         if remaining_budget == 0 {
             return compute_completed_q(self, &mask);
@@ -367,7 +339,7 @@ impl MctsTree {
             }
 
             let keep = (n_actions + 1) / 2;
-            considered.sort_by(|&a, &b| scores[b].partial_cmp(&scores[a]).unwrap_or(std::cmp::Ordering::Equal));
+            considered.sort_by(|&a, &b| scores[b].total_cmp(&scores[a]));
             considered.truncate(keep);
         }
 
@@ -403,24 +375,27 @@ impl MctsTree {
 }
 
 /// Compute masked softmax over logits.
-fn masked_softmax(logits: &[f32], mask: &[bool; NUM_ACTIONS]) -> [f32; NUM_ACTIONS] {
+fn masked_softmax(logits: &[f32], mask: &[bool]) -> Vec<f32> {
+    let num_actions = mask.len();
     // Find max for numerical stability
-    let max_logit = (0..NUM_ACTIONS)
+    let max_logit = (0..num_actions)
         .filter(|&i| mask[i])
         .filter_map(|i| logits.get(i).copied())
         .fold(f32::NEG_INFINITY, f32::max);
 
     if max_logit == f32::NEG_INFINITY {
-        return [0.0f32; NUM_ACTIONS]; // No valid actions
+        return vec![0.0f32; num_actions]; // No valid actions
     }
 
-    let mut result: [f32; NUM_ACTIONS] = std::array::from_fn(|i| {
-        if mask[i] {
-            (logits.get(i).copied().unwrap_or(f32::NEG_INFINITY) - max_logit).exp()
-        } else {
-            0.0
-        }
-    });
+    let mut result: Vec<f32> = (0..num_actions)
+        .map(|i| {
+            if mask[i] {
+                (logits.get(i).copied().unwrap_or(f32::NEG_INFINITY) - max_logit).exp()
+            } else {
+                0.0
+            }
+        })
+        .collect();
     let sum: f32 = result.iter().sum();
     if sum > 0.0 {
         result.iter_mut().for_each(|r| *r /= sum);
@@ -449,69 +424,40 @@ fn sample_gumbel(state: &mut u64, mix: u64) -> f32 {
     -((-(u.ln())).ln()) as f32
 }
 
-/// Compute a simple FNV-1a hash of the board state.
-pub fn board_hash(board: &Board) -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for col in 0..COLS {
-        for row in 0..ROWS {
-            h ^= board.columns[col][row] as u8 as u64;
-            h = h.wrapping_mul(0x00000100000001B3);
-        }
-    }
-    h
-}
-
-/// Sample a random piece deterministically from node_id, action, and board hash.
-fn sample_piece(seed1: u64, seed2: u64, seed3: u64) -> Piece {
-    let mut x = crate::hash_util::splitmix64(
-        seed1
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(seed2)
-            .wrapping_add(1)
-            .wrapping_add(seed3.wrapping_mul(0x9e3779b97f4a7c15)),
-    );
-
-    let axis = ((x % NUM_COLORS as u64) as u8) + 1;
-    // Re-mix for independent satellite color
-    x = (x ^ (x >> 30)).wrapping_mul(0x517cc1b727220a95);
-    x = x ^ (x >> 27);
-    let sat = ((x % NUM_COLORS as u64) as u8) + 1;
-    Piece::new(
-        puyo_core::board::PuyoColor::from_u8(axis),
-        puyo_core::board::PuyoColor::from_u8(sat),
-    )
-}
-
 /// Compute completed Q-values for all valid root actions.
 /// Visited actions use actual Q from tree; unvisited actions use root value estimate.
-fn compute_completed_q(
-    tree: &MctsTree,
-    mask: &[bool; NUM_ACTIONS],
-) -> [f32; NUM_ACTIONS] {
+fn compute_completed_q<G: Game>(
+    tree: &MctsTree<G>,
+    mask: &[bool],
+) -> Vec<f32> {
+    let num_actions = G::num_actions();
     let root = &tree.nodes[tree.root];
-    std::array::from_fn(|a| {
-        if !mask[a] {
-            return 0.0;
-        }
-        match root.children[a] {
-            Some(child_id) if tree.nodes[child_id].visit_count > 0 => {
-                tree.nodes[child_id].total_value / tree.nodes[child_id].visit_count as f32
+    (0..num_actions)
+        .map(|a| {
+            if !mask[a] {
+                return 0.0;
             }
-            _ => tree.root_value,
-        }
-    })
+            match root.children[a] {
+                Some(child_id) if tree.nodes[child_id].visit_count > 0 => {
+                    tree.nodes[child_id].total_value / tree.nodes[child_id].visit_count as f32
+                }
+                _ => tree.root_value,
+            }
+        })
+        .collect()
 }
 
 /// Min-max normalize Q-values to [0,1].
 /// Only indices where `mask[a]` is true are considered for min/max range.
 /// Returns 0.0 for masked-out actions, 0.5 when all considered values are equal.
 fn normalize_q_minmax(
-    q_values: &[f32; NUM_ACTIONS],
-    mask: &[bool; NUM_ACTIONS],
-) -> [f32; NUM_ACTIONS] {
+    q_values: &[f32],
+    mask: &[bool],
+) -> Vec<f32> {
+    let num_actions = mask.len();
     let mut min_q = f32::INFINITY;
     let mut max_q = f32::NEG_INFINITY;
-    for a in 0..NUM_ACTIONS {
+    for a in 0..num_actions {
         if mask[a] {
             min_q = min_q.min(q_values[a]);
             max_q = max_q.max(q_values[a]);
@@ -519,16 +465,18 @@ fn normalize_q_minmax(
     }
     let q_range = max_q - min_q;
 
-    std::array::from_fn(|a| {
-        if !mask[a] {
-            return 0.0;
-        }
-        if q_range > f32::EPSILON {
-            (q_values[a] - min_q) / q_range
-        } else {
-            0.5
-        }
-    })
+    (0..num_actions)
+        .map(|a| {
+            if !mask[a] {
+                return 0.0;
+            }
+            if q_range > f32::EPSILON {
+                (q_values[a] - min_q) / q_range
+            } else {
+                0.5
+            }
+        })
+        .collect()
 }
 
 /// Compute the improved policy target from logits and completed Q-values.
@@ -538,23 +486,24 @@ fn normalize_q_minmax(
 /// so that c_visit operates on a consistent scale regardless of
 /// the raw reward magnitude (following Gumbel MuZero paper assumptions).
 fn compute_improved_policy(
-    logits: &[f32; NUM_ACTIONS],
-    q_completed: &[f32; NUM_ACTIONS],
-    mask: &[bool; NUM_ACTIONS],
+    logits: &[f32],
+    q_completed: &[f32],
+    mask: &[bool],
     c_visit: f32,
-) -> [f32; NUM_ACTIONS] {
+) -> Vec<f32> {
+    let num_actions = mask.len();
     let q_normalized = normalize_q_minmax(q_completed, mask);
 
     // Compute V_mixed: prior-weighted sum of normalized Q-values
     let priors = masked_softmax(logits, mask);
-    let v_mixed: f32 = (0..NUM_ACTIONS)
+    let v_mixed: f32 = (0..num_actions)
         .filter(|&a| mask[a])
         .map(|a| priors[a] * q_normalized[a])
         .sum();
 
     // Compute improved logits: logit(a) + advantage(a) * c_visit
-    let mut improved_logits = [f32::NEG_INFINITY; NUM_ACTIONS];
-    for a in 0..NUM_ACTIONS {
+    let mut improved_logits = vec![f32::NEG_INFINITY; num_actions];
+    for a in 0..num_actions {
         if mask[a] {
             let advantage = q_normalized[a] - v_mixed;
             improved_logits[a] = logits[a] + advantage * c_visit;
@@ -567,13 +516,14 @@ fn compute_improved_policy(
 /// Compute sigma_bar for Sequential Halving score updates.
 /// sigma_bar(a) = (c_visit + N_max) * q_normalized(a)
 /// where q_normalized is min-max normalized completed Q-value.
-fn compute_sigma_bar(
-    tree: &MctsTree,
-    q_completed: &[f32; NUM_ACTIONS],
-    mask: &[bool; NUM_ACTIONS],
+fn compute_sigma_bar<G: Game>(
+    tree: &MctsTree<G>,
+    q_completed: &[f32],
+    mask: &[bool],
     considered: &[usize],
     c_visit: f32,
-) -> [f32; NUM_ACTIONS] {
+) -> Vec<f32> {
+    let num_actions = G::num_actions();
     // Find max visit count among root children
     let root = &tree.nodes[tree.root];
     let n_max: f32 = considered.iter()
@@ -581,60 +531,60 @@ fn compute_sigma_bar(
         .fold(0.0f32, f32::max);
 
     // Build mask restricted to considered actions for normalization range
-    let mut considered_mask = [false; NUM_ACTIONS];
+    let mut considered_mask = vec![false; num_actions];
     for &a in considered {
         considered_mask[a] = mask[a];
     }
     let q_normalized = normalize_q_minmax(q_completed, &considered_mask);
 
-    std::array::from_fn(|a| {
-        if !mask[a] {
-            return 0.0;
-        }
-        (c_visit + n_max) * q_normalized[a]
-    })
+    (0..num_actions)
+        .map(|a| {
+            if !mask[a] {
+                return 0.0;
+            }
+            (c_visit + n_max) * q_normalized[a]
+        })
+        .collect()
 }
 
 /// Run Gumbel MCTS search using Sequential Halving with Gumbel noise.
 ///
 /// Returns (improved_policy, q_values).
 /// `seed` is used for deterministic Gumbel noise sampling.
-pub fn mcts_search(
-    board: &Board,
-    current: &Piece,
-    next: &Piece,
-    next_next: &Piece,
+pub fn mcts_search<G: Game>(
+    state: &G::State,
     provider: &dyn InferenceProvider,
     config: &MctsConfig,
     seed: u64,
-) -> ([f32; NUM_ACTIONS], [f32; NUM_ACTIONS]) {
-    let mut tree = MctsTree::new(board, current, next, next_next, config.gamma);
+) -> (Vec<f32>, Vec<f32>) {
+    let num_actions = G::num_actions();
+    let mut tree = MctsTree::<G>::new(state, config.gamma);
 
     // 1. Expand root (1 NN evaluation)
     if config.num_simulations == 0 || tree.nodes[tree.root].terminal {
-        let mask = tree.nodes[tree.root].valid_mask;
-        return (masked_softmax(&[0.0f32; NUM_ACTIONS], &mask), [0.0; NUM_ACTIONS]);
+        let mask = &tree.nodes[tree.root].valid_mask;
+        return (masked_softmax(&vec![0.0f32; num_actions], mask), vec![0.0; num_actions]);
     }
     tree.expand_root(provider);
 
-    let mask = tree.nodes[tree.root].valid_mask;
-    let root_logits = tree.nodes[tree.root].logits;
+    let mask = tree.nodes[tree.root].valid_mask.clone();
+    let root_logits = tree.nodes[tree.root].logits.clone();
 
     // Collect valid actions
-    let valid_actions: Vec<usize> = (0..NUM_ACTIONS).filter(|&a| mask[a]).collect();
+    let valid_actions: Vec<usize> = (0..num_actions).filter(|&a| mask[a]).collect();
     if valid_actions.is_empty() {
-        return ([0.0; NUM_ACTIONS], [0.0; NUM_ACTIONS]);
+        return (vec![0.0; num_actions], vec![0.0; num_actions]);
     }
     if valid_actions.len() == 1 {
-        let mut policy = [0.0f32; NUM_ACTIONS];
+        let mut policy = vec![0.0f32; num_actions];
         policy[valid_actions[0]] = 1.0;
         return (policy, tree.root_q_values());
     }
 
     // 2. Sample Gumbel noise and compute initial scores: g(a) + logit(a)
     let mut rng_state = seed.wrapping_add(0xdeadbeef);
-    let mut gumbels = [0.0f32; NUM_ACTIONS];
-    let mut scores = [f32::NEG_INFINITY; NUM_ACTIONS];
+    let mut gumbels = vec![0.0f32; num_actions];
+    let mut scores = vec![f32::NEG_INFINITY; num_actions];
     for &a in &valid_actions {
         let g = sample_gumbel(&mut rng_state, a as u64);
         gumbels[a] = g;
@@ -644,7 +594,7 @@ pub fn mcts_search(
     // 3. Select top-m actions by initial score
     let m = config.m.min(valid_actions.len());
     let mut considered = valid_actions;
-    considered.sort_by(|&a, &b| scores[b].partial_cmp(&scores[a]).unwrap_or(std::cmp::Ordering::Equal));
+    considered.sort_by(|&a, &b| scores[b].total_cmp(&scores[a]));
     considered.truncate(m);
 
     // 4. Sequential Halving + spend remaining budget
@@ -667,15 +617,15 @@ pub fn mcts_search(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use puyo_core::board::PuyoColor;
 
     #[test]
     fn test_masked_softmax_basic() {
-        let mut logits = [0.0f32; NUM_ACTIONS];
+        let num_actions = 12;
+        let mut logits = vec![0.0f32; num_actions];
         logits[0] = 1.0;
         logits[1] = 2.0;
         logits[2] = 3.0;
-        let mut mask = [false; NUM_ACTIONS];
+        let mut mask = vec![false; num_actions];
         mask[0] = true;
         mask[1] = true;
         mask[2] = true;
@@ -694,27 +644,6 @@ mod tests {
     }
 
     #[test]
-    fn test_sample_piece_deterministic() {
-        let p1 = sample_piece(42, 7, 0);
-        let p2 = sample_piece(42, 7, 0);
-        assert_eq!(p1.axis_color, p2.axis_color);
-        assert_eq!(p1.satellite_color, p2.satellite_color);
-    }
-
-    #[test]
-    fn test_mcts_tree_creation() {
-        let board = Board::new();
-        let current = Piece::new(PuyoColor::Red, PuyoColor::Blue);
-        let next = Piece::new(PuyoColor::Green, PuyoColor::Blue);
-        let next_next = Piece::new(PuyoColor::Blue, PuyoColor::Red);
-
-        let tree = MctsTree::new(&board, &current, &next, &next_next, 0.95);
-        assert_eq!(tree.nodes.len(), 1);
-        assert!(!tree.nodes[0].expanded);
-        assert!(!tree.nodes[0].terminal);
-    }
-
-    #[test]
     fn test_sample_gumbel_finite() {
         let mut state = 12345u64;
         for i in 0..100 {
@@ -725,15 +654,16 @@ mod tests {
 
     #[test]
     fn test_compute_improved_policy_normalized() {
-        let mut logits = [0.0f32; NUM_ACTIONS];
+        let num_actions = 12;
+        let mut logits = vec![0.0f32; num_actions];
         logits[0] = 1.0;
         logits[1] = 2.0;
         logits[2] = 3.0;
-        let mut q = [0.0f32; NUM_ACTIONS];
+        let mut q = vec![0.0f32; num_actions];
         q[0] = 10.0;
         q[1] = 20.0;
         q[2] = 15.0;
-        let mut mask = [false; NUM_ACTIONS];
+        let mut mask = vec![false; num_actions];
         mask[0] = true;
         mask[1] = true;
         mask[2] = true;
@@ -745,5 +675,26 @@ mod tests {
         // Action 1 has highest Q, should have highest improved probability
         assert!(policy[1] > policy[0]);
         assert!(policy[1] > policy[2]);
+    }
+
+    // Game-specific tests (PuyoGame) are in puyo_game module
+    #[test]
+    fn test_mcts_tree_creation() {
+        use puyo_core::board::{Board, PuyoColor};
+        use puyo_core::piece::Piece;
+        use puyo_core::puyo_game::PuyoState;
+        use crate::puyo_game::PuyoGame;
+
+        let state = PuyoState {
+            board: Board::new(),
+            current: Piece::new(PuyoColor::Red, PuyoColor::Blue),
+            next: Piece::new(PuyoColor::Green, PuyoColor::Blue),
+            next_next: Piece::new(PuyoColor::Blue, PuyoColor::Red),
+        };
+
+        let tree = MctsTree::<PuyoGame>::new(&state, 0.95);
+        assert_eq!(tree.nodes.len(), 1);
+        assert!(!tree.nodes[0].expanded);
+        assert!(!tree.nodes[0].terminal);
     }
 }

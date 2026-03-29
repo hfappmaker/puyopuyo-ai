@@ -7,30 +7,31 @@
 ## Evaluator トレイト
 
 ```rust
-pub trait Evaluator {
-    fn find_best_move(&self, board, current, next, next_next) -> Option<(Placement, f64)>;
+pub trait Evaluator<G: Game> {
+    fn find_best_move(&self, state: &G::State) -> Option<(Placement, f64)>;
     fn set_num_simulations(&mut self, _num_simulations: usize) {}  // デフォルト実装: 何もしない
 }
 ```
 
-主要メソッド `find_best_move()` で、各 Evaluator が評価関数と探索戦略の両方を実装する。戻り値は最善配置と評価スコアのタプル。探索深度、評価ロジックは各実装が決定する。`set_num_simulations()` は MCTS のシミュレーション数を動的に変更するためのメソッド（デフォルト実装は何もしない）。
+`Game` トレイト（`game-core` クレート）でターン制ゲームを抽象化し、`Evaluator` はジェネリックパラメータ `G: Game` を取る。主要メソッド `find_best_move()` は `&G::State`（ぷよぷよの場合は `&PuyoState`）を受け取り、最善配置と評価スコアのタプルを返す。探索深度、評価ロジックは各実装が決定する。`set_num_simulations()` は MCTS のシミュレーション数を動的に変更するためのメソッド（デフォルト実装は何もしない）。
 
-| Evaluator | 探索方式 | 評価関数 |
-|-----------|----------|---------|
-| `SimulationEvaluator` | depth-1〜2 を BFS 順で統一評価 | max(実連鎖スコア, 仮想ぷよシミュレーション期待値) |
-| `NnEvaluator`（Policy-only） | 探索なし、NN 1回推論で直接選択 | Dual Head Network の Policy Head（マスク付き argmax） |
-| `NnEvaluator`（MCTS） | Gumbel MCTS（Sequential Halving + PUCT） | Dual Head Network の Policy + Value Head |
+| Evaluator | Game実装 | 探索方式 | 評価関数 |
+|-----------|---------|----------|---------|
+| `SimulationEvaluator` | `Evaluator<PuyoGame>` | depth-1〜2 を BFS 順で統一評価 | max(実連鎖スコア, 仮想ぷよシミュレーション期待値) |
+| `NnEvaluator`（Policy-only） | `Evaluator<PuyoGame>` | 探索なし、NN 1回推論で直接選択 | Dual Head Network の Policy Head（マスク付き argmax） |
+| `NnEvaluator`（MCTS） | `Evaluator<PuyoGame>` | Gumbel MCTS（Sequential Halving + PUCT） | Dual Head Network の Policy + Value Head |
 
 ## モジュール構成（puyo-ai）
 
 ```
 puyo-ai/src/
 ├── lib.rs                # 公開モジュール宣言
-├── eval.rs               # Evaluator トレイト + SimulationEvaluator
+├── eval.rs               # Evaluator<G: Game> トレイト + SimulationEvaluator
+├── puyo_game.rs          # PuyoGame（Game トレイト実装）、board_hash、sample_piece
 ├── placement.rs          # 配置列挙・シミュレーション・インデックス変換
 ├── hash_util.rs          # splitmix64 ハッシュユーティリティ
 ├── nn_eval.rs            # [nn] NnEvaluator + MctsConfig + DirectInference
-├── mcts.rs               # [nn] Gumbel MCTS 探索（MctsTree, InferenceProvider トレイト）
+├── mcts.rs               # [nn] Gumbel MCTS 探索（MctsTree<G: Game>, InferenceProvider トレイト）
 └── inference_server.rs   # [nn] GPU バッチ推論サーバー（InferenceClient）
 ```
 

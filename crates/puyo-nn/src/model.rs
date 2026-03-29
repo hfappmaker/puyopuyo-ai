@@ -3,7 +3,7 @@ use burn::nn::pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig};
 use burn::nn::{Dropout, DropoutConfig, GroupNorm, GroupNormConfig, Linear, LinearConfig, PaddingConfig2d, Relu};
 use burn::prelude::*;
 
-use crate::encoding::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
+use puyo_core::puyo_game::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
 use puyo_core::board::COLS;
 
 const RESIDUAL_CHANNELS: usize = 64;

@@ -22,8 +22,9 @@ crates/puyo-trainer/
 
 | クレート | 用途 |
 |---------|------|
-| `puyo-core` | ゲームロジック |
-| `puyo-ai` | シミュレーション評価・探索 |
+| `game-core` | `Game` トレイト（汎用ゲーム抽象化） |
+| `puyo-core` | ゲームロジック、`PuyoState`、エンコーディング関数 |
+| `puyo-ai` | シミュレーション評価・探索、`PuyoGame`（`Game` 実装） |
 | `puyo-nn` | CNN モデル・エンコーディング |
 | `burn` | NN フレームワーク（ndarray, autodiff, train） |
 | `serde` / `bincode` | データのシリアライズ |
@@ -187,7 +188,7 @@ Gumbel AlphaZero では、各手番でGumbel(0,1)ノイズをサンプリング�
 
 ### 手順
 
-1. 現在のモデルを使って Gumbel MCTS 探索でゲームをプレイ（`mcts_search()` に `gamma` を渡す）
+1. 現在のモデルを使って Gumbel MCTS 探索でゲームをプレイ（`mcts_search::<PuyoGame>()` に `PuyoState` と `gamma` を渡す）
 2. 各手番で improved policy（completed Q-values に基づく改善ポリシー）を policy target として記録
 3. ゲーム終了後、各手番の value target を累積割引報酬で逆算:
    ```

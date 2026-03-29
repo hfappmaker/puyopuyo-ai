@@ -6,7 +6,7 @@ Rust で実装したゲームロジックとAIを、`wasm-bindgen` を使って�
 
 ## WasmGame クラス
 
-`#[wasm_bindgen]` で公開される主要クラス。内部に `GameState` と `Box<dyn Evaluator>` を保持する。
+`#[wasm_bindgen]` で公開される主要クラス。内部に `GameState` と `Box<dyn Evaluator<PuyoGame>>` を保持する。AI呼び出し時には `PuyoState`（board + 3 pieces）を構築して `find_best_move` に渡す。
 
 ## API 一覧
 
