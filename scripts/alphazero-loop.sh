@@ -14,7 +14,7 @@ C_PUCT="${C_PUCT:-1.5}"
 M="${M:-16}"                        # Gumbel Top-k初期サンプル数
 C_VISIT="${C_VISIT:-50.0}"            # Q値スケーリング
 GAMMA="${GAMMA:-0.95}"              # 割引率
-REPLAY_WINDOW="${REPLAY_WINDOW:-300}"  # 直近N個のイテレーションデータを保持
+REPLAY_WINDOW="${REPLAY_WINDOW:-30}"  # 直近N個のイテレーションデータを保持
 MIN_CHAIN="${MIN_CHAIN:-0}"          # 最低連鎖数フィルタ（0=無効）
 LOG_FILE="artifacts/alphazero-loop.log"
 
