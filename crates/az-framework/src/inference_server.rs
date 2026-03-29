@@ -40,7 +40,7 @@ fn oneshot_channel<T>() -> (OneshotSender<T>, OneshotReceiver<T>) {
 
 impl<T> OneshotSender<T> {
     fn send(self, value: T) {
-        let mut guard = self.inner.data.lock().unwrap();
+        let mut guard = self.inner.data.lock().expect("oneshot mutex poisoned");
         *guard = Some(value);
         self.inner.ready.notify_one();
     }
@@ -48,12 +48,12 @@ impl<T> OneshotSender<T> {
 
 impl<T> OneshotReceiver<T> {
     fn recv(self) -> T {
-        let mut guard = self.inner.data.lock().unwrap();
+        let mut guard = self.inner.data.lock().expect("oneshot mutex poisoned");
         loop {
             if let Some(val) = guard.take() {
                 return val;
             }
-            guard = self.inner.ready.wait(guard).unwrap();
+            guard = self.inner.ready.wait(guard).expect("oneshot condvar wait failed");
         }
     }
 }
