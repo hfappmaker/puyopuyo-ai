@@ -396,6 +396,17 @@ fn masked_softmax(logits: &[f32], mask: &[bool]) -> Vec<f32> {
         return vec![0.0f32; num_actions]; // No valid actions
     }
 
+    // Detect NaN/Inf in valid logits (indicates NN output corruption)
+    for i in 0..num_actions {
+        if mask[i] {
+            let v = logits.get(i).copied().unwrap_or(0.0);
+            assert!(
+                v.is_finite(),
+                "masked_softmax: logit[{i}] is {v} (NaN or Inf detected)"
+            );
+        }
+    }
+
     let mut result: Vec<f32> = (0..num_actions)
         .map(|i| {
             if mask[i] {
