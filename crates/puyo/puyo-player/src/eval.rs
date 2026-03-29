@@ -2,7 +2,7 @@ use puyo_core::board::{Board, PuyoColor};
 use puyo_core::piece::Piece;
 use puyo_core::state::PuyoState;
 
-use game_ai::eval::Evaluator;
+use az_framework::eval::Evaluator;
 
 use puyo_core::placement::{enumerate_placements, simulate_placement};
 use crate::puyo_game::PuyoGame;

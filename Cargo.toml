@@ -1,10 +1,10 @@
 [workspace]
 members = [
-    "crates/game-ai",
-    "crates/puyo-core",
-    "crates/puyo-nn",
-    "crates/puyo-player",
-    "crates/puyo-trainer",
-    "crates/puyo-wasm",
+    "crates/az-framework",
+    "crates/puyo/puyo-core",
+    "crates/puyo/puyo-nn",
+    "crates/puyo/puyo-player",
+    "crates/puyo/puyo-trainer",
+    "crates/puyo/puyo-wasm",
 ]
 resolver = "2"

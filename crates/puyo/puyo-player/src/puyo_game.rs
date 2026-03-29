@@ -1,4 +1,4 @@
-use game_ai::game::Game;
+use az_framework::game::Game;
 use puyo_core::board::{ChainResult, COLS, ROWS};
 use puyo_core::piece::Placement;
 use puyo_core::state::{

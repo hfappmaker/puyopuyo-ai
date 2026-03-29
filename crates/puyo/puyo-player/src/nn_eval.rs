@@ -8,12 +8,12 @@ use puyo_core::state::{
 };
 use puyo_nn::model::PuyoNet;
 
-use game_ai::eval::Evaluator;
-use game_ai::mcts::{mcts_search, InferenceProvider};
-use game_ai::model::GameModel;
-use game_ai::nn_eval::DirectInference;
-use game_ai::value_transform::value_inverse_transform;
-pub use game_ai::nn_eval::MctsConfig;
+use az_framework::eval::Evaluator;
+use az_framework::mcts::{mcts_search, InferenceProvider};
+use az_framework::model::GameModel;
+use az_framework::nn_eval::DirectInference;
+use az_framework::value_transform::value_inverse_transform;
+pub use az_framework::nn_eval::MctsConfig;
 
 const VALUE_SCALE: f32 = 15.0;
 

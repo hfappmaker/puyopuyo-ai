@@ -21,7 +21,7 @@ gpu = ["burn/cuda-jit", "burn/fusion", "burn/autotune", "puyo-player/cuda"]
 cpu = ["burn/ndarray"]
 
 [dependencies]
-game-ai = { path = "../game-ai" }
+az-framework = { path = "../../az-framework" }
 puyo-core = { path = "../puyo-core" }
 puyo-player = { path = "../puyo-player", features = ["nn"] }
 puyo-nn = { path = "../puyo-nn" }

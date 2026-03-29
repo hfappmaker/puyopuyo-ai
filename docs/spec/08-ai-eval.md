@@ -13,7 +13,7 @@ pub trait Evaluator<G: Game> {
 }
 ```
 
-`Game` トレイト（`game-core` クレート）でターン制ゲームを抽象化し、`Evaluator` はジェネリックパラメータ `G: Game` を取る。主要メソッド `find_best_move()` は `&G::State`（ぷよぷよの場合は `&PuyoState`）を受け取り、最善配置と評価スコアのタプルを返す。探索深度、評価ロジックは各実装が決定する。`set_num_simulations()` は MCTS のシミュレーション数を動的に変更するためのメソッド（デフォルト実装は何もしない）。
+`Game` トレイト（`az-framework` クレート）でターン制ゲームを抽象化し、`Evaluator` はジェネリックパラメータ `G: Game` を取る。主要メソッド `find_best_move()` は `&G::State`（ぷよぷよの場合は `&PuyoState`）を受け取り、最善配置と評価スコアのタプルを返す。探索深度、評価ロジックは各実装が決定する。`set_num_simulations()` は MCTS のシミュレーション数を動的に変更するためのメソッド（デフォルト実装は何もしない）。
 
 | Evaluator | Game実装 | 探索方式 | 評価関数 |
 |-----------|---------|----------|---------|
@@ -23,10 +23,10 @@ pub trait Evaluator<G: Game> {
 
 ## モジュール構成
 
-### game-ai（汎用ゲームAI）
+### az-framework（汎用ゲームAI）
 
 ```
-game-ai/src/
+az-framework/src/
 ├── lib.rs                # 公開モジュール宣言
 ├── eval.rs               # Evaluator<G: Game> トレイト
 ├── model.rs              # [nn] GameModel<B: Backend> トレイト
@@ -39,7 +39,7 @@ game-ai/src/
 
 ```
 puyo-player/src/
-├── lib.rs                # 公開モジュール宣言 + game-ai/puyo-core 再エクスポート
+├── lib.rs                # 公開モジュール宣言 + az-framework/puyo-core 再エクスポート
 ├── eval.rs               # SimulationEvaluator（Evaluator<PuyoGame> 実装）
 ├── puyo_game.rs          # PuyoGame（Game トレイト実装）
 └── nn_eval.rs            # [nn] PuyoGameModel<B> + NnEvaluator（Evaluator<PuyoGame> 実装）

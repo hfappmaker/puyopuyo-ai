@@ -6,9 +6,9 @@ pub mod puyo_game;
 pub use puyo_core::placement;
 
 // Re-export game-ai types for convenience
-pub use game_ai::eval::Evaluator;
+pub use az_framework::eval::Evaluator;
 
 #[cfg(feature = "nn")]
-pub use game_ai::{inference_server, mcts, model::GameModel};
+pub use az_framework::{inference_server, mcts, model::GameModel};
 #[cfg(feature = "nn")]
-pub use game_ai::nn_eval::{DirectInference, MctsConfig};
+pub use az_framework::nn_eval::{DirectInference, MctsConfig};

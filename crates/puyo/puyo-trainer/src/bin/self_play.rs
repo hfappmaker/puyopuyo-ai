@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 
-use game_ai::game::Game;
+use az_framework::game::Game;
 use puyo_core::rand::time_seed;
 use puyo_player::mcts::{mcts_search, InferenceProvider};
 use puyo_player::nn_eval::MctsConfig;

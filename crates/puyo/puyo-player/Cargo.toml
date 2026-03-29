@@ -5,11 +5,11 @@ edition = "2021"
 
 [features]
 default = []
-nn = ["game-ai/nn", "puyo-nn", "burn"]
+nn = ["az-framework/nn", "puyo-nn", "burn"]
 cuda = ["nn", "burn/cuda-jit"]
 
 [dependencies]
-game-ai = { path = "../game-ai" }
+az-framework = { path = "../../az-framework" }
 puyo-core = { path = "../puyo-core" }
 puyo-nn = { path = "../puyo-nn", optional = true }
 burn = { version = "0.16", default-features = false, features = ["ndarray"], optional = true }

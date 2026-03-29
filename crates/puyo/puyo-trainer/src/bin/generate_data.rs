@@ -1,4 +1,4 @@
-use game_ai::game::Game;
+use az_framework::game::Game;
 use puyo_player::eval::SimulationEvaluator;
 use puyo_player::placement::placement_to_index;
 use puyo_player::puyo_game::PuyoGame;

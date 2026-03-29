@@ -26,8 +26,7 @@ Rust でゲームロジックとAIを実装し、WASM 経由でブラウザ上�
 
 | レイヤー | クレート/ディレクトリ | 役割 |
 |----------|---------------------|------|
-| game-core | `crates/game-core/` | ターン制ゲームの汎用抽象化（`Game` トレイト）。ゲーム非依存のAI探索を可能にする |
-| game-ai | `crates/game-ai/` | ゲーム非依存の汎用AIアルゴリズム。`Evaluator<G: Game>` トレイト・`GameModel<B>` トレイト・Gumbel MCTS（`mcts`）・GPU推論サーバー（`inference_server`）・`DirectInference`・`MctsConfig`。`nn` feature で NN 関連モジュールを有効化 |
+| az-framework | `crates/az-framework/` | AlphaZeroフレームワーク。`Game` トレイト（ターン制ゲーム汎用抽象化）・`Evaluator<G>` トレイト・`GameModel<B>` トレイト・Gumbel MCTS・GPU推論サーバー・`DirectInference`・`AlphaZeroDataset`・`value_transform`。`nn` feature で NN 関連モジュールを有効化 |
 | puyo-core | `crates/puyo-core/` | ゲームパラメータ一元管理（`config`）・盤面（`Board`、連鎖解決を含む）・ぷよ組（`Piece`, `FallingPiece`）・スコア（`score`）・ゲーム進行（`GameState`）・乱数（`Rng`）・AI用ゲーム状態（`PuyoState`）・エンコーディング関数 |
 | puyo-player | `crates/puyo-player/` | ぷよぷよ固有AI。盤面評価（`SimulationEvaluator`）・配置列挙（`placement`）・`Game` トレイト実装（`puyo_game`: `PuyoGame`）・NN評価（`NnEvaluator`・`PuyoGameModel`、`nn` feature） |
 | puyo-nn | `crates/puyo-nn/` | CNN Dual Head ネットワーク（`PuyoNet`: Policy + Value）・盤面テンソルエンコーディング（`encoding`、`puyo-core` からの再エクスポートラッパー） |
@@ -38,22 +37,19 @@ Rust でゲームロジックとAIを実装し、WASM 経由でブラウザ上�
 ## 依存関係
 
 ```
-game-core          puyo-core
-    |                  |
-    v                  v
-game-ai            puyo-nn (puyo-core, burn)
+az-framework          puyo-core
     |                  |
     +------+   +------+
            |   |
            v   v
-       puyo-player
+       puyo-player ← puyo-nn (puyo-core, burn)
            |
      +-----+-----+
      |            |
 puyo-wasm    puyo-trainer
 ```
 
-`game-core` の `Game` トレイトがゲーム非依存のAI探索の中心的抽象化として機能する。`game-ai` の `Evaluator<G: Game>`、`MctsTree<G: Game>`、`GameModel<B>` が任意のターン制ゲームに対して汎用的に動作する。`puyo-player` がぷよぷよ固有の `Game` 実装（`PuyoGame`）と評価器（`SimulationEvaluator`, `NnEvaluator`）を提供する。
+`az-framework` の `Game` トレイトがゲーム非依存のAI探索の中心的抽象化として機能する。`az-framework` の `Evaluator<G: Game>`、`MctsTree<G: Game>`、`GameModel<B>` が任意のターン制ゲームに対して汎用的に動作する。`puyo-player` がぷよぷよ固有の `Game` 実装（`PuyoGame`）と評価器（`SimulationEvaluator`, `NnEvaluator`）を提供する。
 
 ## データフロー
 

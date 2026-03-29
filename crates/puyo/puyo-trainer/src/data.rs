@@ -79,7 +79,7 @@ pub struct Sample {
     pub value_target: f32,
 }
 
-pub use game_ai::data::{AlphaZeroDataset, AlphaZeroSample};
+pub use az_framework::data::{AlphaZeroDataset, AlphaZeroSample};
 
 /// Dataset of training samples.
 #[derive(Serialize, Deserialize, Debug)]

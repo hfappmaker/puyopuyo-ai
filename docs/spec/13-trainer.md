@@ -22,9 +22,8 @@ crates/puyo-trainer/
 
 | クレート | 用途 |
 |---------|------|
-| `game-core` | `Game` トレイト（汎用ゲーム抽象化） |
+| `az-framework` | AlphaZeroフレームワーク（Game trait, Evaluator, MCTS, DirectInference, 推論サーバー, AlphaZeroDataset） |
 | `puyo-core` | ゲームロジック、`PuyoState`、エンコーディング関数 |
-| `game-ai` | 汎用AIアルゴリズム（Evaluator, MCTS, DirectInference, 推論サーバー） |
 | `puyo-player` | ぷよぷよ固有AI（SimulationEvaluator, NnEvaluator, PuyoGameModel, PuyoGame） |
 | `puyo-nn` | CNN モデル・エンコーディング |
 | `burn` | NN フレームワーク（ndarray, autodiff, train） |
