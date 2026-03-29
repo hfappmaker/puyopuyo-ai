@@ -183,7 +183,8 @@ fn play_one_game(
             time_seed(),
         );
 
-        let action = select_from_policy(&mcts_policy);
+        let valid_mask = PuyoGame::valid_action_mask(&puyo_state);
+        let action = select_from_policy(&mcts_policy, &valid_mask);
 
         let placement = puyo_player::placement::index_to_placement(action);
         let chain_result = game.apply_placement(&placement);
@@ -456,19 +457,24 @@ fn estimate_value(
     value
 }
 
-/// Select an action by sampling from the MCTS policy.
-fn select_from_policy(policy: &[f32]) -> usize {
+/// Select an action by sampling from the MCTS policy (valid actions only).
+fn select_from_policy(policy: &[f32], valid_mask: &[bool]) -> usize {
     let r = (time_seed() as f64) / (u64::MAX as f64);
     let mut cumulative = 0.0;
     for (i, &p) in policy.iter().enumerate() {
+        if !valid_mask.get(i).copied().unwrap_or(false) {
+            continue;
+        }
         cumulative += p as f64;
         if r < cumulative {
             return i;
         }
     }
+    // Fallback: pick the valid action with the highest policy value
     policy
         .iter()
         .enumerate()
+        .filter(|(i, _)| valid_mask.get(*i).copied().unwrap_or(false))
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
         .map(|(i, _)| i)
         .unwrap_or(0)

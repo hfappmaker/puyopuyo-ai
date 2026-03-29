@@ -42,9 +42,9 @@ const ACCUM_STEPS: usize = 4; // gradient accumulation: effective batch = BATCH_
 // Global step LR schedule (AlphaZero-style 3-stage drop)
 const AZ_LR_STAGES: [(usize, f64); 4] = [
     (0,     0.1),    // step 0〜300k: LR = 0.1
-    (300000, 0.01),   // step 300k〜400k: LR = 0.01
-    (400000, 0.001),  // step 400k〜430k: LR = 0.001
-    (430000, 0.0001), // step 430k〜: LR = 0.0001
+    (5000, 0.01),   // step 300k〜400k: LR = 0.01
+    (6000, 0.001),  // step 400k〜430k: LR = 0.001
+    (7000, 0.0001), // step 430k〜: LR = 0.0001
 ];
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
 const VALUE_LOSS_WEIGHT: f32 = 0.5;
