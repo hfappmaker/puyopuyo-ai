@@ -40,7 +40,7 @@ const AZ_NUM_STEPS: usize = 1000;
 const ACCUM_STEPS: usize = 4; // gradient accumulation: effective batch = BATCH_SIZE * ACCUM_STEPS
 // Global step LR schedule (AlphaZero-style 3-stage drop)
 const AZ_LR_STAGES: [(usize, f64); 4] = [
-    (0,     0.1),    // step 0〜300k: LR = 0.1
+    (0,     0.001),    // step 0〜300k: LR = 0.1
     (300000, 0.01),   // step 300k〜400k: LR = 0.01
     (400000, 0.001),  // step 400k〜430k: LR = 0.001
     (430000, 0.0001), // step 430k〜: LR = 0.0001
@@ -70,16 +70,22 @@ fn cosine_lr(epoch: usize, total_epochs: usize) -> f64 {
             * (1.0 + (std::f64::consts::PI * epoch as f64 / total_epochs as f64).cos())
 }
 
+/// Numerically stable log-softmax without max_dim.
+///
+/// Uses mean shift instead of max shift to avoid Burn's max_dim bug
+/// (gather kernel crash on CUDA Autodiff — see burn#1687).
+/// For small NUM_ACTIONS (=12), mean shift provides sufficient numerical stability.
+fn log_softmax_stable<B: Backend>(logits: Tensor<B, 2>) -> Tensor<B, 2> {
+    let shift = logits.clone().sum_dim(1) / (NUM_ACTIONS as f32);
+    let shifted = logits - shift;
+    let log_sum_exp = shifted.clone().exp().sum_dim(1).log();
+    shifted - log_sum_exp
+}
+
 /// Cross-entropy loss for policy: -sum(target * log_softmax(logits)) / batch_size.
-/// `targets` can be one-hot (u8 index) or soft (f32 distribution).
 fn cross_entropy_loss_hard<B: Backend>(logits: Tensor<B, 2>, targets: &[u8], device: &B::Device) -> Tensor<B, 1> {
     let batch_size = logits.dims()[0];
-    let max_logits = logits.clone().max_dim(1);
-    let shifted = logits - max_logits;
-    let exp = shifted.clone().exp();
-    let sum_exp = exp.sum_dim(1);
-    let log_sum_exp = sum_exp.log();
-    let log_softmax = shifted - log_sum_exp;
+    let log_softmax = log_softmax_stable(logits);
 
     let mut target_one_hot = vec![0.0f32; batch_size * NUM_ACTIONS];
     for (i, &t) in targets.iter().enumerate() {
@@ -93,30 +99,10 @@ fn cross_entropy_loss_hard<B: Backend>(logits: Tensor<B, 2>, targets: &[u8], dev
 }
 
 /// Cross-entropy loss for soft policy targets (MCTS visit distribution).
-/// Invalid actions (target == 0.0) are masked out of the softmax computation
-/// so that no gradient flows through their logits.
+/// target == 0 actions contribute zero to the loss (0 * log_softmax = 0).
 fn cross_entropy_loss_soft<B: Backend>(logits: Tensor<B, 2>, targets_flat: &[f32], device: &B::Device) -> Tensor<B, 1> {
     let batch_size = logits.dims()[0];
-
-    // Build mask: -1e9 for invalid actions (target == 0), 0 for valid
-    let mut mask_data = vec![0.0f32; batch_size * NUM_ACTIONS];
-    for i in 0..batch_size {
-        for a in 0..NUM_ACTIONS {
-            if targets_flat[i * NUM_ACTIONS + a] == 0.0 {
-                mask_data[i * NUM_ACTIONS + a] = -1e9;
-            }
-        }
-    }
-    let mask_tensor = Tensor::<B, 1>::from_floats(mask_data.as_slice(), device)
-        .reshape([batch_size, NUM_ACTIONS]);
-
-    let masked_logits = logits + mask_tensor;
-    let max_logits = masked_logits.clone().max_dim(1);
-    let shifted = masked_logits - max_logits;
-    let exp = shifted.clone().exp();
-    let sum_exp = exp.sum_dim(1);
-    let log_sum_exp = sum_exp.log();
-    let log_softmax = shifted - log_sum_exp;
+    let log_softmax = log_softmax_stable(logits);
 
     let target_tensor = Tensor::<B, 1>::from_floats(targets_flat, device)
         .reshape([batch_size, NUM_ACTIONS]);
