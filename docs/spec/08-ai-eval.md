@@ -21,18 +21,28 @@ pub trait Evaluator<G: Game> {
 | `NnEvaluator`（Policy-only） | `Evaluator<PuyoGame>` | 探索なし、NN 1回推論で直接選択 | Dual Head Network の Policy Head（マスク付き argmax） |
 | `NnEvaluator`（MCTS） | `Evaluator<PuyoGame>` | Gumbel MCTS（Sequential Halving + PUCT） | Dual Head Network の Policy + Value Head |
 
-## モジュール構成（puyo-ai）
+## モジュール構成
+
+### game-ai（汎用ゲームAI）
 
 ```
-puyo-ai/src/
+game-ai/src/
 ├── lib.rs                # 公開モジュール宣言
-├── eval.rs               # Evaluator<G: Game> トレイト + SimulationEvaluator
-├── puyo_game.rs          # PuyoGame（Game トレイト実装）、board_hash、sample_piece
-├── placement.rs          # 配置列挙・シミュレーション・インデックス変換
-├── hash_util.rs          # splitmix64 ハッシュユーティリティ
-├── nn_eval.rs            # [nn] NnEvaluator + MctsConfig + DirectInference
+├── eval.rs               # Evaluator<G: Game> トレイト
+├── model.rs              # [nn] GameModel<B: Backend> トレイト
 ├── mcts.rs               # [nn] Gumbel MCTS 探索（MctsTree<G: Game>, InferenceProvider トレイト）
+├── nn_eval.rs            # [nn] MctsConfig + DirectInference<B, M: GameModel<B>>
 └── inference_server.rs   # [nn] GPU バッチ推論サーバー（InferenceClient）
+```
+
+### puyo-player（ぷよぷよ固有AI）
+
+```
+puyo-player/src/
+├── lib.rs                # 公開モジュール宣言 + game-ai/puyo-core 再エクスポート
+├── eval.rs               # SimulationEvaluator（Evaluator<PuyoGame> 実装）
+├── puyo_game.rs          # PuyoGame（Game トレイト実装）
+└── nn_eval.rs            # [nn] PuyoGameModel<B> + NnEvaluator（Evaluator<PuyoGame> 実装）
 ```
 
 `[nn]` マーク付きモジュールは `#[cfg(feature = "nn")]` で条件コンパイルされる。
@@ -137,12 +147,12 @@ pub trait InferenceProvider {
 
 | 実装 | 説明 |
 |------|------|
-| `DirectInference<B: Backend>` | 単一サンプル推論。NdArray バックエンド（CPU）で使用。`NnEvaluator` 内部で保持 |
+| `DirectInference<B: Backend, M: GameModel<B>>` | 単一サンプル推論。NdArray バックエンド（CPU）で使用。`NnEvaluator` 内部で `PuyoGameModel` と共に保持 |
 | `InferenceClient` | GPU バッチ推論サーバーへのクライアント。`inference_server.rs` で定義。`Clone` 可能で各ゲームスレッドに配布 |
 
 ### GPU バッチ推論サーバー（inference_server.rs）
 
-`start_inference_server<B: Backend>(model, device, max_batch_size) -> InferenceClient`
+`start_inference_server<B: Backend, M: GameModel<B>>(model: M, device, max_batch_size) -> InferenceClient`
 
 - GPU スレッドがモデルを保持し、バッチ forward pass を実行
 - N 個のゲームスレッドが `InferenceClient` 経由でリクエストを送信・ブロック

@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 cargo build                          # Rustビルド（全クレート）
 cargo test --workspace               # 全テスト実行
 cargo test -p puyo-core              # 単一クレートのテスト
-cargo test -p puyo-ai test_name      # 単一テスト実行
+cargo test -p puyo-player test_name   # 単一テスト実行
 bash scripts/build-wasm.sh           # WASMビルド（テスト→WASM→npm install）
 cd web && npm run dev                # フロントエンド開発サーバー
 cd web && npm run build              # フロントエンドプロダクションビルド（tsc + vite build）
@@ -27,24 +27,29 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 | クレート | 役割 |
 |---------|------|
 | `game-core` | ゲーム抽象化（`Game` トレイト: ターン制ゲームの汎用インターフェース） |
-| `puyo-core` | ゲームエンジン（Board（連鎖解決含む）, GameState, Piece, Score, PuyoState, random_piece, エンコーディング関数） |
-| `puyo-ai` | AI探索・評価（Evaluator trait, SimulationEvaluator, NnEvaluator, MCTS, find_best_move, PuyoGame） |
+| `game-ai` | 汎用AIアルゴリズム（Evaluator trait, GameModel trait, MCTS, DirectInference, 推論サーバー）。ゲーム非依存 |
+| `puyo-core` | ゲームエンジン（Board（連鎖解決含む）, GameState, Piece, Score, PuyoState, random_piece, エンコーディング関数, placement（配置列挙・シミュレーション）） |
+| `puyo-player` | ぷよぷよ固有AI（SimulationEvaluator, NnEvaluator, PuyoGameModel, PuyoGame） |
 | `puyo-nn` | CNN Dual Head ネットワーク（PuyoNet: Policy + Value, NNエンコーディング（固定長配列版）） |
 | `puyo-trainer` | 学習パイプライン（3つのバイナリ: generate-data, train, self-play） |
 | `puyo-wasm` | WASMブリッジ（wasm-bindgen, WasmGame struct） |
 
-依存方向: `game-core` ← `puyo-core` ← `puyo-ai` ← `puyo-wasm`、`puyo-core` ← `puyo-nn` ← `puyo-ai`（`nn` feature有効時）、`puyo-core`/`puyo-ai`/`puyo-nn` ← `puyo-trainer`
+依存方向: `game-core` ← `game-ai` ← `puyo-player` ← `puyo-wasm`、`puyo-core` ← `puyo-nn` ← `puyo-player`（`nn` feature有効時）、`puyo-core`/`puyo-player`/`puyo-nn` ← `puyo-trainer`
 
 ## アーキテクチャの要点
 
 ### Evaluator trait（多態性の中心）
-`puyo-ai/src/eval.rs`の`Evaluator<G: Game>`トレイト（`find_best_move(&G::State) -> Option<(Placement, f64)>`）がAIの核。`Game` トレイト（`game-core`）でターン制ゲームを抽象化し、`PuyoGame`（`puyo-ai/src/puyo_game.rs`）がぷよぷよ用の `Game` 実装を提供する。`PuyoState`（`puyo-core/src/state.rs`）はAI用の軽量ゲーム状態（board + 3 pieces）とエンコーディング関数を含む。
-- `SimulationEvaluator`: `Evaluator<PuyoGame>` を実装。仮想ぷよシミュレーションで盤面を評価（2手先読みBFS）
-- `NnEvaluator`（`puyo-ai/src/nn_eval.rs`、`nn` feature flag有効時のみ）: `Evaluator<PuyoGame>` を実装。Dual Head Network（Policy + Value）で評価。MCTSモード（`MctsConfig`付き、PUCT探索）とPolicy-onlyモード（WASM用、1回推論）の2モード
+`game-ai/src/eval.rs`の`Evaluator<G: Game>`トレイト（`find_best_move(&G::State) -> Option<(Placement, f64)>`）がAIの核。`Game` トレイト（`game-core`）でターン制ゲームを抽象化し、`PuyoGame`（`puyo-player/src/puyo_game.rs`）がぷよぷよ用の `Game` 実装を提供する。`PuyoState`（`puyo-core/src/state.rs`）はAI用の軽量ゲーム状態（board + 3 pieces）とエンコーディング関数を含む。
+- `SimulationEvaluator`（`puyo-player/src/eval.rs`）: `Evaluator<PuyoGame>` を実装。仮想ぷよシミュレーションで盤面を評価（2手先読みBFS）
+- `NnEvaluator`（`puyo-player/src/nn_eval.rs`、`nn` feature flag有効時のみ）: `Evaluator<PuyoGame>` を実装。Dual Head Network（Policy + Value）で評価。MCTSモード（`MctsConfig`付き、PUCT探索）とPolicy-onlyモード（WASM用、1回推論）の2モード
+
+### GameModel trait（NN抽象化）
+`game-ai/src/model.rs`の`GameModel<B: Backend>`トレイトがNNモデルを抽象化。`board_shape()`、`context_size()`、`num_actions()`、`forward()`、`postprocess_value()`を定義し、`DirectInference`と`inference_server`がゲーム非依存で動作する。`PuyoGameModel`（`puyo-player/src/nn_eval.rs`）が`PuyoNet`をラップして実装。
 
 ### Feature flags
-- `puyo-ai`の`nn`フィーチャーフラグでNN依存を制御。`puyo-wasm`は`nn`を有効にしてビルド。`nn`無しでは`nn_eval`、`mcts`、`inference_server`モジュールと`burn`依存がコンパイルから除外される。
-- `puyo-ai`の`cuda`フィーチャーフラグ（`nn` + `burn/cuda-jit`）でGPU推論を有効化。
+- `game-ai`の`nn`フィーチャーフラグでNN関連モジュール（`model`, `mcts`, `nn_eval`, `inference_server`）と`burn`依存を制御。
+- `puyo-player`の`nn`フィーチャーフラグで`game-ai/nn` + `puyo-nn` + `burn`を有効化。`puyo-wasm`は`nn`を有効にしてビルド。
+- `puyo-player`の`cuda`フィーチャーフラグ（`nn` + `burn/cuda-jit`）でGPU推論を有効化。
 - `puyo-trainer`の`gpu`（デフォルト）/`cpu`フィーチャーフラグでバックエンドを切り替え。`gpu`は`burn/cuda-jit`+`burn/fusion`+`burn/autotune`を有効にする。
 
 詳細は仕様書を参照: NN → `docs/spec/12-nn.md`、WASM → `docs/spec/10-wasm-bridge.md`、学習 → `docs/spec/13-trainer.md`、フロントエンド → `docs/spec/11-frontend.md`
@@ -66,8 +71,9 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 | `crates/puyo-core/src/game.rs` | `docs/spec/06-game.md`, `docs/spec/01-architecture.md` |
 | `crates/puyo-core/src/rand.rs` | `docs/spec/07-rng.md`, `docs/spec/01-architecture.md` |
 | `crates/puyo-core/src/state.rs` | `docs/spec/08-ai-eval.md`, `docs/spec/12-nn.md` |
-| `crates/puyo-ai/src/eval.rs`, `crates/puyo-ai/src/nn_eval.rs`, `crates/puyo-ai/src/puyo_game.rs` | `docs/spec/08-ai-eval.md` |
-| `crates/puyo-ai/src/placement.rs`, `crates/puyo-ai/src/mcts.rs`, `crates/puyo-ai/src/inference_server.rs` | `docs/spec/09-ai-search.md` |
+| `crates/game-ai/src/eval.rs`, `crates/game-ai/src/model.rs`, `crates/game-ai/src/nn_eval.rs`, `crates/game-ai/src/inference_server.rs` | `docs/spec/08-ai-eval.md` |
+| `crates/puyo-player/src/eval.rs`, `crates/puyo-player/src/nn_eval.rs`, `crates/puyo-player/src/puyo_game.rs` | `docs/spec/08-ai-eval.md` |
+| `crates/puyo-core/src/placement.rs`, `crates/game-ai/src/mcts.rs` | `docs/spec/09-ai-search.md` |
 | `crates/game-core/src/lib.rs` | `docs/spec/01-architecture.md` |
 | `crates/puyo-wasm/src/lib.rs` | `docs/spec/10-wasm-bridge.md` |
 | `web/src/*.ts` | `docs/spec/11-frontend.md` |

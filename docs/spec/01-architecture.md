@@ -27,8 +27,9 @@ Rust でゲームロジックとAIを実装し、WASM 経由でブラウザ上�
 | レイヤー | クレート/ディレクトリ | 役割 |
 |----------|---------------------|------|
 | game-core | `crates/game-core/` | ターン制ゲームの汎用抽象化（`Game` トレイト）。ゲーム非依存のAI探索を可能にする |
+| game-ai | `crates/game-ai/` | ゲーム非依存の汎用AIアルゴリズム。`Evaluator<G: Game>` トレイト・`GameModel<B>` トレイト・Gumbel MCTS（`mcts`）・GPU推論サーバー（`inference_server`）・`DirectInference`・`MctsConfig`。`nn` feature で NN 関連モジュールを有効化 |
 | puyo-core | `crates/puyo-core/` | ゲームパラメータ一元管理（`config`）・盤面（`Board`、連鎖解決を含む）・ぷよ組（`Piece`, `FallingPiece`）・スコア（`score`）・ゲーム進行（`GameState`）・乱数（`Rng`）・AI用ゲーム状態（`PuyoState`）・エンコーディング関数 |
-| puyo-ai | `crates/puyo-ai/` | 盤面評価（`eval`）・配置列挙（`placement`）・ハッシュユーティリティ（`hash_util`）・`Game` トレイト実装（`puyo_game`: `PuyoGame`）・NN評価（`nn_eval`、`nn` feature）・MCTS探索（`mcts`、`nn` feature）・GPU推論サーバー（`inference_server`、`nn` feature） |
+| puyo-player | `crates/puyo-player/` | ぷよぷよ固有AI。盤面評価（`SimulationEvaluator`）・配置列挙（`placement`）・`Game` トレイト実装（`puyo_game`: `PuyoGame`）・NN評価（`NnEvaluator`・`PuyoGameModel`、`nn` feature） |
 | puyo-nn | `crates/puyo-nn/` | CNN Dual Head ネットワーク（`PuyoNet`: Policy + Value）・盤面テンソルエンコーディング（`encoding`、`puyo-core` からの再エクスポートラッパー） |
 | puyo-trainer | `crates/puyo-trainer/` | 訓練データ生成（`generate-data`）・教師あり学習（`train`）・自己対戦強化学習（`self-play`） |
 | puyo-wasm | `crates/puyo-wasm/` | `wasm-bindgen` による Rust ↔ JS ブリッジ（`WasmGame`） |
@@ -37,28 +38,22 @@ Rust でゲームロジックとAIを実装し、WASM 経由でブラウザ上�
 ## 依存関係
 
 ```
-web (TypeScript)
-  └── puyo-wasm (wasm-bindgen)
-        ├── puyo-ai
-        │     ├── puyo-core
-        │     │     └── game-core
-        │     └── game-core
-        └── puyo-core
-              └── game-core
-
-puyo-trainer (バイナリ)
-  ├── puyo-nn
-  │     └── puyo-core
-  │           └── game-core
-  ├── puyo-ai
-  │     ├── puyo-core
-  │     │     └── game-core
-  │     └── game-core
-  └── puyo-core
-        └── game-core
+game-core          puyo-core
+    |                  |
+    v                  v
+game-ai            puyo-nn (puyo-core, burn)
+    |                  |
+    +------+   +------+
+           |   |
+           v   v
+       puyo-player
+           |
+     +-----+-----+
+     |            |
+puyo-wasm    puyo-trainer
 ```
 
-`game-core` の `Game` トレイトがゲーム非依存のAI探索の中心的抽象化として機能し、`puyo-ai` の `Evaluator<G: Game>` や `MctsTree<G: Game>` が任意のターン制ゲームに対して汎用的に動作する。
+`game-core` の `Game` トレイトがゲーム非依存のAI探索の中心的抽象化として機能する。`game-ai` の `Evaluator<G: Game>`、`MctsTree<G: Game>`、`GameModel<B>` が任意のターン制ゲームに対して汎用的に動作する。`puyo-player` がぷよぷよ固有の `Game` 実装（`PuyoGame`）と評価器（`SimulationEvaluator`, `NnEvaluator`）を提供する。
 
 ## データフロー
 

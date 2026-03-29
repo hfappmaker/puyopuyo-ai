@@ -4,10 +4,11 @@ use burn::backend::ndarray::NdArray;
 use burn::prelude::*;
 use burn::record::{BinBytesRecorder, FullPrecisionSettings, Recorder};
 
-use puyo_ai::eval::{Evaluator, SimulationEvaluator};
-use puyo_ai::nn_eval::{MctsConfig, NnEvaluator};
-use puyo_ai::placement::enumerate_placements;
-use puyo_ai::puyo_game::PuyoGame;
+use puyo_player::eval::SimulationEvaluator;
+use puyo_player::nn_eval::{MctsConfig, NnEvaluator};
+use puyo_player::placement::enumerate_placements;
+use puyo_player::puyo_game::PuyoGame;
+use puyo_player::Evaluator;
 use puyo_core::game::{GamePhase, GameState};
 use puyo_core::state::PuyoState;
 use puyo_nn::model::{PuyoNet, PuyoNetConfig};

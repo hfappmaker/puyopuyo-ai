@@ -1,7 +1,8 @@
-use game_core::Game;
-use puyo_ai::eval::{Evaluator, SimulationEvaluator};
-use puyo_ai::placement::placement_to_index;
-use puyo_ai::puyo_game::PuyoGame;
+use game_ai::game::Game;
+use puyo_player::eval::SimulationEvaluator;
+use puyo_player::placement::placement_to_index;
+use puyo_player::puyo_game::PuyoGame;
+use puyo_player::Evaluator;
 use puyo_core::game::{GamePhase, GameState};
 use puyo_core::state::PuyoState;
 use puyo_trainer::data::{Dataset, Sample};

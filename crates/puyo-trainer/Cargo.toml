@@ -17,13 +17,13 @@ path = "src/bin/self_play.rs"
 
 [features]
 default = ["gpu"]
-gpu = ["burn/cuda-jit", "burn/fusion", "burn/autotune", "puyo-ai/cuda"]
+gpu = ["burn/cuda-jit", "burn/fusion", "burn/autotune", "puyo-player/cuda"]
 cpu = ["burn/ndarray"]
 
 [dependencies]
-game-core = { path = "../game-core" }
+game-ai = { path = "../game-ai" }
 puyo-core = { path = "../puyo-core" }
-puyo-ai = { path = "../puyo-ai", features = ["nn"] }
+puyo-player = { path = "../puyo-player", features = ["nn"] }
 puyo-nn = { path = "../puyo-nn" }
 burn = { version = "0.16", features = ["autodiff", "train"] }
 rand = "0.8"

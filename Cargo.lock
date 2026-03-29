@@ -1695,8 +1695,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "game-core"
+name = "game-ai"
 version = "0.1.0"
+dependencies = [
+ "bincode 1.3.3",
+ "burn",
+ "serde",
+]
 
 [[package]]
 name = "gemm"
@@ -3251,20 +3256,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "puyo-ai"
-version = "0.1.0"
-dependencies = [
- "burn",
- "game-core",
- "puyo-core",
- "puyo-nn",
-]
-
-[[package]]
 name = "puyo-core"
 version = "0.1.0"
 dependencies = [
- "game-core",
  "js-sys",
 ]
 
@@ -3277,15 +3271,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "puyo-player"
+version = "0.1.0"
+dependencies = [
+ "burn",
+ "game-ai",
+ "puyo-core",
+ "puyo-nn",
+]
+
+[[package]]
 name = "puyo-trainer"
 version = "0.1.0"
 dependencies = [
  "bincode 1.3.3",
  "burn",
- "game-core",
- "puyo-ai",
+ "game-ai",
  "puyo-core",
  "puyo-nn",
+ "puyo-player",
  "rand 0.8.5",
  "serde",
 ]
@@ -3295,9 +3299,9 @@ name = "puyo-wasm"
 version = "0.1.0"
 dependencies = [
  "burn",
- "puyo-ai",
  "puyo-core",
  "puyo-nn",
+ "puyo-player",
  "wasm-bindgen",
 ]
 

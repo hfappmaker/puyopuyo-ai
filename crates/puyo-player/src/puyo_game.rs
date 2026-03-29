@@ -1,11 +1,11 @@
-use game_core::Game;
+use game_ai::game::Game;
 use puyo_core::board::{ChainResult, COLS, ROWS};
 use puyo_core::piece::Placement;
 use puyo_core::state::{
     board_to_tensor_data, context_to_tensor_data, PuyoState, CONTEXT_TENSOR_SIZE, NUM_CHANNELS,
 };
 
-use crate::placement::{
+use puyo_core::placement::{
     compute_valid_mask, enumerate_placements, index_to_placement, placement_to_index,
     simulate_placement, NUM_ACTIONS,
 };

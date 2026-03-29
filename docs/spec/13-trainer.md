@@ -24,7 +24,8 @@ crates/puyo-trainer/
 |---------|------|
 | `game-core` | `Game` トレイト（汎用ゲーム抽象化） |
 | `puyo-core` | ゲームロジック、`PuyoState`、エンコーディング関数 |
-| `puyo-ai` | シミュレーション評価・探索、`PuyoGame`（`Game` 実装） |
+| `game-ai` | 汎用AIアルゴリズム（Evaluator, MCTS, DirectInference, 推論サーバー） |
+| `puyo-player` | ぷよぷよ固有AI（SimulationEvaluator, NnEvaluator, PuyoGameModel, PuyoGame） |
 | `puyo-nn` | CNN モデル・エンコーディング |
 | `burn` | NN フレームワーク（ndarray, autodiff, train） |
 | `serde` / `bincode` | データのシリアライズ |

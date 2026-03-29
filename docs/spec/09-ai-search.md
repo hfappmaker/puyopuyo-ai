@@ -107,7 +107,7 @@ Gumbel AlphaZero（Danihelka et al. 2022）に基づくモンテカルロ木探�
 
 ### ランダムツモの扱い
 
-3手先以降のツモが不明な場合、決定論的なハッシュ関数（`sample_piece`）でランダムツモを生成する。ノードID、アクションID、および配置後の盤面のFNV-1aハッシュ（`board_hash`）をシードとして使用するため、同じ盤面状態・同じアクションでは常に同じツモが生成される。`board_hash` と `sample_piece` は `puyo-ai/src/puyo_game.rs` に定義されている（`PuyoGame` の `Game` トレイト実装の一部）。
+3手先以降のツモが不明な場合、決定論的なハッシュ関数（`sample_piece`）でランダムツモを生成する。ノードID、アクションID、および配置後の盤面のFNV-1aハッシュ（`board_hash`）をシードとして使用するため、同じ盤面状態・同じアクションでは常に同じツモが生成される。`board_hash` と `sample_piece` は `puyo-player/src/puyo_game.rs` に定義されている（`PuyoGame` の `Game` トレイト実装の一部）。
 
 ### Min-Max Value Normalization（MuZero Reanalyze方式）
 
@@ -192,7 +192,7 @@ pub fn mcts_search<G: Game>(
 - `c_visit`: advantageのスケーリング係数（デフォルト5.0）
 - `gamma`: 将来報酬の割引率（デフォルト0.95）
 
-## 共通ユーティリティ（placement.rs）
+## 共通ユーティリティ（puyo-core/src/placement.rs）
 
 - `simulate_placement(board, piece, placement) -> (Board, ChainResult)`: 配置シミュレーション。一時的な `GameState` でピースを設置し連鎖解決。結果の盤面と `ChainResult` を返す。元の盤面は変更されない
 - `enumerate_placements(board, piece) -> Vec<Placement>`: 盤面上の全合法配置を列挙する
@@ -209,6 +209,6 @@ pub fn mcts_search<G: Game>(
 
 ### puyo_game.rs 内のハッシュ関数
 
-- `board_hash(board: &Board) -> u64`: 盤面の FNV-1a ハッシュ。MCTS のランダムツモ生成シードおよび `NnEvaluator` の Gumbel シードとして使用。`puyo-ai/src/puyo_game.rs` に定義（`mcts.rs` から移動）
+- `board_hash(board: &Board) -> u64`: 盤面の FNV-1a ハッシュ。MCTS のランダムツモ生成シードおよび `NnEvaluator` の Gumbel シードとして使用。`puyo-player/src/puyo_game.rs` に定義（`mcts.rs` から移動）
 
 2手目以降の探索は各 Evaluator が `find_best_move` 内にインラインで実装する（共通の再帰関数は使用しない）。

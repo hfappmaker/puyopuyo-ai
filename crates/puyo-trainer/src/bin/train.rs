@@ -15,7 +15,7 @@ use puyo_core::board::{COLS, ROWS};
 use puyo_core::config::NUM_ACTIONS;
 use puyo_core::state::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS, TENSOR_SIZE};
 use puyo_nn::model::PuyoNetConfig;
-use puyo_nn::value_transform::value_transform;
+use game_ai::value_transform::value_transform;
 use puyo_core::rand::time_seed;
 use puyo_trainer::data::{AlphaZeroDataset, Dataset};
 
@@ -47,6 +47,7 @@ const AZ_LR_STAGES: [(usize, f64); 4] = [
 ];
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
 const VALUE_LOSS_WEIGHT: f32 = 0.5;
+const VALUE_SCALE: f32 = 15.0;
 
 /// MSE loss between predicted value and transformed targets.
 fn value_mse_loss<B: Backend>(
@@ -55,7 +56,7 @@ fn value_mse_loss<B: Backend>(
     device: &B::Device,
 ) -> Tensor<B, 1> {
     let batch_size = value.dims()[0];
-    let transformed: Vec<f32> = targets.iter().map(|&v| value_transform(v)).collect();
+    let transformed: Vec<f32> = targets.iter().map(|&v| value_transform(v, VALUE_SCALE)).collect();
     let target_tensor = Tensor::<B, 1>::from_floats(transformed.as_slice(), device)
         .reshape([batch_size, 1]);
     let diff = value - target_tensor;

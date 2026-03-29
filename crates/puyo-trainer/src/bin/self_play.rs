@@ -11,11 +11,11 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 
-use game_core::Game;
+use game_ai::game::Game;
 use puyo_core::rand::time_seed;
-use puyo_ai::mcts::{mcts_search, InferenceProvider};
-use puyo_ai::nn_eval::MctsConfig;
-use puyo_ai::puyo_game::PuyoGame;
+use puyo_player::mcts::{mcts_search, InferenceProvider};
+use puyo_player::nn_eval::MctsConfig;
+use puyo_player::puyo_game::PuyoGame;
 use puyo_core::game::{GamePhase, GameState};
 use puyo_core::state::PuyoState;
 use puyo_nn::model::{PuyoNet, PuyoNetConfig};
@@ -24,12 +24,14 @@ use puyo_trainer::data::{AlphaZeroDataset, AlphaZeroSample};
 #[cfg(not(feature = "gpu"))]
 use burn::backend::ndarray::NdArray;
 #[cfg(not(feature = "gpu"))]
-use puyo_ai::nn_eval::DirectInference;
+use puyo_player::DirectInference;
+
+use puyo_player::nn_eval::PuyoGameModel;
 
 #[cfg(feature = "gpu")]
 use burn::backend::CudaJit;
 #[cfg(feature = "gpu")]
-use puyo_ai::inference_server;
+use puyo_player::inference_server;
 
 const MODEL_PATH: &str = "artifacts/puyo_model";
 const DEFAULT_OUTPUT_PATH: &str = "data/alphazero_data.bin";
@@ -183,7 +185,7 @@ fn play_one_game(
 
         let action = select_from_policy(&mcts_policy);
 
-        let placement = puyo_ai::placement::index_to_placement(action);
+        let placement = puyo_player::placement::index_to_placement(action);
         let chain_result = game.apply_placement(&placement);
 
         move_records.push(MoveRecord {
@@ -295,7 +297,7 @@ fn main_cpu(args: Args) {
 
     // CPU: clone model per thread (NdArray model is not Sync)
     run_games_parallel(&args, num_threads, |thread_idx| {
-        let thread_provider = DirectInference::new(model.clone(), device);
+        let thread_provider = DirectInference::new(PuyoGameModel::new(model.clone()), device);
         (thread_provider, thread_idx)
     });
 }
@@ -315,7 +317,7 @@ fn main_gpu(args: Args) {
         num_threads, batch_size,
     );
 
-    let client = inference_server::start_inference_server(model, device, batch_size);
+    let client = inference_server::start_inference_server(PuyoGameModel::new(model), device, batch_size);
 
     // GPU: clone client per thread (InferenceClient is Send+Clone)
     run_games_parallel(&args, num_threads, |_| {

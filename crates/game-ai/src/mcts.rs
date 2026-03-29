@@ -1,4 +1,4 @@
-use game_core::Game;
+use crate::game::Game;
 
 use crate::nn_eval::MctsConfig;
 
@@ -683,26 +683,5 @@ mod tests {
         // Action 1 has highest Q, should have highest improved probability
         assert!(policy[1] > policy[0]);
         assert!(policy[1] > policy[2]);
-    }
-
-    // Game-specific tests (PuyoGame) are in puyo_game module
-    #[test]
-    fn test_mcts_tree_creation() {
-        use puyo_core::board::{Board, PuyoColor};
-        use puyo_core::piece::Piece;
-        use puyo_core::state::PuyoState;
-        use crate::puyo_game::PuyoGame;
-
-        let state = PuyoState {
-            board: Board::new(),
-            current: Piece::new(PuyoColor::Red, PuyoColor::Blue),
-            next: Piece::new(PuyoColor::Green, PuyoColor::Blue),
-            next_next: Piece::new(PuyoColor::Blue, PuyoColor::Red),
-        };
-
-        let tree = MctsTree::<PuyoGame>::new(&state, 0.95);
-        assert_eq!(tree.nodes.len(), 1);
-        assert!(!tree.nodes[0].expanded);
-        assert!(!tree.nodes[0].terminal);
     }
 }

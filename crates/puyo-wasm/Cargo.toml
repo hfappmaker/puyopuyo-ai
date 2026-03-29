@@ -8,7 +8,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 puyo-core = { path = "../puyo-core" }
-puyo-ai = { path = "../puyo-ai", features = ["nn"] }
+puyo-player = { path = "../puyo-player", features = ["nn"] }
 puyo-nn = { path = "../puyo-nn" }
 burn = { version = "0.16", default-features = false, features = ["ndarray"] }
 wasm-bindgen = "0.2"

@@ -7,96 +7,66 @@ use puyo_core::state::{
     board_to_tensor_data, context_to_tensor_data, PuyoState, CONTEXT_TENSOR_SIZE, NUM_CHANNELS,
 };
 use puyo_nn::model::PuyoNet;
-use puyo_nn::value_transform::value_inverse_transform;
 
-use crate::eval::Evaluator;
-use crate::mcts::{mcts_search, InferenceProvider};
-use crate::placement::{compute_valid_mask, index_to_placement, NUM_ACTIONS};
+use game_ai::eval::Evaluator;
+use game_ai::mcts::{mcts_search, InferenceProvider};
+use game_ai::model::GameModel;
+use game_ai::nn_eval::DirectInference;
+use game_ai::value_transform::value_inverse_transform;
+pub use game_ai::nn_eval::MctsConfig;
+
+const VALUE_SCALE: f32 = 15.0;
+
+use puyo_core::placement::{compute_valid_mask, index_to_placement, NUM_ACTIONS};
 use crate::puyo_game::PuyoGame;
 
 type InferBackend = NdArray;
 
-/// MCTS configuration (Gumbel AlphaZero).
-pub struct MctsConfig {
-    pub num_simulations: usize,
-    /// Initial exploration constant for dynamic PUCT.
-    /// c(s) = log((1 + N(s) + c_puct_base) / c_puct_base) + c_puct_init
-    pub c_puct_init: f32,
-    /// Base constant for dynamic PUCT (larger = more stable, less variation).
-    pub c_puct_base: f32,
-    /// Number of initial actions to sample via Gumbel-Top-k.
-    pub m: usize,
-    /// Q-value scaling for advantage computation.
-    pub c_visit: f32,
-    /// Discount factor for future rewards.
-    pub gamma: f32,
+/// GameModel implementation wrapping PuyoNet for use with generic game-ai infrastructure.
+pub struct PuyoGameModel<B: Backend> {
+    pub net: PuyoNet<B>,
 }
 
-impl Default for MctsConfig {
-    fn default() -> Self {
-        Self {
-            num_simulations: 64,
-            c_puct_init: 1.5,
-            c_puct_base: 19652.0,
-            m: 16,
-            c_visit: 5.0,
-            gamma: 0.95,
-        }
+impl<B: Backend> PuyoGameModel<B> {
+    pub fn new(net: PuyoNet<B>) -> Self {
+        Self { net }
     }
 }
 
-/// Direct (single-sample) inference using a burn backend.
-/// Used for CPU inference (NdArray) in WASM and single-threaded scenarios.
-pub struct DirectInference<B: Backend> {
-    model: PuyoNet<B>,
-    device: B::Device,
-}
-
-impl<B: Backend> DirectInference<B> {
-    pub fn new(model: PuyoNet<B>, device: B::Device) -> Self {
-        Self { model, device }
-    }
-
-    pub fn model(&self) -> &PuyoNet<B> {
-        &self.model
-    }
-
-    pub fn device(&self) -> &B::Device {
-        &self.device
-    }
-}
-
-impl<B: Backend> Clone for DirectInference<B> {
+impl<B: Backend> Clone for PuyoGameModel<B> {
     fn clone(&self) -> Self {
         Self {
-            model: self.model.clone(),
-            device: self.device.clone(),
+            net: self.net.clone(),
         }
     }
 }
 
-impl<B: Backend> InferenceProvider for DirectInference<B> {
-    fn infer(&self, board_data: &[f32], context_data: &[f32]) -> (Vec<f32>, f32) {
-        let board_tensor = Tensor::<B, 1>::from_floats(board_data, &self.device)
-            .reshape([1, NUM_CHANNELS, ROWS, COLS]);
-        let context_tensor = Tensor::<B, 1>::from_floats(context_data, &self.device)
-            .reshape([1, CONTEXT_TENSOR_SIZE]);
+impl<B: Backend> GameModel<B> for PuyoGameModel<B> {
+    fn board_shape(&self) -> (usize, usize, usize) {
+        (NUM_CHANNELS, ROWS, COLS)
+    }
 
-        let (logits, value) = self.model.forward(board_tensor, context_tensor);
+    fn context_size(&self) -> usize {
+        CONTEXT_TENSOR_SIZE
+    }
 
-        let logits_vec = logits.into_data().to_vec::<f32>().expect("Failed to extract logits tensor");
-        let value_scalar = value.into_data().to_vec::<f32>().expect("Failed to extract value tensor");
-        let v_raw = if value_scalar.is_empty() { 0.0 } else { value_scalar[0] };
-        let v = value_inverse_transform(v_raw);
+    fn num_actions(&self) -> usize {
+        NUM_ACTIONS
+    }
 
-        (logits_vec, v)
+    fn forward(&self, board: Tensor<B, 4>, context: Tensor<B, 2>) -> (Tensor<B, 2>, Tensor<B, 2>) {
+        self.net.forward(board, context)
+    }
+
+    fn postprocess_value(&self, raw: f32) -> f32 {
+        value_inverse_transform(raw, VALUE_SCALE)
     }
 }
 
 /// Neural network evaluator using the dual-head PuyoNet.
 /// Supports two modes: Policy-only (fast, for WASM) and MCTS (for training).
 pub struct NnEvaluator {
-    provider: DirectInference<InferBackend>,
+    provider: DirectInference<InferBackend, PuyoGameModel<InferBackend>>,
     mcts_config: Option<MctsConfig>,
 }
 
@@ -106,7 +76,7 @@ impl NnEvaluator {
         device: <InferBackend as Backend>::Device,
     ) -> Self {
         Self {
-            provider: DirectInference::new(model, device),
+            provider: DirectInference::new(PuyoGameModel::new(model), device),
             mcts_config: None,
         }
     }
@@ -119,7 +89,7 @@ impl NnEvaluator {
 
     /// Get access to the model (for MCTS in self-play).
     pub fn model(&self) -> &PuyoNet<InferBackend> {
-        self.provider.model()
+        &self.provider.model().net
     }
 
     pub fn device(&self) -> &<InferBackend as Backend>::Device {

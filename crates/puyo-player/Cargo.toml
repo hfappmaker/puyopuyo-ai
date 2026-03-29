@@ -1,15 +1,15 @@
 [package]
-name = "puyo-ai"
+name = "puyo-player"
 version = "0.1.0"
 edition = "2021"
 
 [features]
 default = []
-nn = ["puyo-nn", "burn"]
+nn = ["game-ai/nn", "puyo-nn", "burn"]
 cuda = ["nn", "burn/cuda-jit"]
 
 [dependencies]
-game-core = { path = "../game-core" }
+game-ai = { path = "../game-ai" }
 puyo-core = { path = "../puyo-core" }
 puyo-nn = { path = "../puyo-nn", optional = true }
 burn = { version = "0.16", default-features = false, features = ["ndarray"], optional = true }

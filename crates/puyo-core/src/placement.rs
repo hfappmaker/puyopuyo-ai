@@ -1,5 +1,5 @@
-use puyo_core::board::{Board, ChainResult, COLS, ROWS, SPAWN_COL};
-use puyo_core::piece::{Orientation, Piece, Placement};
+use crate::board::{Board, ChainResult, COLS, ROWS, SPAWN_COL};
+use crate::piece::{Orientation, Piece, Placement};
 
 /// Place a piece directly onto a board (no GameState overhead).
 fn place_piece_on_board(board: &mut Board, piece: &Piece, placement: &Placement) {
@@ -130,7 +130,7 @@ pub fn enumerate_placements(board: &Board, piece: &Piece) -> Vec<Placement> {
     placements
 }
 
-pub use puyo_core::config::NUM_ACTIONS;
+pub use crate::config::NUM_ACTIONS;
 
 /// Convert a Placement to a flat index: col * 4 + orientation.as_u8().
 pub fn placement_to_index(p: &Placement) -> usize {
@@ -181,7 +181,7 @@ fn normalize_placement(p: &Placement) -> (usize, usize, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use puyo_core::board::{PuyoColor, VISIBLE_ROWS};
+    use crate::board::{PuyoColor, VISIBLE_ROWS};
 
     #[test]
     fn test_empty_board_placements() {

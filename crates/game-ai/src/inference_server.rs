@@ -9,12 +9,9 @@ use std::sync::mpsc;
 use std::sync::{Condvar, Mutex};
 
 use burn::prelude::*;
-use puyo_core::state::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
-use puyo_nn::model::PuyoNet;
-use puyo_nn::value_transform::value_inverse_transform;
 
 use crate::mcts::InferenceProvider;
-use crate::placement::NUM_ACTIONS;
+use crate::model::GameModel;
 
 /// A one-shot channel for sending a single response back to a requester.
 struct OneshotSender<T> {
@@ -104,8 +101,8 @@ impl InferenceProvider for InferenceClient {
 ///
 /// Returns an `InferenceClient` that can be cloned and distributed to game threads.
 /// The server thread runs until all clients (senders) are dropped.
-pub fn start_inference_server<B: Backend + 'static>(
-    model: PuyoNet<B>,
+pub fn start_inference_server<B: Backend + 'static, M: GameModel<B>>(
+    model: M,
     device: B::Device,
     max_batch_size: usize,
 ) -> InferenceClient
@@ -121,14 +118,15 @@ where
     InferenceClient { request_tx }
 }
 
-fn inference_server_loop<B: Backend>(
-    model: &PuyoNet<B>,
+fn inference_server_loop<B: Backend, M: GameModel<B>>(
+    model: &M,
     device: &B::Device,
     request_rx: &mpsc::Receiver<InferenceRequest>,
     max_batch_size: usize,
 ) {
-    let rows = puyo_core::board::ROWS;
-    let cols = puyo_core::board::COLS;
+    let (channels, rows, cols) = model.board_shape();
+    let context_size = model.context_size();
+    let num_actions = model.num_actions();
 
     loop {
         // Block until at least one request arrives
@@ -153,9 +151,9 @@ fn inference_server_loop<B: Backend>(
         let context_flat: Vec<f32> = batch.iter().flat_map(|r| r.context_data.iter().copied()).collect();
 
         let board_tensor = Tensor::<B, 1>::from_floats(board_flat.as_slice(), device)
-            .reshape([batch_size, NUM_CHANNELS, rows, cols]);
+            .reshape([batch_size, channels, rows, cols]);
         let context_tensor = Tensor::<B, 1>::from_floats(context_flat.as_slice(), device)
-            .reshape([batch_size, CONTEXT_TENSOR_SIZE]);
+            .reshape([batch_size, context_size]);
 
         // Batched forward pass
         let (logits_batch, value_batch) = model.forward(board_tensor, context_tensor);
@@ -166,11 +164,11 @@ fn inference_server_loop<B: Backend>(
 
         // Distribute results back to requesters
         for (i, request) in batch.into_iter().enumerate() {
-            let start = i * NUM_ACTIONS;
-            let end = start + NUM_ACTIONS;
+            let start = i * num_actions;
+            let end = start + num_actions;
             let logits = logits_data[start..end].to_vec();
             let v_raw = if i < value_data.len() { value_data[i] } else { 0.0 };
-            let value = value_inverse_transform(v_raw);
+            let value = model.postprocess_value(v_raw);
 
             request.response_tx.send(InferenceResponse { logits, value });
         }
