@@ -50,17 +50,15 @@ while true; do
     fi
 
     log "--- Iteration $ITERATION (sims=$SIMS, global_step=$GLOBAL_STEP) ---"
-    SEED_OFFSET=$((ITERATION * GAMES))
 
     OUTPUT_FILE="data/alphazero_iter_${ITERATION}.bin"
 
     # 1. Self-play (Gumbel MCTS)
-    log "Self-play start (seed_offset=$SEED_OFFSET, m=$M, c_visit=$C_VISIT)"
+    log "Self-play start (m=$M, c_visit=$C_VISIT)"
     cargo run --release -p puyo-trainer --bin self-play -- \
         --games "$GAMES" \
         --simulations "$SIMS" \
-        --c-puct "$C_PUCT" \
-        --seed-offset "$SEED_OFFSET" \
+        --c-puct-init "$C_PUCT" \
         --m "$M" \
         --c-visit "$C_VISIT" \
         --gamma "$GAMMA" \
