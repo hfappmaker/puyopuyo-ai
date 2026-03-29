@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use puyo_core::board::{COLS, NUM_COLORS, ROWS};
-use puyo_nn::encoding::PIECE_TENSOR_SIZE;
+use puyo_core::state::PIECE_TENSOR_SIZE;
 
 // ─── Color Permutation Data Augmentation ───
 
@@ -170,7 +170,7 @@ impl Dataset {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use puyo_nn::encoding::TENSOR_SIZE;
+    use puyo_core::state::TENSOR_SIZE;
 
     fn factorial(n: usize) -> usize {
         (1..=n).product()

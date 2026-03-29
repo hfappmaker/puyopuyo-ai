@@ -13,7 +13,7 @@ use burn::tensor::backend::AutodiffBackend;
 
 use puyo_core::board::{COLS, ROWS};
 use puyo_core::config::NUM_ACTIONS;
-use puyo_nn::encoding::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS, TENSOR_SIZE};
+use puyo_core::state::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS, TENSOR_SIZE};
 use puyo_nn::model::PuyoNetConfig;
 use puyo_nn::value_transform::value_transform;
 use puyo_core::rand::time_seed;
