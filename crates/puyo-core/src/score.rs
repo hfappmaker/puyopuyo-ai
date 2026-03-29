@@ -1,4 +1,4 @@
-use crate::board::Group;
+use crate::board::{Group, MIN_GROUP_SIZE};
 
 /// Chain power table (standard Puyo Puyo rules).
 /// Index 0 = chain 1, index 1 = chain 2, etc.
@@ -41,7 +41,7 @@ pub fn calculate_step_score(chain_num: u32, groups: &[Group]) -> u32 {
     let group_bonus: u32 = groups
         .iter()
         .map(|g| {
-            let excess = g.cells.len().saturating_sub(4);
+            let excess = g.cells.len().saturating_sub(MIN_GROUP_SIZE);
             GROUP_BONUS[excess.min(GROUP_BONUS.len() - 1)]
         })
         .sum();

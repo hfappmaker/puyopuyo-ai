@@ -12,12 +12,12 @@ use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 
 use game_core::Game;
-use puyo_ai::hash_util::time_seed;
+use puyo_core::rand::time_seed;
 use puyo_ai::mcts::{mcts_search, InferenceProvider};
 use puyo_ai::nn_eval::MctsConfig;
 use puyo_ai::puyo_game::PuyoGame;
 use puyo_core::game::{GamePhase, GameState};
-use puyo_core::puyo_game::PuyoState;
+use puyo_core::state::PuyoState;
 use puyo_nn::model::{PuyoNet, PuyoNetConfig};
 use puyo_trainer::data::{AlphaZeroDataset, AlphaZeroSample};
 
@@ -44,7 +44,6 @@ struct Args {
     num_simulations: usize,
     c_puct_init: f32,
     c_puct_base: f32,
-    seed_offset: u64,
     m: usize,
     c_visit: f32,
     gamma: f32,
@@ -61,7 +60,6 @@ fn parse_args() -> Args {
         num_simulations: 64,
         c_puct_init: 1.5,
         c_puct_base: 19652.0,
-        seed_offset: 200_000,
         m: 16,
         c_visit: 5.0,
         gamma: 0.95,
@@ -94,10 +92,6 @@ fn parse_args() -> Args {
             "--c-puct-base" => {
                 i += 1;
                 result.c_puct_base = next_val(i, "--c-puct-base").parse().expect("--c-puct-base requires float");
-            }
-            "--seed-offset" => {
-                i += 1;
-                result.seed_offset = next_val(i, "--seed-offset").parse().expect("--seed-offset requires integer");
             }
             "--m" => {
                 i += 1;
@@ -151,12 +145,10 @@ struct GameResult {
 
 /// Play one self-play game and return training samples.
 fn play_one_game(
-    game_idx: u64,
     provider: &dyn InferenceProvider,
     args: &Args,
 ) -> GameResult {
-    let seed = args.seed_offset + game_idx;
-    let mut game = GameState::new(seed);
+    let mut game = GameState::new();
     let mut move_records: Vec<MoveRecord> = Vec::with_capacity(MAX_TURNS as usize);
     let mut move_count = 0u32;
 
@@ -273,9 +265,9 @@ fn main() {
     let args = parse_args();
 
     println!(
-        "games={}, simulations={}, c_puct_init={}, c_puct_base={}, m={}, c_visit={}, gamma={}, seed_offset={}",
+        "games={}, simulations={}, c_puct_init={}, c_puct_base={}, m={}, c_visit={}, gamma={}",
         args.num_games, args.num_simulations, args.c_puct_init, args.c_puct_base, args.m,
-        args.c_visit, args.gamma, args.seed_offset,
+        args.c_visit, args.gamma,
     );
 
     #[cfg(feature = "gpu")]
@@ -371,8 +363,8 @@ where
 
                 s.spawn(move || {
                     let mut thread_results = Vec::new();
-                    for game_idx in start..end {
-                        let result = play_one_game(game_idx, &thread_provider, args);
+                    for _ in start..end {
+                        let result = play_one_game(&thread_provider, args);
 
                         let done = games_done.fetch_add(1, Ordering::Relaxed) + 1;
                         total_samples.fetch_add(result.samples.len() as u64, Ordering::Relaxed);

@@ -40,20 +40,7 @@ impl PuyoColor {
     }
 }
 
-pub const COLS: usize = 3;
-pub const ROWS: usize = 8; // VISIBLE_ROWS + 2 hidden top rows
-pub const VISIBLE_ROWS: usize = 6;
-/// Spawn column: center of the board (0-indexed). Derived from COLS.
-pub const SPAWN_COL: usize = (COLS - 1) / 2;
-pub const NUM_COLORS: usize = 3;
-
-/// Minimum number of connected same-color puyos required to clear.
-pub const MIN_GROUP_SIZE: usize = 4;
-
-// Compile-time validation of board parameters.
-const _: () = assert!(NUM_COLORS >= 1 && NUM_COLORS <= 4, "NUM_COLORS must be 1..=4");
-const _: () = assert!(COLS >= 1, "COLS must be >= 1");
-const _: () = assert!(ROWS == VISIBLE_ROWS + 2, "ROWS must be VISIBLE_ROWS + 2");
+pub use crate::config::{COLS, MIN_GROUP_SIZE, NUM_COLORS, ROWS, SPAWN_COL, VISIBLE_ROWS};
 
 // ---- Chain types ----
 

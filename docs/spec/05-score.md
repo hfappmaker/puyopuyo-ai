@@ -47,14 +47,14 @@ pub fn calculate_step_score(chain_num: u32, groups: &[Group]) -> u32
 
 | ぷよ数 | ボーナス |
 |--------|---------|
-| 4 | 0 |
-| 5 | 2 |
-| 6 | 3 |
-| 7 | 4 |
-| 8 | 5 |
-| 9 | 6 |
-| 10 | 7 |
-| 11+ | 10 |
+| MIN_GROUP_SIZE | 0 |
+| MIN_GROUP_SIZE+1 | 2 |
+| MIN_GROUP_SIZE+2 | 3 |
+| MIN_GROUP_SIZE+3 | 4 |
+| MIN_GROUP_SIZE+4 | 5 |
+| MIN_GROUP_SIZE+5 | 6 |
+| MIN_GROUP_SIZE+6 | 7 |
+| MIN_GROUP_SIZE+7以上 | 10 |
 
 ## ボーナスの最低保証
 

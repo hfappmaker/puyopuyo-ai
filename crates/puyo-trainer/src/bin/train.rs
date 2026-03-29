@@ -12,10 +12,11 @@ use burn::record::{BinFileRecorder, FullPrecisionSettings};
 use burn::tensor::backend::AutodiffBackend;
 
 use puyo_core::board::{COLS, ROWS};
+use puyo_core::config::NUM_ACTIONS;
 use puyo_nn::encoding::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS, TENSOR_SIZE};
 use puyo_nn::model::PuyoNetConfig;
 use puyo_nn::value_transform::value_transform;
-use puyo_ai::hash_util::time_seed;
+use puyo_core::rand::time_seed;
 use puyo_trainer::data::{AlphaZeroDataset, Dataset};
 
 #[cfg(feature = "gpu")]
@@ -45,7 +46,6 @@ const AZ_LR_STAGES: [(usize, f64); 4] = [
     (430000, 0.0001), // step 430k〜: LR = 0.0001
 ];
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
-const NUM_ACTIONS: usize = COLS * 4;
 const VALUE_LOSS_WEIGHT: f32 = 0.5;
 
 /// MSE loss between predicted value and transformed targets.

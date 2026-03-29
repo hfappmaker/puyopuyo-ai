@@ -71,8 +71,8 @@ async function main() {
   const renderer = new Renderer(boardCanvas, nextCanvas, nextNextCanvas);
   const ui = new UI();
 
-  const createGame = (seed: bigint) => new wasm.WasmGame(seed);
-  const game = createGame(BigInt(Date.now()));
+  const createGame = () => new wasm.WasmGame();
+  const game = createGame();
 
   const gameLoop = new GameLoop(game, renderer, ui, createGame);
   gameLoop.start();

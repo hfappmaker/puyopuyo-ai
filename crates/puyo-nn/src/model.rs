@@ -3,8 +3,7 @@ use burn::nn::pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig};
 use burn::nn::{Dropout, DropoutConfig, GroupNorm, GroupNormConfig, Linear, LinearConfig, PaddingConfig2d, Relu};
 use burn::prelude::*;
 
-use puyo_core::puyo_game::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
-use puyo_core::board::COLS;
+use puyo_core::config::{CONTEXT_TENSOR_SIZE, NUM_ACTIONS, NUM_CHANNELS};
 
 const RESIDUAL_CHANNELS: usize = 64;
 const NUM_RESIDUAL_BLOCKS: usize = 6;
@@ -12,7 +11,6 @@ const HEAD_CHANNELS: usize = 128;
 const POOL_H: usize = 2;
 const POOL_W: usize = 1;
 const HIDDEN_SIZE: usize = 256;
-const NUM_ACTIONS: usize = COLS * 4; // COLS × 4 orientations
 const BACKBONE_OUTPUT: usize = HEAD_CHANNELS * POOL_H * POOL_W;
 const HEAD_DROPOUT: f64 = 0.2;
 

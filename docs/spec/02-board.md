@@ -48,7 +48,7 @@ Yellow は列挙型に存在するが、`NUM_COLORS=3` の場合は使用され�
 | `SPAWN_COL` | 1 | スポーン列（2列目） |
 | `NUM_COLORS` | 3 | アクティブな色数（Red, Green, Blue）。PuyoColor 列挙型は Yellow=4 も含むが、NUM_COLORS=3 の場合は使用されない |
 
-これらの定数（`COLS`, `ROWS`, `VISIBLE_ROWS`, `SPAWN_COL`, `NUM_COLORS`）を `board.rs` で変更すると、依存する全クレート（`puyo-ai`, `puyo-nn`, `puyo-trainer`）の関連定数が自動的に伝播する。唯一の例外は `model.rs` の `POOL_H` / `POOL_W` で、これらはアーキテクチャハイパーパラメータとして手動調整が必要。
+これらの定数は `config.rs`（`puyo_core::config`）で一元管理されており、`board.rs` から再エクスポートされている。`config.rs` の値を変更すると、依存する全クレート（`puyo-ai`, `puyo-nn`, `puyo-trainer`）の関連定数（`NUM_CHANNELS`, `TENSOR_SIZE`, `NUM_ACTIONS` 等）が自動的に伝播する。唯一の例外は `model.rs` の `POOL_H` / `POOL_W` で、これらはアーキテクチャハイパーパラメータとして手動調整が必要。定数変更後は再コンパイルと NN モデルの再学習が必要。
 
 ## 主な操作
 

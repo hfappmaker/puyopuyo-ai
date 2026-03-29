@@ -27,7 +27,7 @@ Rust でゲームロジックとAIを実装し、WASM 経由でブラウザ上�
 | レイヤー | クレート/ディレクトリ | 役割 |
 |----------|---------------------|------|
 | game-core | `crates/game-core/` | ターン制ゲームの汎用抽象化（`Game` トレイト）。ゲーム非依存のAI探索を可能にする |
-| puyo-core | `crates/puyo-core/` | 盤面（`Board`、連鎖解決を含む）・ぷよ組（`Piece`, `FallingPiece`）・スコア（`score`）・ゲーム進行（`GameState`）・乱数（`Rng`）・AI用ゲーム状態（`PuyoState`）・エンコーディング関数 |
+| puyo-core | `crates/puyo-core/` | ゲームパラメータ一元管理（`config`）・盤面（`Board`、連鎖解決を含む）・ぷよ組（`Piece`, `FallingPiece`）・スコア（`score`）・ゲーム進行（`GameState`）・乱数（`Rng`）・AI用ゲーム状態（`PuyoState`）・エンコーディング関数 |
 | puyo-ai | `crates/puyo-ai/` | 盤面評価（`eval`）・配置列挙（`placement`）・ハッシュユーティリティ（`hash_util`）・`Game` トレイト実装（`puyo_game`: `PuyoGame`）・NN評価（`nn_eval`、`nn` feature）・MCTS探索（`mcts`、`nn` feature）・GPU推論サーバー（`inference_server`、`nn` feature） |
 | puyo-nn | `crates/puyo-nn/` | CNN Dual Head ネットワーク（`PuyoNet`: Policy + Value）・盤面テンソルエンコーディング（`encoding`、`puyo-core` からの再エクスポートラッパー） |
 | puyo-trainer | `crates/puyo-trainer/` | 訓練データ生成（`generate-data`）・教師あり学習（`train`）・自己対戦強化学習（`self-play`） |

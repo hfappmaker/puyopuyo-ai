@@ -1,6 +1,8 @@
 use crate::board::{Board, COLS, NUM_COLORS, ROWS};
 use crate::piece::Piece;
 
+pub use crate::config::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS, PIECE_TENSOR_SIZE, TENSOR_SIZE};
+
 /// MCTS/AI用の軽量ゲーム状態。
 /// GameStateからUI関連（FallingPiece, phase等）を除いた純粋な盤面+ピースキュー。
 #[derive(Clone)]
@@ -10,22 +12,6 @@ pub struct PuyoState {
     pub next: Piece,
     pub next_next: Piece,
 }
-
-// ---------------------------------------------------------------------------
-// NN エンコーディング（burn非依存、純粋なf32配列変換）
-// ---------------------------------------------------------------------------
-
-/// 入力チャンネル数: 色ごとのone-hot + occupancy + adjacency
-pub const NUM_CHANNELS: usize = NUM_COLORS + 2;
-
-/// 盤面テンソルのフラットサイズ
-pub const TENSOR_SIZE: usize = NUM_CHANNELS * ROWS * COLS;
-
-/// ピースエンコーディングのサイズ: 3ピース × 2色 × NUM_COLORS one-hot
-pub const PIECE_TENSOR_SIZE: usize = 3 * 2 * NUM_COLORS;
-
-/// コンテキストテンソルサイズ
-pub const CONTEXT_TENSOR_SIZE: usize = PIECE_TENSOR_SIZE;
 
 /// Board を [channel][row][col] のフラット f32 配列に変換する。
 ///

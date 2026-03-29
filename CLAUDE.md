@@ -27,9 +27,9 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 | クレート | 役割 |
 |---------|------|
 | `game-core` | ゲーム抽象化（`Game` トレイト: ターン制ゲームの汎用インターフェース） |
-| `puyo-core` | ゲームエンジン（Board（連鎖解決含む）, GameState, Piece, Score, RNG, PuyoState, エンコーディング関数） |
+| `puyo-core` | ゲームエンジン（Board（連鎖解決含む）, GameState, Piece, Score, PuyoState, random_piece, エンコーディング関数） |
 | `puyo-ai` | AI探索・評価（Evaluator trait, SimulationEvaluator, NnEvaluator, MCTS, find_best_move, PuyoGame） |
-| `puyo-nn` | CNN Dual Head ネットワーク（PuyoNet: Policy + Value, one-hot encoding（再エクスポートラッパー）） |
+| `puyo-nn` | CNN Dual Head ネットワーク（PuyoNet: Policy + Value, NNエンコーディング（固定長配列版）） |
 | `puyo-trainer` | 学習パイプライン（3つのバイナリ: generate-data, train, self-play） |
 | `puyo-wasm` | WASMブリッジ（wasm-bindgen, WasmGame struct） |
 
@@ -38,7 +38,7 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 ## アーキテクチャの要点
 
 ### Evaluator trait（多態性の中心）
-`puyo-ai/src/eval.rs`の`Evaluator<G: Game>`トレイト（`find_best_move(&G::State) -> Option<(Placement, f64)>`）がAIの核。`Game` トレイト（`game-core`）でターン制ゲームを抽象化し、`PuyoGame`（`puyo-ai/src/puyo_game.rs`）がぷよぷよ用の `Game` 実装を提供する。`PuyoState`（`puyo-core/src/puyo_game.rs`）はAI用の軽量ゲーム状態（board + 3 pieces）とエンコーディング関数を含む。
+`puyo-ai/src/eval.rs`の`Evaluator<G: Game>`トレイト（`find_best_move(&G::State) -> Option<(Placement, f64)>`）がAIの核。`Game` トレイト（`game-core`）でターン制ゲームを抽象化し、`PuyoGame`（`puyo-ai/src/puyo_game.rs`）がぷよぷよ用の `Game` 実装を提供する。`PuyoState`（`puyo-core/src/state.rs`）はAI用の軽量ゲーム状態（board + 3 pieces）とエンコーディング関数を含む。
 - `SimulationEvaluator`: `Evaluator<PuyoGame>` を実装。仮想ぷよシミュレーションで盤面を評価（2手先読みBFS）
 - `NnEvaluator`（`puyo-ai/src/nn_eval.rs`、`nn` feature flag有効時のみ）: `Evaluator<PuyoGame>` を実装。Dual Head Network（Policy + Value）で評価。MCTSモード（`MctsConfig`付き、PUCT探索）とPolicy-onlyモード（WASM用、1回推論）の2モード
 
@@ -64,8 +64,8 @@ Rustワークスペース（`crates/`配下）+ TypeScript フロントエンド
 | `crates/puyo-core/src/piece.rs` | `docs/spec/03-piece.md`, `docs/spec/01-architecture.md` |
 | `crates/puyo-core/src/score.rs` | `docs/spec/05-score.md`, `docs/spec/01-architecture.md` |
 | `crates/puyo-core/src/game.rs` | `docs/spec/06-game.md`, `docs/spec/01-architecture.md` |
-| `crates/puyo-core/src/rng.rs` | `docs/spec/07-rng.md`, `docs/spec/01-architecture.md` |
-| `crates/puyo-core/src/puyo_game.rs` | `docs/spec/08-ai-eval.md`, `docs/spec/12-nn.md` |
+| `crates/puyo-core/src/rand.rs` | `docs/spec/07-rng.md`, `docs/spec/01-architecture.md` |
+| `crates/puyo-core/src/state.rs` | `docs/spec/08-ai-eval.md`, `docs/spec/12-nn.md` |
 | `crates/puyo-ai/src/eval.rs`, `crates/puyo-ai/src/nn_eval.rs`, `crates/puyo-ai/src/puyo_game.rs` | `docs/spec/08-ai-eval.md` |
 | `crates/puyo-ai/src/placement.rs`, `crates/puyo-ai/src/mcts.rs`, `crates/puyo-ai/src/inference_server.rs` | `docs/spec/09-ai-search.md` |
 | `crates/game-core/src/lib.rs` | `docs/spec/01-architecture.md` |

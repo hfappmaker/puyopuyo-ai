@@ -196,7 +196,7 @@ pub fn mcts_search<G: Game>(
 
 - `simulate_placement(board, piece, placement) -> (Board, ChainResult)`: 配置シミュレーション。一時的な `GameState` でピースを設置し連鎖解決。結果の盤面と `ChainResult` を返す。元の盤面は変更されない
 - `enumerate_placements(board, piece) -> Vec<Placement>`: 盤面上の全合法配置を列挙する
-- `NUM_ACTIONS: usize = COLS * 4`: 配置インデックスの総数（3列 × 4方向 = 12（COLS=3 の場合））
+- `NUM_ACTIONS: usize = COLS * 4`: 配置インデックスの総数（3列 × 4方向 = 12（COLS=3 の場合））。`puyo_core::config` に定義され、`placement.rs` から再エクスポート
 - `placement_to_index(placement) -> usize`: `Placement` を 0〜NUM_ACTIONS-1 のインデックスに変換（`col * 4 + orientation.as_u8()`）
 - `index_to_placement(index) -> Placement`: インデックスを `Placement` に逆変換。`index >= NUM_ACTIONS` でパニック
 - `compute_valid_mask(board, piece) -> [bool; NUM_ACTIONS]`: 合法配置に対応するインデックスを `true` にしたマスク配列を返す

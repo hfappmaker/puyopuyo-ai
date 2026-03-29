@@ -130,8 +130,7 @@ pub fn enumerate_placements(board: &Board, piece: &Piece) -> Vec<Placement> {
     placements
 }
 
-/// Total number of possible placement indices (COLS × 4 orientations).
-pub const NUM_ACTIONS: usize = COLS * 4;
+pub use puyo_core::config::NUM_ACTIONS;
 
 /// Convert a Placement to a flat index: col * 4 + orientation.as_u8().
 pub fn placement_to_index(p: &Placement) -> usize {

@@ -9,7 +9,7 @@ use std::sync::mpsc;
 use std::sync::{Condvar, Mutex};
 
 use burn::prelude::*;
-use puyo_core::puyo_game::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
+use puyo_core::state::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
 use puyo_nn::model::PuyoNet;
 use puyo_nn::value_transform::value_inverse_transform;
 

@@ -22,12 +22,12 @@ export interface WasmGame {
   load_nn_model_with_mcts(model_bytes: Uint8Array, num_simulations: number): void;
   set_mcts_simulations(num_simulations: number): void;
   use_heuristic(): void;
-  restart(seed: bigint): void;
+  restart(): void;
   free(): void;
 }
 
 export interface WasmModule {
   WasmGame: {
-    new(seed: bigint): WasmGame;
+    new(): WasmGame;
   };
 }

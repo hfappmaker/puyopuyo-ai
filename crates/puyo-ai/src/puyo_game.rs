@@ -1,11 +1,10 @@
 use game_core::Game;
-use puyo_core::board::{ChainResult, COLS, NUM_COLORS, ROWS};
-use puyo_core::piece::{Piece, Placement};
-use puyo_core::puyo_game::{
+use puyo_core::board::{ChainResult, COLS, ROWS};
+use puyo_core::piece::Placement;
+use puyo_core::state::{
     board_to_tensor_data, context_to_tensor_data, PuyoState, CONTEXT_TENSOR_SIZE, NUM_CHANNELS,
 };
 
-use crate::hash_util::time_seed;
 use crate::placement::{
     compute_valid_mask, enumerate_placements, index_to_placement, placement_to_index,
     simulate_placement, NUM_ACTIONS,
@@ -77,28 +76,15 @@ impl Game for PuyoGame {
     }
 
     fn advance_turn(state: &mut PuyoState) {
-        state.next_next = random_piece();
+        state.next_next = puyo_core::rand::random_piece();
     }
-}
-
-/// time_seed() を使ってランダムなピースを生成する。
-fn random_piece() -> Piece {
-    let mut x = time_seed();
-    let axis = ((x % NUM_COLORS as u64) as u8) + 1;
-    x = (x ^ (x >> 30)).wrapping_mul(0x517cc1b727220a95);
-    x = x ^ (x >> 27);
-    let sat = ((x % NUM_COLORS as u64) as u8) + 1;
-    Piece::new(
-        puyo_core::board::PuyoColor::from_u8(axis),
-        puyo_core::board::PuyoColor::from_u8(sat),
-    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use puyo_core::board::{Board, PuyoColor};
-    use puyo_core::piece::Orientation;
+    use puyo_core::piece::{Orientation, Piece};
 
     #[test]
     fn test_puyo_game_num_actions() {
@@ -148,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_random_piece_valid() {
-        let p = random_piece();
+        let p = puyo_core::rand::random_piece();
         assert_ne!(p.axis_color, PuyoColor::Empty);
         assert_ne!(p.satellite_color, PuyoColor::Empty);
     }

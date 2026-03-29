@@ -9,7 +9,7 @@ use puyo_ai::nn_eval::{MctsConfig, NnEvaluator};
 use puyo_ai::placement::enumerate_placements;
 use puyo_ai::puyo_game::PuyoGame;
 use puyo_core::game::{GamePhase, GameState};
-use puyo_core::puyo_game::PuyoState;
+use puyo_core::state::PuyoState;
 use puyo_nn::model::{PuyoNet, PuyoNetConfig};
 
 type InferBackend = NdArray;
@@ -23,9 +23,9 @@ pub struct WasmGame {
 #[wasm_bindgen]
 impl WasmGame {
     #[wasm_bindgen(constructor)]
-    pub fn new(seed: u64) -> WasmGame {
+    pub fn new() -> WasmGame {
         WasmGame {
-            state: GameState::new(seed),
+            state: GameState::new(),
             evaluator: Box::new(SimulationEvaluator),
         }
     }
@@ -290,7 +290,7 @@ impl WasmGame {
 
     /// Restart the game.
     #[wasm_bindgen]
-    pub fn restart(&mut self, seed: u64) {
-        self.state.restart(seed);
+    pub fn restart(&mut self) {
+        self.state.restart();
     }
 }

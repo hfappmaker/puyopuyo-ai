@@ -12,7 +12,7 @@ export class GameLoop {
   private renderer: Renderer;
   private input: InputHandler;
   private ui: UI;
-  private createGame: (seed: bigint) => WasmGame;
+  private createGame: () => WasmGame;
 
   private gameOver: boolean = false;
   private aiPreviewing: boolean = false;
@@ -28,7 +28,7 @@ export class GameLoop {
     game: WasmGame,
     renderer: Renderer,
     ui: UI,
-    createGame: (seed: bigint) => WasmGame
+    createGame: () => WasmGame
   ) {
     this.game = game;
     this.renderer = renderer;
@@ -178,9 +178,8 @@ export class GameLoop {
     this.aiPreviewing = false;
     this.hideAiEval();
 
-    const seed = BigInt(Date.now());
     this.game.free();
-    this.game = this.createGame(seed);
+    this.game = this.createGame();
     this.gameOver = false;
     this.ui.hideGameOver();
     this.ui.update(this.game);

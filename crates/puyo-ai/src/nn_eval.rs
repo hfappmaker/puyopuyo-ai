@@ -3,7 +3,7 @@ use burn::prelude::*;
 
 use puyo_core::board::{COLS, ROWS};
 use puyo_core::piece::Placement;
-use puyo_core::puyo_game::{
+use puyo_core::state::{
     board_to_tensor_data, context_to_tensor_data, PuyoState, CONTEXT_TENSOR_SIZE, NUM_CHANNELS,
 };
 use puyo_nn::model::PuyoNet;
@@ -140,7 +140,7 @@ impl Evaluator<PuyoGame> for NnEvaluator {
 
         // MCTS mode: use Gumbel tree search
         if let Some(ref mcts_config) = self.mcts_config {
-            let seed = crate::hash_util::time_seed();
+            let seed = puyo_core::rand::time_seed();
 
             let (policy, q_values) = mcts_search::<PuyoGame>(
                 state,

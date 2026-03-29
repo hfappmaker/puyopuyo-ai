@@ -3,7 +3,7 @@ use puyo_ai::eval::{Evaluator, SimulationEvaluator};
 use puyo_ai::placement::placement_to_index;
 use puyo_ai::puyo_game::PuyoGame;
 use puyo_core::game::{GamePhase, GameState};
-use puyo_core::puyo_game::PuyoState;
+use puyo_core::state::PuyoState;
 use puyo_trainer::data::{Dataset, Sample};
 
 const NUM_GAMES: u64 = 10_000;
@@ -20,7 +20,7 @@ fn main() {
     let start_time = std::time::Instant::now();
 
     for seed in 0..NUM_GAMES {
-        let mut game = GameState::new(seed);
+        let mut game = GameState::new();
         let mut move_count = 0usize;
 
         while game.phase != GamePhase::GameOver {

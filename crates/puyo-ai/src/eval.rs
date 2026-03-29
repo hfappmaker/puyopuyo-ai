@@ -1,7 +1,7 @@
 use game_core::Game;
 use puyo_core::board::{Board, PuyoColor};
 use puyo_core::piece::Piece;
-use puyo_core::puyo_game::PuyoState;
+use puyo_core::state::PuyoState;
 
 use crate::placement::{enumerate_placements, simulate_placement};
 use crate::puyo_game::PuyoGame;

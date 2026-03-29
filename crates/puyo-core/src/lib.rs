@@ -1,6 +1,7 @@
 pub mod board;
+pub mod config;
 pub mod game;
 pub mod piece;
-pub mod puyo_game;
-pub mod rng;
+pub mod state;
+pub mod rand;
 pub mod score;

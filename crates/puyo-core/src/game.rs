@@ -1,6 +1,6 @@
-use crate::board::{Board, ChainResult, PuyoColor, COLS, NUM_COLORS, ROWS};
+use crate::board::{Board, ChainResult, COLS, ROWS};
 use crate::piece::{FallingPiece, Orientation, Piece, Placement};
-use crate::rng::Rng;
+use crate::rand::random_piece;
 
 /// Phase of the game state machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,16 +34,14 @@ pub struct GameState {
     pub score: u32,
     pub max_chain: u32,
     pub phase: GamePhase,
-    pub rng: Rng,
     pub total_pieces: u32,
 }
 
 impl GameState {
-    pub fn new(seed: u64) -> Self {
-        let mut rng = Rng::new(seed);
-        let current = Self::generate_piece(&mut rng);
-        let next = Self::generate_piece(&mut rng);
-        let next_next = Self::generate_piece(&mut rng);
+    pub fn new() -> Self {
+        let current = random_piece();
+        let next = random_piece();
+        let next_next = random_piece();
 
         let mut state = GameState {
             board: Board::new(),
@@ -53,18 +51,11 @@ impl GameState {
             score: 0,
             max_chain: 0,
             phase: GamePhase::Falling,
-            rng,
             total_pieces: 0,
         };
 
         state.spawn_piece(current);
         state
-    }
-
-    fn generate_piece(rng: &mut Rng) -> Piece {
-        let axis = PuyoColor::from_u8(rng.next_range(NUM_COLORS as u32) as u8 + 1);
-        let satellite = PuyoColor::from_u8(rng.next_range(NUM_COLORS as u32) as u8 + 1);
-        Piece::new(axis, satellite)
     }
 
     /// Spawn a new piece at the top.
@@ -77,7 +68,7 @@ impl GameState {
         self.total_pieces += 1;
         let next = self.next_piece;
         self.next_piece = self.next_next_piece;
-        self.next_next_piece = Self::generate_piece(&mut self.rng);
+        self.next_next_piece = random_piece();
         self.spawn_piece(next);
     }
 
@@ -301,9 +292,9 @@ impl GameState {
         }
     }
 
-    /// Restart the game with a new seed.
-    pub fn restart(&mut self, seed: u64) {
-        *self = GameState::new(seed);
+    /// Restart the game.
+    pub fn restart(&mut self) {
+        *self = GameState::new();
     }
 
     /// Get current piece info for rendering: (axis_color, sat_color, col, row, orientation_index)
@@ -339,11 +330,11 @@ impl GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::SPAWN_COL;
+    use crate::board::{PuyoColor, SPAWN_COL};
 
     #[test]
     fn test_new_game() {
-        let game = GameState::new(42);
+        let game = GameState::new();
         assert_eq!(game.phase, GamePhase::Falling);
         assert!(game.current_piece.is_some());
         assert_eq!(game.score, 0);
@@ -352,33 +343,16 @@ mod tests {
 
     #[test]
     fn test_hard_drop_and_next() {
-        let mut game = GameState::new(42);
+        let mut game = GameState::new();
         game.hard_drop();
-        // After hard drop, current piece should be what was next
         if game.phase == GamePhase::Falling {
             assert!(game.current_piece.is_some());
         }
     }
 
     #[test]
-    fn test_deterministic_game() {
-        let mut game1 = GameState::new(42);
-        let mut game2 = GameState::new(42);
-
-        for _ in 0..10 {
-            if game1.phase != GamePhase::Falling || game2.phase != GamePhase::Falling {
-                break;
-            }
-            game1.hard_drop();
-            game2.hard_drop();
-            assert_eq!(game1.score, game2.score);
-            assert_eq!(game1.board, game2.board);
-        }
-    }
-
-    #[test]
     fn test_move_operations() {
-        let mut game = GameState::new(42);
+        let mut game = GameState::new();
         assert_eq!(game.current_piece.as_ref().unwrap().col, SPAWN_COL);
 
         game.move_left();
@@ -396,10 +370,10 @@ mod tests {
 
     #[test]
     fn test_restart() {
-        let mut game = GameState::new(42);
+        let mut game = GameState::new();
         game.hard_drop();
         game.hard_drop();
-        game.restart(42);
+        game.restart();
         assert_eq!(game.score, 0);
         assert_eq!(game.max_chain, 0);
         assert_eq!(game.phase, GamePhase::Falling);
@@ -407,8 +381,7 @@ mod tests {
 
     #[test]
     fn test_soft_drop_south_orientation_landing() {
-        let mut game = GameState::new(42);
-        // Pre-fill column 2 with 3 puyos
+        let mut game = GameState::new();
         game.board.drop_puyo(2, PuyoColor::Red);
         game.board.drop_puyo(2, PuyoColor::Blue);
         game.board.drop_puyo(2, PuyoColor::Green);
@@ -423,15 +396,13 @@ mod tests {
 
         while game.soft_drop() {}
 
-        // axis should stop at column_height + 1 = 4
-        // satellite at fp.row - 1 = 3 (first free row)
         let fp = game.current_piece.as_ref().unwrap();
         assert_eq!(fp.row, 4.0);
     }
 
     #[test]
     fn test_tick_south_orientation_landing() {
-        let mut game = GameState::new(42);
+        let mut game = GameState::new();
         game.board.drop_puyo(2, PuyoColor::Red);
         game.board.drop_puyo(2, PuyoColor::Blue);
         assert_eq!(game.board.column_height(2), 2);
@@ -444,10 +415,8 @@ mod tests {
         });
         game.phase = GamePhase::Falling;
 
-        // Tick with gravity that would bring axis below landing row
         let _result = game.tick(1.5);
 
-        // After landing: satellite (Green) at row 2, axis (Blue) at row 3
         assert_eq!(game.board.column_height(2), 4);
         assert_eq!(game.board.get(2, 2), PuyoColor::Green);
         assert_eq!(game.board.get(2, 3), PuyoColor::Blue);
@@ -455,7 +424,7 @@ mod tests {
 
     #[test]
     fn test_south_orientation_empty_column() {
-        let mut game = GameState::new(42);
+        let mut game = GameState::new();
         assert_eq!(game.board.column_height(2), 0);
 
         game.current_piece = Some(FallingPiece {
@@ -467,7 +436,6 @@ mod tests {
 
         while game.soft_drop() {}
 
-        // Empty column: satellite at row 0, axis at row 1
         let fp = game.current_piece.as_ref().unwrap();
         assert_eq!(fp.row, 1.0);
     }
@@ -475,21 +443,17 @@ mod tests {
     #[test]
     fn test_place_piece_north_defends_top_hidden_row_isolated() {
         use crate::board::{ROWS, VISIBLE_ROWS};
-        let mut game = GameState::new(42);
-        // Fill col 0 to full visible height (6)
+        let mut game = GameState::new();
         for _ in 0..VISIBLE_ROWS {
             game.board.drop_puyo(0, PuyoColor::Red);
         }
-        // Place isolated puyo at top hidden row
         game.board.set(0, ROWS - 1, PuyoColor::Green);
 
         let piece = Piece::new(PuyoColor::Blue, PuyoColor::Blue);
         let placement = Placement::new(0, Orientation::North);
         game.place_piece(&piece, &placement);
 
-        // Axis (Blue) should be placed at row VISIBLE_ROWS
         assert_eq!(game.board.get(0, VISIBLE_ROWS), PuyoColor::Blue);
-        // Top hidden row should still be the original isolated Green (satellite skipped)
         assert_eq!(game.board.get(0, ROWS - 1), PuyoColor::Green);
     }
 }

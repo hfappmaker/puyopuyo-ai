@@ -1,5 +1,4 @@
 pub mod eval;
-pub mod hash_util;
 #[cfg(feature = "nn")]
 pub mod inference_server;
 #[cfg(feature = "nn")]
