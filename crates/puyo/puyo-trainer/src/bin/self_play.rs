@@ -275,7 +275,6 @@ fn main() {
     #[cfg(feature = "gpu")]
     {
         main_gpu(args);
-        return;
     }
 
     #[cfg(not(feature = "gpu"))]

@@ -27,11 +27,11 @@ Rust でゲームロジックとAIを実装し、WASM 経由でブラウザ上�
 | レイヤー | クレート/ディレクトリ | 役割 |
 |----------|---------------------|------|
 | az-framework | `crates/az-framework/` | AlphaZeroフレームワーク。`Game` トレイト（ターン制ゲーム汎用抽象化）・`Evaluator<G>` トレイト・`GameModel<B>` トレイト・Gumbel MCTS・GPU推論サーバー・`DirectInference`・`AlphaZeroDataset`・`value_transform`。`nn` feature で NN 関連モジュールを有効化 |
-| puyo-core | `crates/puyo-core/` | ゲームパラメータ一元管理（`config`）・盤面（`Board`、連鎖解決を含む）・ぷよ組（`Piece`, `FallingPiece`）・スコア（`score`）・ゲーム進行（`GameState`）・乱数（`Rng`）・AI用ゲーム状態（`PuyoState`）・エンコーディング関数 |
-| puyo-player | `crates/puyo-player/` | ぷよぷよ固有AI。盤面評価（`SimulationEvaluator`）・配置列挙（`placement`）・`Game` トレイト実装（`puyo_game`: `PuyoGame`）・NN評価（`NnEvaluator`・`PuyoGameModel`、`nn` feature） |
-| puyo-nn | `crates/puyo-nn/` | CNN Dual Head ネットワーク（`PuyoNet`: Policy + Value）・盤面テンソルエンコーディング（`encoding`、`puyo-core` からの再エクスポートラッパー） |
-| puyo-trainer | `crates/puyo-trainer/` | 訓練データ生成（`generate-data`）・教師あり学習（`train`）・自己対戦強化学習（`self-play`） |
-| puyo-wasm | `crates/puyo-wasm/` | `wasm-bindgen` による Rust ↔ JS ブリッジ（`WasmGame`） |
+| puyo-core | `crates/puyo/puyo-core/` | ゲームパラメータ一元管理（`config`）・盤面（`Board`、連鎖解決を含む）・ぷよ組（`Piece`, `FallingPiece`）・スコア（`score`）・ゲーム進行（`GameState`）・乱数（`time_seed`, `random_piece`）・AI用ゲーム状態（`PuyoState`）・エンコーディング関数 |
+| puyo-player | `crates/puyo/puyo-player/` | ぷよぷよ固有AI。盤面評価（`SimulationEvaluator`）・配置列挙（`placement`）・`Game` トレイト実装（`puyo_game`: `PuyoGame`）・NN評価（`NnEvaluator`・`PuyoGameModel`、`nn` feature） |
+| puyo-nn | `crates/puyo/puyo-nn/` | CNN Dual Head ネットワーク（`PuyoNet`: Policy + Value） |
+| puyo-trainer | `crates/puyo/puyo-trainer/` | 訓練データ生成（`generate-data`）・教師あり学習（`train`）・自己対戦強化学習（`self-play`） |
+| puyo-wasm | `crates/puyo/puyo-wasm/` | `wasm-bindgen` による Rust ↔ JS ブリッジ（`WasmGame`） |
 | web | `web/` | TypeScript + Vite によるフロントエンド（Canvas 描画・入力処理・ゲームループ・UI） |
 
 ## 依存関係

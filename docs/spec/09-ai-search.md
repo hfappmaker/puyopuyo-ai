@@ -6,7 +6,7 @@
 
 ## 探索結果
 
-`find_best_move` は `Option<(Placement, f64)>` を返す。最善配置と評価スコアのタプル。配置不能な場合は `None`。
+`find_best_move` は `Option<(G::Action, f64)>` を返す（ぷよぷよの場合 `G::Action` = `Placement`）。最善配置と評価スコアのタプル。配置不能な場合は `None`。
 
 ## 配置列挙
 
@@ -49,7 +49,7 @@
 
 East/West 配置では軸列・衛星列の両方が到達可能でなければならない。
 
-#### ルール3: row 13 孤立ぷよとの重複配置防止
+#### ルール3: row ROWS-1 孤立ぷよとの重複配置防止
 
 連鎖消去により最上非可視行（row ROWS-1）にぷよが孤立して残る場合がある（下の行が消えても `apply_gravity` は最上非可視行を移動しない）。この孤立ぷよを上書きしないよう、3層の防御を行う:
 
@@ -62,7 +62,7 @@ East/West 配置では軸列・衛星列の両方が到達可能でなければ�
 `find_best_move` は `Evaluator<G: Game>` トレイトの主要メソッド。各評価器が評価関数・探索深度を含む探索戦略を完全に実装する。
 
 ```rust
-fn find_best_move(&self, state: &G::State) -> Option<(Placement, f64)>
+fn find_best_move(&self, state: &G::State) -> Option<(G::Action, f64)>
 ```
 
 ぷよぷよの場合、`G::State` は `PuyoState`（board + 3 pieces）。
@@ -107,7 +107,7 @@ Gumbel AlphaZero（Danihelka et al. 2022）に基づくモンテカルロ木探�
 
 ### ランダムツモの扱い
 
-3手先以降のツモが不明な場合、決定論的なハッシュ関数（`sample_piece`）でランダムツモを生成する。ノードID、アクションID、および配置後の盤面のFNV-1aハッシュ（`board_hash`）をシードとして使用するため、同じ盤面状態・同じアクションでは常に同じツモが生成される。`board_hash` と `sample_piece` は `puyo-player/src/puyo_game.rs` に定義されている（`PuyoGame` の `Game` トレイト実装の一部）。
+3手先以降のツモが不明な場合、`Game::advance_turn()` によりランダムツモを生成する。`PuyoGame::advance_turn()` は `random_piece()`（`puyo-core/src/rand.rs`）を呼び出し、`time_seed()` ベースのランダムなぷよ組を `next_next` に設定する。
 
 ### Min-Max Value Normalization（MuZero Reanalyze方式）
 
@@ -200,15 +200,5 @@ pub fn mcts_search<G: Game>(
 - `placement_to_index(placement) -> usize`: `Placement` を 0〜NUM_ACTIONS-1 のインデックスに変換（`col * 4 + orientation.as_u8()`）
 - `index_to_placement(index) -> Placement`: インデックスを `Placement` に逆変換。`index >= NUM_ACTIONS` でパニック
 - `compute_valid_mask(board, piece) -> [bool; NUM_ACTIONS]`: 合法配置に対応するインデックスを `true` にしたマスク配列を返す
-
-## ハッシュユーティリティ
-
-### hash_util.rs
-
-- `splitmix64(s: u64) -> u64`: splitmix64 finalizer。シード値を分散の良いハッシュに変換する。MCTS 内の `sample_piece` で使用
-
-### puyo_game.rs 内のハッシュ関数
-
-- `board_hash(board: &Board) -> u64`: 盤面の FNV-1a ハッシュ。MCTS のランダムツモ生成シードおよび `NnEvaluator` の Gumbel シードとして使用。`puyo-player/src/puyo_game.rs` に定義（`mcts.rs` から移動）
 
 2手目以降の探索は各 Evaluator が `find_best_move` 内にインラインで実装する（共通の再帰関数は使用しない）。

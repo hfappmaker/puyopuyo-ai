@@ -45,8 +45,7 @@ pub fn apply_color_perm_board(board_data: &mut [f32], perm: &[usize]) {
     let mut color_planes = [0.0f32; NUM_COLORS * PLANE_SIZE];
     color_planes.copy_from_slice(&board_data[..NUM_COLORS * PLANE_SIZE]);
 
-    for old_ch in 0..NUM_COLORS {
-        let new_ch = perm[old_ch];
+    for (old_ch, &new_ch) in perm.iter().enumerate().take(NUM_COLORS) {
         let src_start = old_ch * PLANE_SIZE;
         let dst_start = new_ch * PLANE_SIZE;
         board_data[dst_start..dst_start + PLANE_SIZE]
@@ -125,7 +124,7 @@ mod tests {
 
     fn identity_perm() -> ColorPermutation {
         let mut p = [0usize; NUM_COLORS];
-        for i in 0..NUM_COLORS { p[i] = i; }
+        for (i, val) in p.iter_mut().enumerate() { *val = i; }
         p
     }
 

@@ -301,7 +301,7 @@ impl<G: Game> MctsTree<G> {
     fn sequential_halving(
         &mut self,
         considered: &mut Vec<usize>,
-        scores: &mut Vec<f32>,
+        scores: &mut [f32],
         gumbels: &[f32],
         remaining_budget: usize,
         provider: &dyn InferenceProvider,
@@ -318,7 +318,7 @@ impl<G: Game> MctsTree<G> {
             let mut phases = 0u32;
             let mut n = considered.len();
             while n > 1 {
-                n = (n + 1) / 2;
+                n = n.div_ceil(2);
                 phases += 1;
             }
             phases.max(1) as usize
@@ -345,7 +345,7 @@ impl<G: Game> MctsTree<G> {
                 scores[a] = gumbels[a] + root_logits[a] + sigma_bar[a];
             }
 
-            let keep = (n_actions + 1) / 2;
+            let keep = n_actions.div_ceil(2);
             considered.sort_by(|&a, &b| scores[b].total_cmp(&scores[a]));
             considered.truncate(keep);
         }
@@ -358,6 +358,7 @@ impl<G: Game> MctsTree<G> {
 
     /// Run simulations on the considered actions, up to `sims_per_action` each,
     /// respecting the total budget. Returns the number of simulations run.
+    #[allow(clippy::too_many_arguments)]
     fn run_simulations(
         &mut self,
         considered: &[usize],

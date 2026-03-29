@@ -7,7 +7,7 @@ SimulationEvaluator AI の対戦データを元に CNN Dual Head Network を教�
 ## クレート構成
 
 ```
-crates/puyo-trainer/
+crates/puyo/puyo-trainer/
 ├── src/
 │   ├── lib.rs                  # モジュール公開
 │   ├── data.rs                 # 訓練データ構造
@@ -213,7 +213,7 @@ AlphaZero モードでは val split を行わず、全データを訓練に使�
 
 - **適用タイミング**: AlphaZero 学習時の各ステップで、ミニバッチサンプリングと同時にオンザフライで適用（ランダムに1置換を選択）
 - **置換数**: NUM_COLORS! 通り（NUM_COLORS=3 なら 3! = 6通り、恒等置換を含む）
-- **ColorPermutation**: `Vec<usize>`（NUM_COLORS に応じた可変長）。`all_color_permutations()` が `Vec<ColorPermutation>` を返す
+- **ColorPermutation**: `[usize; NUM_COLORS]`（固定長配列）。`all_color_permutations()` が `Vec<ColorPermutation>` を返す
 - **PLANE_SIZE**: ROWS × COLS (= 24)
 - **適用対象**: `board_data`（ch0〜(NUM_COLORS-1) の色one-hotチャンネルを入れ替え）と `context_data`（6つの NUM_COLORS 要素 one-hot ブロックを入れ替え）。`apply_color_perm_board` / `apply_color_perm_context` は NUM_COLORS でパラメータ化されている
 - **不変項目**: `mcts_policy`（アクションは列×方向で色に依存しない）、`value_target`（累積スコア）、`board_data` の ch NUM_COLORS（占有）・ch NUM_COLORS+1（隣接度）

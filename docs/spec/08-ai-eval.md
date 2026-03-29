@@ -8,12 +8,12 @@
 
 ```rust
 pub trait Evaluator<G: Game> {
-    fn find_best_move(&self, state: &G::State) -> Option<(Placement, f64)>;
+    fn find_best_move(&self, state: &G::State) -> Option<(G::Action, f64)>;
     fn set_num_simulations(&mut self, _num_simulations: usize) {}  // デフォルト実装: 何もしない
 }
 ```
 
-`Game` トレイト（`az-framework` クレート）でターン制ゲームを抽象化し、`Evaluator` はジェネリックパラメータ `G: Game` を取る。主要メソッド `find_best_move()` は `&G::State`（ぷよぷよの場合は `&PuyoState`）を受け取り、最善配置と評価スコアのタプルを返す。探索深度、評価ロジックは各実装が決定する。`set_num_simulations()` は MCTS のシミュレーション数を動的に変更するためのメソッド（デフォルト実装は何もしない）。
+`Game` トレイト（`az-framework` クレート）でターン制ゲームを抽象化し、`Evaluator` はジェネリックパラメータ `G: Game` を取る。主要メソッド `find_best_move()` は `&G::State`（ぷよぷよの場合は `&PuyoState`）を受け取り、最善アクションと評価スコアのタプルを返す（ぷよ��よの場合 `G::Action` = `Placement`）。探索深度、評価ロジックは各実装が決定する。`set_num_simulations()` は MCTS のシミュレーション数を動的に変更するためのメソッド（デフォルト実装は何もしない）。
 
 | Evaluator | Game実装 | 探索方式 | 評価関数 |
 |-----------|---------|----------|---------|

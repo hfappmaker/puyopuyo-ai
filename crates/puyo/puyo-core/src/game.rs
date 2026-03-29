@@ -37,6 +37,12 @@ pub struct GameState {
     pub total_pieces: u32,
 }
 
+impl Default for GameState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GameState {
     pub fn new() -> Self {
         let current = random_piece();

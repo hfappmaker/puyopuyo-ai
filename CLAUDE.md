@@ -49,7 +49,7 @@ crates/
 ## アーキテクチャの要点
 
 ### Evaluator trait（多態性の中心）
-`az-framework/src/eval.rs`の`Evaluator<G: Game>`トレイト（`find_best_move(&G::State) -> Option<(Placement, f64)>`）がAIの核。`Game` トレイト（`az-framework/src/game.rs`）でターン制ゲームを抽象化し、`PuyoGame`（`puyo-player/src/puyo_game.rs`）がぷよぷよ用の `Game` 実装を提供する。`PuyoState`（`puyo-core/src/state.rs`）はAI用の軽量ゲーム状態（board + 3 pieces）とエンコーディング関数を含む。
+`az-framework/src/eval.rs`の`Evaluator<G: Game>`トレイト（`find_best_move(&G::State) -> Option<(G::Action, f64)>`）がAIの核。`Game` トレイト（`az-framework/src/game.rs`）でターン制ゲームを抽象化し、`PuyoGame`（`puyo-player/src/puyo_game.rs`）がぷよぷよ用の `Game` 実装を提供する。`PuyoState`（`puyo-core/src/state.rs`）はAI用の軽量ゲーム状態（board + 3 pieces）とエンコーディング関数を含む。
 - `SimulationEvaluator`（`puyo-player/src/eval.rs`）: `Evaluator<PuyoGame>` を実装。仮想ぷよシミュレーションで盤面を評価（2手先読みBFS）
 - `NnEvaluator`（`puyo-player/src/nn_eval.rs`、`nn` feature flag有効時のみ）: `Evaluator<PuyoGame>` を実装。Dual Head Network（Policy + Value）で評価。MCTSモード（`MctsConfig`付き、PUCT探索）とPolicy-onlyモード（WASM用、1回推論）の2モード
 
