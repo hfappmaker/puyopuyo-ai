@@ -462,9 +462,6 @@ fn select_from_policy(policy: &[f32], valid_mask: &[bool]) -> usize {
     let r = (time_seed() as f64) / (u64::MAX as f64);
     let mut cumulative = 0.0;
     for (i, &p) in policy.iter().enumerate() {
-        if !valid_mask.get(i).copied().unwrap_or(false) {
-            continue;
-        }
         cumulative += p as f64;
         if r < cumulative {
             return i;
