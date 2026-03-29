@@ -24,6 +24,8 @@ if [ -f "$ITER_FILE" ]; then
     ITERATION=$(cat "$ITER_FILE")
 else
     ITERATION=1
+    mkdir -p artifacts
+    echo "$ITERATION" > "$ITER_FILE"
 fi
 
 # グローバルステップカウンタ（永続化、LRスケジュール用）
@@ -32,6 +34,7 @@ if [ -f "$GLOBAL_STEP_FILE" ]; then
     GLOBAL_STEP=$(cat "$GLOBAL_STEP_FILE")
 else
     GLOBAL_STEP=0
+    echo "$GLOBAL_STEP" > "$GLOBAL_STEP_FILE"
 fi
 
 log() {
@@ -79,7 +82,6 @@ while true; do
     # 3. Git commit self-play data
     git add data/alphazero_iter_*.bin
     git add -u data/  # stage deletions
-    git add artifacts/iteration.txt artifacts/global_step.txt
     git commit -m "alphazero: iter $ITERATION self-play (games=$GAMES, sims=$SIMS)" || true
 
     # 4. Train (GPU) with replay buffer
