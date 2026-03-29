@@ -15,6 +15,32 @@ use puyo_nn::model::{PuyoNet, PuyoNetConfig};
 
 type InferBackend = NdArray;
 
+// ─── ボード設定定数（スタンドアロン関数） ───
+
+/// ボードの列数。
+#[wasm_bindgen]
+pub fn board_cols() -> u32 {
+    puyo_core::config::COLS as u32
+}
+
+/// ボードの行数（隠し行含む）。
+#[wasm_bindgen]
+pub fn board_rows() -> u32 {
+    puyo_core::config::ROWS as u32
+}
+
+/// 表示行数。
+#[wasm_bindgen]
+pub fn board_visible_rows() -> u32 {
+    puyo_core::config::VISIBLE_ROWS as u32
+}
+
+/// 使用する色の数。
+#[wasm_bindgen]
+pub fn num_colors() -> u32 {
+    puyo_core::config::NUM_COLORS as u32
+}
+
 #[wasm_bindgen]
 pub struct WasmGame {
     state: GameState,

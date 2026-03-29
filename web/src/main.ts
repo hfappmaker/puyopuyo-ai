@@ -3,6 +3,8 @@ import { Renderer } from "./renderer";
 import { GameLoop } from "./game-loop";
 import { UI } from "./ui";
 import { loadNnModel, loadNnModelWithMcts } from "./model-loader";
+import { CELL_SIZE } from "./constants";
+import type { BoardConfig } from "./constants";
 
 function setupAiModeToggle(gameLoop: GameLoop): void {
   const aiModeSelect = document.getElementById("ai-mode-select") as HTMLSelectElement;
@@ -64,11 +66,23 @@ function setupAiModeToggle(gameLoop: GameLoop): void {
 async function main() {
   const wasm = await loadWasm();
 
+  const config: BoardConfig = {
+    cols: wasm.board_cols(),
+    rows: wasm.board_rows(),
+    visibleRows: wasm.board_visible_rows(),
+    numColors: wasm.num_colors(),
+    boardWidth: wasm.board_cols() * CELL_SIZE,
+    boardHeight: wasm.board_rows() * CELL_SIZE,
+  };
+
   const boardCanvas = document.getElementById("board-canvas") as HTMLCanvasElement;
   const nextCanvas = document.getElementById("next-canvas") as HTMLCanvasElement;
   const nextNextCanvas = document.getElementById("next-next-canvas") as HTMLCanvasElement;
 
-  const renderer = new Renderer(boardCanvas, nextCanvas, nextNextCanvas);
+  boardCanvas.width = config.boardWidth;
+  boardCanvas.height = config.boardHeight;
+
+  const renderer = new Renderer(boardCanvas, nextCanvas, nextNextCanvas, config);
   const ui = new UI();
 
   const createGame = () => new wasm.WasmGame();

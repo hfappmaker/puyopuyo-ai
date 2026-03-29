@@ -1,10 +1,14 @@
-export const COLS = 3;
-export const ROWS = 8; // 6 visible + 2 hidden (must match Rust ROWS)
-export const VISIBLE_ROWS = 6;
-
 export const CELL_SIZE = 64; // pixels per cell
-export const BOARD_WIDTH = COLS * CELL_SIZE;   // 192
-export const BOARD_HEIGHT = ROWS * CELL_SIZE;  // 512 (hidden rows included)
+
+// Board configuration (populated from WASM at startup)
+export interface BoardConfig {
+  cols: number;
+  rows: number;
+  visibleRows: number;
+  numColors: number;
+  boardWidth: number;   // cols * CELL_SIZE
+  boardHeight: number;  // rows * CELL_SIZE
+}
 
 // Puyo colors (matching Rust PuyoColor repr)
 export const COLOR_EMPTY = 0;
@@ -39,4 +43,3 @@ export const ORIENTATION_OFFSETS: [number, number][] = [
   [0, -1],  // South: satellite below
   [-1, 0],  // West: satellite left
 ];
-

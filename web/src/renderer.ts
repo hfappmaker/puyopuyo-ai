@@ -1,13 +1,11 @@
 import {
-  COLS,
-  VISIBLE_ROWS,
-  ROWS,
   CELL_SIZE,
   PUYO_COLORS,
   PUYO_HIGHLIGHT,
   COLOR_EMPTY,
   ORIENTATION_OFFSETS,
 } from "./constants";
+import type { BoardConfig } from "./constants";
 import type { WasmGame } from "./types";
 
 const PUYO_RADIUS = CELL_SIZE * 0.42;
@@ -65,19 +63,21 @@ function cellCenterX(col: number): number {
   return col * CELL_SIZE + CELL_SIZE / 2;
 }
 
-function cellCenterY(row: number): number {
-  return (ROWS - 1 - row) * CELL_SIZE + CELL_SIZE / 2;
-}
-
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private nextCtx: CanvasRenderingContext2D;
   private nextNextCtx: CanvasRenderingContext2D;
+  private config: BoardConfig;
 
-  constructor(boardCanvas: HTMLCanvasElement, nextCanvas: HTMLCanvasElement, nextNextCanvas: HTMLCanvasElement) {
+  constructor(boardCanvas: HTMLCanvasElement, nextCanvas: HTMLCanvasElement, nextNextCanvas: HTMLCanvasElement, config: BoardConfig) {
     this.ctx = boardCanvas.getContext("2d")!;
     this.nextCtx = nextCanvas.getContext("2d")!;
     this.nextNextCtx = nextNextCanvas.getContext("2d")!;
+    this.config = config;
+  }
+
+  private cellCenterY(row: number): number {
+    return (this.config.rows - 1 - row) * CELL_SIZE + CELL_SIZE / 2;
   }
 
   render(game: WasmGame): void {
@@ -90,27 +90,28 @@ export class Renderer {
   private drawBoard(game: WasmGame): void {
     const ctx = this.ctx;
     const board = game.get_board();
-    const hiddenRows = ROWS - VISIBLE_ROWS;
+    const { cols, rows, visibleRows } = this.config;
+    const hiddenRows = rows - visibleRows;
 
     // Clear: hidden area (darker) + visible area
     ctx.fillStyle = BG_HIDDEN;
-    ctx.fillRect(0, 0, COLS * CELL_SIZE, hiddenRows * CELL_SIZE);
+    ctx.fillRect(0, 0, cols * CELL_SIZE, hiddenRows * CELL_SIZE);
     ctx.fillStyle = BG_VISIBLE;
-    ctx.fillRect(0, hiddenRows * CELL_SIZE, COLS * CELL_SIZE, VISIBLE_ROWS * CELL_SIZE);
+    ctx.fillRect(0, hiddenRows * CELL_SIZE, cols * CELL_SIZE, visibleRows * CELL_SIZE);
 
     // Grid lines
     ctx.strokeStyle = GRID_COLOR;
     ctx.lineWidth = GRID_LINE_WIDTH;
-    for (let col = 0; col <= COLS; col++) {
+    for (let col = 0; col <= cols; col++) {
       ctx.beginPath();
       ctx.moveTo(col * CELL_SIZE, 0);
-      ctx.lineTo(col * CELL_SIZE, ROWS * CELL_SIZE);
+      ctx.lineTo(col * CELL_SIZE, rows * CELL_SIZE);
       ctx.stroke();
     }
-    for (let row = 0; row <= ROWS; row++) {
+    for (let row = 0; row <= rows; row++) {
       ctx.beginPath();
       ctx.moveTo(0, row * CELL_SIZE);
-      ctx.lineTo(COLS * CELL_SIZE, row * CELL_SIZE);
+      ctx.lineTo(cols * CELL_SIZE, row * CELL_SIZE);
       ctx.stroke();
     }
 
@@ -120,19 +121,19 @@ export class Renderer {
     ctx.setLineDash(BOUNDARY_DASH);
     ctx.beginPath();
     ctx.moveTo(0, hiddenRows * CELL_SIZE);
-    ctx.lineTo(COLS * CELL_SIZE, hiddenRows * CELL_SIZE);
+    ctx.lineTo(cols * CELL_SIZE, hiddenRows * CELL_SIZE);
     ctx.stroke();
     ctx.setLineDash([]);
 
     // Draw puyos (board is column-major, bottom=row0)
-    for (let col = 0; col < COLS; col++) {
-      for (let row = 0; row < ROWS; row++) {
-        const color = board[col * ROWS + row];
+    for (let col = 0; col < cols; col++) {
+      for (let row = 0; row < rows; row++) {
+        const color = board[col * rows + row];
         if (color !== COLOR_EMPTY) {
-          if (row >= VISIBLE_ROWS) {
+          if (row >= visibleRows) {
             ctx.globalAlpha = HIDDEN_AREA_ALPHA;
           }
-          this.drawPuyo(ctx, cellCenterX(col), cellCenterY(row), color, 1.0);
+          this.drawPuyo(ctx, cellCenterX(col), this.cellCenterY(row), color, 1.0);
           ctx.globalAlpha = 1.0;
         }
       }
@@ -145,8 +146,8 @@ export class Renderer {
 
     const [dc, dr] = ORIENTATION_OFFSETS[piece.orientation];
 
-    this.drawPuyo(this.ctx, cellCenterX(piece.col), cellCenterY(piece.row), piece.axisColor, CURRENT_PIECE_ALPHA);
-    this.drawPuyo(this.ctx, cellCenterX(piece.col + dc), cellCenterY(piece.row + dr), piece.satColor, CURRENT_PIECE_ALPHA);
+    this.drawPuyo(this.ctx, cellCenterX(piece.col), this.cellCenterY(piece.row), piece.axisColor, CURRENT_PIECE_ALPHA);
+    this.drawPuyo(this.ctx, cellCenterX(piece.col + dc), this.cellCenterY(piece.row + dr), piece.satColor, CURRENT_PIECE_ALPHA);
 
     this.drawGhost(game, piece);
   }
@@ -154,16 +155,17 @@ export class Renderer {
   private drawGhost(game: WasmGame, piece: PieceData): void {
     const board = game.get_board();
     const [dc, dr] = ORIENTATION_OFFSETS[piece.orientation];
+    const { cols, rows } = this.config;
 
     const getHeight = (c: number): number => {
-      for (let r = ROWS - 1; r >= 0; r--) {
-        if (board[c * ROWS + r] !== COLOR_EMPTY) return r + 1;
+      for (let r = rows - 1; r >= 0; r--) {
+        if (board[c * rows + r] !== COLOR_EMPTY) return r + 1;
       }
       return 0;
     };
 
     const satCol = piece.col + dc;
-    if (satCol < 0 || satCol >= COLS) return;
+    if (satCol < 0 || satCol >= cols) return;
 
     let axisRow: number;
     let satRow: number;
@@ -184,8 +186,8 @@ export class Renderer {
 
     const ctx = this.ctx;
     ctx.globalAlpha = GHOST_ALPHA;
-    this.drawPuyo(ctx, cellCenterX(piece.col), cellCenterY(axisRow), piece.axisColor, 1.0);
-    this.drawPuyo(ctx, cellCenterX(satCol), cellCenterY(satRow), piece.satColor, 1.0);
+    this.drawPuyo(ctx, cellCenterX(piece.col), this.cellCenterY(axisRow), piece.axisColor, 1.0);
+    this.drawPuyo(ctx, cellCenterX(satCol), this.cellCenterY(satRow), piece.satColor, 1.0);
     ctx.globalAlpha = 1.0;
   }
 
@@ -226,16 +228,17 @@ export class Renderer {
 
     const board = game.get_board();
     const [dc, dr] = ORIENTATION_OFFSETS[orientation];
+    const { cols, rows } = this.config;
 
     const getHeight = (c: number): number => {
-      for (let r = ROWS - 1; r >= 0; r--) {
-        if (board[c * ROWS + r] !== COLOR_EMPTY) return r + 1;
+      for (let r = rows - 1; r >= 0; r--) {
+        if (board[c * rows + r] !== COLOR_EMPTY) return r + 1;
       }
       return 0;
     };
 
     const satCol = col + dc;
-    if (satCol < 0 || satCol >= COLS) return;
+    if (satCol < 0 || satCol >= cols) return;
 
     let axisRow: number;
     let satRow: number;
@@ -256,18 +259,18 @@ export class Renderer {
 
     const ctx = this.ctx;
     ctx.globalAlpha = PLACEMENT_PREVIEW_ALPHA;
-    this.drawPuyo(ctx, cellCenterX(col), cellCenterY(axisRow), piece.axisColor, 1.0);
-    this.drawPuyo(ctx, cellCenterX(satCol), cellCenterY(satRow), piece.satColor, 1.0);
+    this.drawPuyo(ctx, cellCenterX(col), this.cellCenterY(axisRow), piece.axisColor, 1.0);
+    this.drawPuyo(ctx, cellCenterX(satCol), this.cellCenterY(satRow), piece.satColor, 1.0);
     ctx.globalAlpha = 1.0;
 
     // Draw outline to distinguish from normal ghost
     ctx.strokeStyle = "#fff";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(cellCenterX(col), cellCenterY(axisRow), PUYO_RADIUS, 0, Math.PI * 2);
+    ctx.arc(cellCenterX(col), this.cellCenterY(axisRow), PUYO_RADIUS, 0, Math.PI * 2);
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(cellCenterX(satCol), cellCenterY(satRow), PUYO_RADIUS, 0, Math.PI * 2);
+    ctx.arc(cellCenterX(satCol), this.cellCenterY(satRow), PUYO_RADIUS, 0, Math.PI * 2);
     ctx.stroke();
   }
 

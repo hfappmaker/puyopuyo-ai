@@ -30,4 +30,8 @@ export interface WasmModule {
   WasmGame: {
     new(): WasmGame;
   };
+  board_cols(): number;
+  board_rows(): number;
+  board_visible_rows(): number;
+  num_colors(): number;
 }

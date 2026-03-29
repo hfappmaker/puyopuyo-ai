@@ -4,6 +4,19 @@
 
 Rust で実装したゲームロジックとAIを、`wasm-bindgen` を使ってブラウザから利用できるようにする橋渡し層。
 
+## ボード設定関数（スタンドアロン）
+
+`WasmGame` のインスタンスメソッドではなく、モジュールレベルのスタンドアロン関数。WASM 初期化直後に呼び出せる。
+
+| 関数 | 戻り値 | 説明 |
+|------|--------|------|
+| `board_cols()` | `u32` | ボードの列数（`puyo_core::config::COLS`） |
+| `board_rows()` | `u32` | ボードの行数（隠し行含む。`puyo_core::config::ROWS`） |
+| `board_visible_rows()` | `u32` | 表示行数（`puyo_core::config::VISIBLE_ROWS`） |
+| `num_colors()` | `u32` | 使用する色の数（`puyo_core::config::NUM_COLORS`） |
+
+フロントエンドでは WASM ロード後にこれらを呼び出し、`BoardConfig` として保持する。ボードサイズや色数のハードコードを排除し、Rust 側の `config.rs` を唯一の定義元（single source of truth）とする。
+
 ## WasmGame クラス
 
 `#[wasm_bindgen]` で公開される主要クラス。内部に `GameState` と `Box<dyn Evaluator<PuyoGame>>` を保持する。AI呼び出し時には `PuyoState`（board + 3 pieces）を構築して `find_best_move` に渡す。
