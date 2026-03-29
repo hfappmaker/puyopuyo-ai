@@ -1,11 +1,11 @@
 use game_core::Game;
-use puyo_core::board::{Board, ChainResult, COLS, NUM_COLORS, ROWS};
+use puyo_core::board::{ChainResult, COLS, NUM_COLORS, ROWS};
 use puyo_core::piece::{Piece, Placement};
 use puyo_core::puyo_game::{
     board_to_tensor_data, context_to_tensor_data, PuyoState, CONTEXT_TENSOR_SIZE, NUM_CHANNELS,
 };
 
-use crate::hash_util::splitmix64;
+use crate::hash_util::time_seed;
 use crate::placement::{
     compute_valid_mask, enumerate_placements, index_to_placement, placement_to_index,
     simulate_placement, NUM_ACTIONS,
@@ -76,38 +76,14 @@ impl Game for PuyoGame {
         context_to_tensor_data(&state.current, &state.next, &state.next_next)
     }
 
-    fn advance_turn(state: &mut PuyoState, seed1: u64, seed2: u64, seed3: u64) {
-        let piece = sample_piece(seed1, seed2, seed3);
-        state.next_next = piece;
-    }
-
-    fn state_hash(state: &PuyoState) -> u64 {
-        board_hash(&state.board)
+    fn advance_turn(state: &mut PuyoState) {
+        state.next_next = random_piece();
     }
 }
 
-/// Board のFNV-1aハッシュを計算する。
-fn board_hash(board: &Board) -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for col in 0..COLS {
-        for row in 0..ROWS {
-            h ^= board.columns[col][row] as u8 as u64;
-            h = h.wrapping_mul(0x00000100000001B3);
-        }
-    }
-    h
-}
-
-/// 決定的にランダムなピースを生成する。
-fn sample_piece(seed1: u64, seed2: u64, seed3: u64) -> Piece {
-    let mut x = splitmix64(
-        seed1
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(seed2)
-            .wrapping_add(1)
-            .wrapping_add(seed3.wrapping_mul(0x9e3779b97f4a7c15)),
-    );
-
+/// time_seed() を使ってランダムなピースを生成する。
+fn random_piece() -> Piece {
+    let mut x = time_seed();
     let axis = ((x % NUM_COLORS as u64) as u8) + 1;
     x = (x ^ (x >> 30)).wrapping_mul(0x517cc1b727220a95);
     x = x ^ (x >> 27);
@@ -121,7 +97,7 @@ fn sample_piece(seed1: u64, seed2: u64, seed3: u64) -> Piece {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use puyo_core::board::PuyoColor;
+    use puyo_core::board::{Board, PuyoColor};
     use puyo_core::piece::Orientation;
 
     #[test]
@@ -171,10 +147,9 @@ mod tests {
     }
 
     #[test]
-    fn test_sample_piece_deterministic() {
-        let p1 = sample_piece(42, 7, 0);
-        let p2 = sample_piece(42, 7, 0);
-        assert_eq!(p1.axis_color, p2.axis_color);
-        assert_eq!(p1.satellite_color, p2.satellite_color);
+    fn test_random_piece_valid() {
+        let p = random_piece();
+        assert_ne!(p.axis_color, PuyoColor::Empty);
+        assert_ne!(p.satellite_color, PuyoColor::Empty);
     }
 }

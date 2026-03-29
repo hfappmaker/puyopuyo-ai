@@ -15,6 +15,7 @@ use puyo_core::board::{COLS, ROWS};
 use puyo_nn::encoding::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS, TENSOR_SIZE};
 use puyo_nn::model::PuyoNetConfig;
 use puyo_nn::value_transform::value_transform;
+use puyo_ai::hash_util::time_seed;
 use puyo_trainer::data::{AlphaZeroDataset, Dataset};
 
 #[cfg(feature = "gpu")]
@@ -192,7 +193,7 @@ fn train_supervised() {
         let mut num_batches = 0;
 
         let mut indices: Vec<usize> = (0..train_samples.len()).collect();
-        shuffle_indices(&mut indices, epoch as u64);
+        shuffle_indices(&mut indices);
 
         for batch_start in (0..train_samples.len()).step_by(BATCH_SIZE) {
             let batch_end = (batch_start + BATCH_SIZE).min(train_samples.len());
@@ -394,10 +395,6 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize) {
     println!("AlphaZero training: {} steps, global_step={}, LR {:.0e} (end ~{:.0e})",
         AZ_NUM_STEPS, global_step_start, start_lr, end_lr);
 
-    let mut rng_state: u64 = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
     let mut running_p_loss = 0.0f32;
     let mut running_v_loss = 0.0f32;
     let mut running_count = 0usize;
@@ -415,12 +412,10 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize) {
             let mut value_targets = Vec::with_capacity(batch_size);
 
             for _ in 0..batch_size {
-                rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
-                let idx = (rng_state >> 33) as usize % train_samples.len();
+                let idx = (time_seed() >> 33) as usize % train_samples.len();
                 let sample = &train_samples[idx];
 
-                rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(3);
-                let perm_idx = (rng_state >> 33) as usize % all_perms.len();
+                let perm_idx = (time_seed() >> 33) as usize % all_perms.len();
                 let perm = &all_perms[perm_idx];
 
                 let mut bd = sample.board_data.clone();
@@ -492,13 +487,9 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn shuffle_indices(indices: &mut [usize], seed: u64) {
-    let mut rng_state = seed + 42;
-    const LCG_MULTIPLIER: u64 = 6364136223846793005;
-    const LCG_INCREMENT: u64 = 1;
+fn shuffle_indices(indices: &mut [usize]) {
     for i in (1..indices.len()).rev() {
-        rng_state = rng_state.wrapping_mul(LCG_MULTIPLIER).wrapping_add(LCG_INCREMENT);
-        let j = (rng_state >> 33) as usize % (i + 1);
+        let j = (time_seed() >> 33) as usize % (i + 1);
         indices.swap(i, j);
     }
 }

@@ -60,8 +60,5 @@ pub trait Game: Clone + Send + Sync + 'static {
 
     /// MCTS展開時のターン進行（次ピース生成等）。
     /// apply_action後の状態に対して呼ぶ。
-    fn advance_turn(state: &mut Self::State, seed1: u64, seed2: u64, seed3: u64);
-
-    /// 状態のハッシュ（MCTS用の決定的乱数シード）
-    fn state_hash(state: &Self::State) -> u64;
+    fn advance_turn(state: &mut Self::State);
 }

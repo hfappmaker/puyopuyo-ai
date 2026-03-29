@@ -170,7 +170,8 @@ CPU モードでは `std::thread::scope` により並列実行され、各スレ
 |------|-----|----------|------|
 | `--games` | 整数 | 300 | 自己対戦ゲーム数 |
 | `--simulations` | 整数 | 64 | MCTS シミュレーション回数/手 |
-| `--c-puct` | 小数 | 1.5 | 内部ノードのPUCT探索定数 |
+| `--c-puct-init` | 小数 | 1.5 | 動的PUCT初期値 |
+| `--c-puct-base` | 小数 | 19652.0 | 動的PUCTベース定数 |
 | `--seed-offset` | 整数 | 200,000 | RNG シードオフセット（seed = seed_offset + game_idx） |
 | `--m` | 整数 | 16 | Gumbel Top-k 初期サンプル数 |
 | `--c-visit` | 小数 | 5.0 | Q値スケーリング係数 |

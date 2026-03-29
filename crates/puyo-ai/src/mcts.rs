@@ -100,7 +100,8 @@ impl<G: Game> MctsTree<G> {
         &mut self,
         action: usize,
         provider: &dyn InferenceProvider,
-        c_puct: f32,
+        c_puct_init: f32,
+        c_puct_base: f32,
     ) {
         let child_id = self.get_or_create_child(self.root, action);
         let mut path: Vec<(usize, usize)> = vec![(self.root, action)];
@@ -108,7 +109,7 @@ impl<G: Game> MctsTree<G> {
 
         // From child onward, use standard PUCT selection
         while self.nodes[node_id].expanded && !self.nodes[node_id].terminal {
-            let act = self.select_action(node_id, c_puct);
+            let act = self.select_action(node_id, c_puct_init, c_puct_base);
             path.push((node_id, act));
             node_id = self.get_or_create_child(node_id, act);
         }
@@ -157,11 +158,18 @@ impl<G: Game> MctsTree<G> {
         }
     }
 
-    /// Select action using PUCT score with Min-Max normalized Q values.
-    fn select_action(&self, node_id: usize, c_puct: f32) -> usize {
+    /// Compute dynamic c_puct based on parent visit count.
+    /// c(s) = log((1 + N(s) + c_base) / c_base) + c_init
+    fn dynamic_c_puct(parent_visits: f32, c_puct_init: f32, c_puct_base: f32) -> f32 {
+        ((1.0 + parent_visits + c_puct_base) / c_puct_base).ln() + c_puct_init
+    }
+
+    /// Select action using PUCT score with Min-Max normalized Q values and dynamic c_puct.
+    fn select_action(&self, node_id: usize, c_puct_init: f32, c_puct_base: f32) -> usize {
         let node = &self.nodes[node_id];
         let parent_visits = node.visit_count.max(1) as f32;
         let sqrt_parent = parent_visits.sqrt();
+        let c_puct = Self::dynamic_c_puct(parent_visits, c_puct_init, c_puct_base);
 
         node.valid_mask.iter()
             .enumerate()
@@ -212,8 +220,7 @@ impl<G: Game> MctsTree<G> {
         let immediate_reward = G::reward(&action_result);
 
         // Advance turn (generate next piece etc.)
-        let state_h = G::state_hash(&new_state);
-        G::advance_turn(&mut new_state, parent_id as u64, action as u64, state_h);
+        G::advance_turn(&mut new_state);
 
         let parent_depth = self.nodes[parent_id].depth;
         let valid_mask = G::valid_action_mask(&new_state);
@@ -329,7 +336,7 @@ impl<G: Game> MctsTree<G> {
             let phases_left = num_phases - phase;
             let sims_per_action = (budget_remaining / (phases_left * n_actions)).max(1);
 
-            budget_used += self.run_simulations(considered, budget_used, remaining_budget, sims_per_action, provider, config.c_puct);
+            budget_used += self.run_simulations(considered, budget_used, remaining_budget, sims_per_action, provider, config.c_puct_init, config.c_puct_base);
 
             let q_completed = compute_completed_q(self, &mask);
             let sigma_bar = compute_sigma_bar(self, &q_completed, &mask, considered, config.c_visit);
@@ -344,7 +351,7 @@ impl<G: Game> MctsTree<G> {
         }
 
         // Spend remaining budget on surviving action(s)
-        self.run_simulations(considered, budget_used, remaining_budget, usize::MAX, provider, config.c_puct);
+        self.run_simulations(considered, budget_used, remaining_budget, usize::MAX, provider, config.c_puct_init, config.c_puct_base);
 
         compute_completed_q(self, &mask)
     }
@@ -358,7 +365,8 @@ impl<G: Game> MctsTree<G> {
         total_budget: usize,
         sims_per_action: usize,
         provider: &dyn InferenceProvider,
-        c_puct: f32,
+        c_puct_init: f32,
+        c_puct_base: f32,
     ) -> usize {
         let mut count = 0usize;
         for &a in considered {
@@ -366,7 +374,7 @@ impl<G: Game> MctsTree<G> {
                 if budget_used + count >= total_budget {
                     return count;
                 }
-                self.simulate_from_root_action(a, provider, c_puct);
+                self.simulate_from_root_action(a, provider, c_puct_init, c_puct_base);
                 count += 1;
             }
         }

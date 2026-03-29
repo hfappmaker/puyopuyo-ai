@@ -1,7 +1,6 @@
 use burn::backend::ndarray::NdArray;
 use burn::prelude::*;
 
-use game_core::Game;
 use puyo_core::board::{COLS, ROWS};
 use puyo_core::piece::Placement;
 use puyo_core::puyo_game::{
@@ -20,7 +19,11 @@ type InferBackend = NdArray;
 /// MCTS configuration (Gumbel AlphaZero).
 pub struct MctsConfig {
     pub num_simulations: usize,
-    pub c_puct: f32,
+    /// Initial exploration constant for dynamic PUCT.
+    /// c(s) = log((1 + N(s) + c_puct_base) / c_puct_base) + c_puct_init
+    pub c_puct_init: f32,
+    /// Base constant for dynamic PUCT (larger = more stable, less variation).
+    pub c_puct_base: f32,
     /// Number of initial actions to sample via Gumbel-Top-k.
     pub m: usize,
     /// Q-value scaling for advantage computation.
@@ -33,7 +36,8 @@ impl Default for MctsConfig {
     fn default() -> Self {
         Self {
             num_simulations: 64,
-            c_puct: 1.5,
+            c_puct_init: 1.5,
+            c_puct_base: 19652.0,
             m: 16,
             c_visit: 5.0,
             gamma: 0.95,
@@ -136,7 +140,7 @@ impl Evaluator<PuyoGame> for NnEvaluator {
 
         // MCTS mode: use Gumbel tree search
         if let Some(ref mcts_config) = self.mcts_config {
-            let seed = PuyoGame::state_hash(state);
+            let seed = crate::hash_util::time_seed();
 
             let (policy, q_values) = mcts_search::<PuyoGame>(
                 state,

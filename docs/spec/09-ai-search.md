@@ -129,7 +129,13 @@ Q_normalized = (Q - Q_min) / (Q_max - Q_min)
 5. **残り予算消化**: 生存アクションに残りシミュレーションを投入
 6. **Improved Policy計算**: `π_improved(a) ∝ π(a) · exp(advantage(a) · c_visit)` で改善されたポリシーターゲットを生成
 
-内部ノード（ルート以外）では従来のPUCT選択を使用する。
+内部ノード（ルート以外）では動的PUCT選択を使用する。探索定数 `c_puct` は親ノードの訪問回数 `N(s)` に応じて対数的に増加する:
+
+```
+c(s) = log((1 + N(s) + c_puct_base) / c_puct_base) + c_puct_init
+```
+
+これにより、探索序盤は `c_puct_init` に近い値で活用寄りに、訪問回数が増えるにつれて緩やかに探索寄りになる。`c_puct_base` が大きいほど変動が小さく安定する。
 
 ### Completed Q-values
 
@@ -180,7 +186,8 @@ pub fn mcts_search<G: Game>(
 
 `MctsConfig`のフィールド:
 - `num_simulations`: シミュレーション回数（デフォルト64）
-- `c_puct`: PUCT定数（デフォルト1.5）
+- `c_puct_init`: 動的PUCT初期値（デフォルト1.5）
+- `c_puct_base`: 動的PUCTベース定数（デフォルト19652.0）
 - `m`: 初期にGumbel-Top-kで選択するアクション数（デフォルト16）
 - `c_visit`: advantageのスケーリング係数（デフォルト5.0）
 - `gamma`: 将来報酬の割引率（デフォルト0.95）

@@ -12,7 +12,7 @@ use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 
 use game_core::Game;
-use puyo_ai::hash_util::splitmix64;
+use puyo_ai::hash_util::time_seed;
 use puyo_ai::mcts::{mcts_search, InferenceProvider};
 use puyo_ai::nn_eval::MctsConfig;
 use puyo_ai::puyo_game::PuyoGame;
@@ -42,7 +42,8 @@ const DEFAULT_MAX_BATCH_SIZE: usize = 128;
 struct Args {
     num_games: u64,
     num_simulations: usize,
-    c_puct: f32,
+    c_puct_init: f32,
+    c_puct_base: f32,
     seed_offset: u64,
     m: usize,
     c_visit: f32,
@@ -58,7 +59,8 @@ fn parse_args() -> Args {
     let mut result = Args {
         num_games: 300,
         num_simulations: 64,
-        c_puct: 1.5,
+        c_puct_init: 1.5,
+        c_puct_base: 19652.0,
         seed_offset: 200_000,
         m: 16,
         c_visit: 5.0,
@@ -85,9 +87,13 @@ fn parse_args() -> Args {
                 i += 1;
                 result.num_simulations = next_val(i, "--simulations").parse().expect("--simulations requires integer");
             }
-            "--c-puct" => {
+            "--c-puct-init" => {
                 i += 1;
-                result.c_puct = next_val(i, "--c-puct").parse().expect("--c-puct requires float");
+                result.c_puct_init = next_val(i, "--c-puct-init").parse().expect("--c-puct-init requires float");
+            }
+            "--c-puct-base" => {
+                i += 1;
+                result.c_puct_base = next_val(i, "--c-puct-base").parse().expect("--c-puct-base requires float");
             }
             "--seed-offset" => {
                 i += 1;
@@ -156,7 +162,8 @@ fn play_one_game(
 
     let mcts_config = MctsConfig {
         num_simulations: args.num_simulations,
-        c_puct: args.c_puct,
+        c_puct_init: args.c_puct_init,
+        c_puct_base: args.c_puct_base,
         m: args.m,
         c_visit: args.c_visit,
         gamma: args.gamma,
@@ -175,22 +182,14 @@ fn play_one_game(
         let board_data = PuyoGame::encode_board(&puyo_state);
         let context_data = PuyoGame::encode_context(&puyo_state);
 
-        let gumbel_seed = splitmix64(
-            seed.wrapping_mul(6364136223846793005)
-                .wrapping_add(move_count as u64),
-        );
         let (mcts_policy, _q_values) = mcts_search::<PuyoGame>(
             &puyo_state,
             provider,
             &mcts_config,
-            gumbel_seed,
+            time_seed(),
         );
 
-        let selection_seed = splitmix64(
-            seed.wrapping_add(move_count as u64)
-                .wrapping_add(0x9e3779b97f4a7c15),
-        );
-        let action = select_from_policy(&mcts_policy, selection_seed);
+        let action = select_from_policy(&mcts_policy);
 
         let placement = puyo_ai::placement::index_to_placement(action);
         let chain_result = game.apply_placement(&placement);
@@ -274,8 +273,8 @@ fn main() {
     let args = parse_args();
 
     println!(
-        "games={}, simulations={}, c_puct={}, m={}, c_visit={}, gamma={}, seed_offset={}",
-        args.num_games, args.num_simulations, args.c_puct, args.m,
+        "games={}, simulations={}, c_puct_init={}, c_puct_base={}, m={}, c_visit={}, gamma={}, seed_offset={}",
+        args.num_games, args.num_simulations, args.c_puct_init, args.c_puct_base, args.m,
         args.c_visit, args.gamma, args.seed_offset,
     );
 
@@ -465,10 +464,8 @@ fn estimate_value(
 }
 
 /// Select an action by sampling from the MCTS policy.
-fn select_from_policy(policy: &[f32], seed: u64) -> usize {
-    let x = splitmix64(seed.wrapping_mul(6364136223846793005).wrapping_add(1));
-
-    let r = (x as f64) / (u64::MAX as f64);
+fn select_from_policy(policy: &[f32]) -> usize {
+    let r = (time_seed() as f64) / (u64::MAX as f64);
     let mut cumulative = 0.0;
     for (i, &p) in policy.iter().enumerate() {
         cumulative += p as f64;
