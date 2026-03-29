@@ -79,7 +79,7 @@ fn cross_entropy_loss_hard<B: Backend>(logits: Tensor<B, 2>, targets: &[u8], dev
     let shifted = logits - max_logits;
     let exp = shifted.clone().exp();
     let sum_exp = exp.sum_dim(1);
-    let log_sum_exp = sum_exp.clamp_min(1e-8).log();
+    let log_sum_exp = sum_exp.log();
     let log_softmax = shifted - log_sum_exp;
 
     let mut target_one_hot = vec![0.0f32; batch_size * NUM_ACTIONS];
@@ -116,7 +116,7 @@ fn cross_entropy_loss_soft<B: Backend>(logits: Tensor<B, 2>, targets_flat: &[f32
     let shifted = masked_logits - max_logits;
     let exp = shifted.clone().exp();
     let sum_exp = exp.sum_dim(1);
-    let log_sum_exp = sum_exp.clamp_min(1e-8).log();
+    let log_sum_exp = sum_exp.log();
     let log_softmax = shifted - log_sum_exp;
 
     let target_tensor = Tensor::<B, 1>::from_floats(targets_flat, device)
