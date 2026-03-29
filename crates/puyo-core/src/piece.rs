@@ -70,7 +70,7 @@ impl Piece {
 /// A specific placement: which column the axis lands in and the orientation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Placement {
-    pub col: usize, // axis column (0-5)
+    pub col: usize, // axis column (0..COLS-1)
     pub orientation: Orientation,
 }
 
@@ -208,7 +208,7 @@ impl FallingPiece {
             return false;
         }
 
-        // Cell-level collision check (row 13 isolated puyo protection)
+        // Cell-level collision check (top hidden row (ROWS-1) isolated puyo protection)
         if row_u < ROWS && board.get(col_u, row_u).is_color() {
             return false;
         }
@@ -237,24 +237,24 @@ mod tests {
 
     #[test]
     fn test_placement_satellite_col() {
-        let p = Placement::new(2, Orientation::East);
-        assert_eq!(p.satellite_col(), Some(3));
+        let p = Placement::new(1, Orientation::East);
+        assert_eq!(p.satellite_col(), Some(2));
 
         let p = Placement::new(0, Orientation::West);
         assert_eq!(p.satellite_col(), None); // out of bounds
 
-        let p = Placement::new(5, Orientation::East);
+        let p = Placement::new(2, Orientation::East);
         assert_eq!(p.satellite_col(), None); // out of bounds
 
-        let p = Placement::new(3, Orientation::North);
-        assert_eq!(p.satellite_col(), Some(3)); // same column
+        let p = Placement::new(1, Orientation::North);
+        assert_eq!(p.satellite_col(), Some(1)); // same column
     }
 
     #[test]
     fn test_falling_piece_spawn() {
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let fp = FallingPiece::spawn(piece);
-        assert_eq!(fp.col, 2);
+        assert_eq!(fp.col, SPAWN_COL); // SPAWN_COL = 1
         assert_eq!(fp.orientation, Orientation::North);
     }
 
@@ -271,21 +271,19 @@ mod tests {
     #[test]
     fn test_move_left_right() {
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
-        let mut fp = FallingPiece::spawn(piece);
+        let mut fp = FallingPiece::spawn(piece); // col = 1
         let board = Board::new();
 
-        assert!(fp.try_move_left(&board));
-        assert_eq!(fp.col, 1);
         assert!(fp.try_move_left(&board));
         assert_eq!(fp.col, 0);
         assert!(!fp.try_move_left(&board)); // can't go further left
         assert_eq!(fp.col, 0);
 
-        fp.col = 4;
+        fp.col = 1;
         fp.orientation = Orientation::North;
         assert!(fp.try_move_right(&board));
-        assert_eq!(fp.col, 5);
-        assert!(!fp.try_move_right(&board)); // col=5, North: move right puts axis at 6 = out of bounds
+        assert_eq!(fp.col, 2);
+        assert!(!fp.try_move_right(&board)); // col=2, North: move right puts axis at 3 = out of bounds
     }
 
     #[test]
@@ -311,26 +309,26 @@ mod tests {
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let mut fp = FallingPiece {
             piece,
-            col: 3,
+            col: 1,
             row: 2.0,
             orientation: Orientation::North,
         };
 
         let mut heights = [0; COLS];
-        heights[2] = 5;
+        heights[0] = 5;
         let board = board_with_heights(&heights);
 
         assert!(!fp.try_move_left(&board));
-        assert_eq!(fp.col, 3);
+        assert_eq!(fp.col, 1);
 
-        heights[4] = 5;
+        heights[2] = 5;
         let board = board_with_heights(&heights);
         assert!(!fp.try_move_right(&board));
-        assert_eq!(fp.col, 3);
+        assert_eq!(fp.col, 1);
 
         fp.row = 6.0;
         assert!(fp.try_move_left(&board));
-        assert_eq!(fp.col, 2);
+        assert_eq!(fp.col, 0);
     }
 
     #[test]
@@ -338,22 +336,19 @@ mod tests {
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let mut fp = FallingPiece {
             piece,
-            col: 2,
+            col: 1,
             row: 2.0,
             orientation: Orientation::East,
         };
 
         let board = Board::new();
         assert!(fp.try_move_left(&board));
-        assert_eq!(fp.col, 1);
+        assert_eq!(fp.col, 0);
 
-        fp.col = 2;
-        let mut heights = [0; COLS];
-        heights[4] = 5;
-        let board = board_with_heights(&heights);
-
+        fp.col = 1;
+        // East orientation: satellite is at col+1=2. Move right would put axis at 2, satellite at 3 (out of bounds).
         assert!(!fp.try_move_right(&board));
-        assert_eq!(fp.col, 2);
+        assert_eq!(fp.col, 1);
     }
 
     #[test]
@@ -361,14 +356,14 @@ mod tests {
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let mut fp = FallingPiece {
             piece,
-            col: 3,
+            col: 1,
             row: 2.0,
             orientation: Orientation::North,
         };
 
         let mut heights = [0; COLS];
-        heights[4] = 5;
-        heights[2] = 5;
+        heights[2] = 5; // blocks East rotation (satellite would go to col 2)
+        heights[0] = 5; // blocks wall kick to col 0
         let board = board_with_heights(&heights);
 
         assert!(!fp.try_rotate_cw(&board));
@@ -376,25 +371,25 @@ mod tests {
     }
 
     #[test]
-    fn test_move_blocked_by_isolated_row13() {
+    fn test_move_blocked_by_isolated_top_hidden_row() {
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let mut board = Board::new();
-        // Fill col 2 to height 12, isolated puyo at row 13
-        for row in 0..12 {
-            board.set(2, row, PuyoColor::Red);
+        // Fill col 1 to full visible height, isolated puyo at top hidden row
+        for row in 0..VISIBLE_ROWS {
+            board.set(1, row, PuyoColor::Red);
         }
-        board.set(2, ROWS - 1, PuyoColor::Green);
+        board.set(1, ROWS - 1, PuyoColor::Green);
 
-        // Piece at col 2, row 12, North orientation
-        // Satellite would go to row 13 which has an isolated puyo → should block
+        // Piece at col 2, high up, North orientation
+        // Move left would put axis at col 1, satellite at col 1 row+1 which has isolated puyo → should block
         let mut fp = FallingPiece {
             piece,
-            col: 3,
-            row: 12.0,
+            col: 2,
+            row: (ROWS - 2) as f32,
             orientation: Orientation::North,
         };
-        // Move left would put axis at col 2, row 12 (ok), satellite at col 2, row 13 (blocked)
+        // Move left: axis at col 1, row ROWS-2 (blocked by height)
         assert!(!fp.try_move_left(&board));
-        assert_eq!(fp.col, 3);
+        assert_eq!(fp.col, 2);
     }
 }

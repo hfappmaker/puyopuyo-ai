@@ -21,7 +21,7 @@ Rust で実装したゲームロジックとAIを、`wasm-bindgen` を使って�
 
 | メソッド | 戻り値 | 説明 |
 |---------|--------|------|
-| `get_board()` | `Vec<u8>` (長さ84) | 盤面データ。列優先・下から上。6列×14行。各バイトは PuyoColor (0-4) |
+| `get_board()` | `Vec<u8>` (長さ24) | 盤面データ。列優先・下から上。3列×8行。各バイトは PuyoColor (0-4) |
 | `get_current_piece()` | `Vec<u8>` (長さ6 or 0) | `[axis_color, sat_color, col, row_int, row_frac×100, orientation]` |
 | `get_next_piece()` | `Vec<u8>` (長さ2) | `[axis_color, sat_color]` |
 | `get_next_next_piece()` | `Vec<u8>` (長さ2) | `[axis_color, sat_color]` |
@@ -49,7 +49,7 @@ Rust で実装したゲームロジックとAIを、`wasm-bindgen` を使って�
 | `ai_best_move()` | `Vec<u8>` (長さ10 or 0) | `[col, orientation, score_f64_le_bytes×8]` 形式で最善手と評価スコアを返す。orientation は `Orientation::as_u8()` で変換。スコアは `f64` のリトルエンディアンバイト列（8バイト） |
 | `ai_play_move()` | `u32` | 最善手を計算し即座に適用。発生した連鎖数を返す |
 | `apply_placement_direct(col, ori)` | `u32` | 指定した列と方向で配置を直接適用。発生した連鎖数を返す。col: `u8`、ori: `u8`（0=North, 1=East, 2=South, 3=West） |
-| `enumerate_placements()` | `Vec<u8>` (長さ N×2 or 0) | 現在のピースの全合法配置を `[col, orientation, col, orientation, ...]` のフラット配列で返す。最大22配置（44バイト） |
+| `enumerate_placements()` | `Vec<u8>` (長さ N×2 or 0) | 現在のピースの全合法配置を `[col, orientation, col, orientation, ...]` のフラット配列で返す。最大10配置（20バイト） |
 
 ### モデル管理
 

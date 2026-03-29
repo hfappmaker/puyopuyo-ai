@@ -34,9 +34,9 @@ crates/puyo-trainer/
 
 ```rust
 pub struct Sample {
-    pub board_data: Vec<f32>,    // エンコード済み盤面 (504 floats)
-    pub context_data: Vec<f32>,  // コンテキストエンコーディング (24 floats: ツモ one-hot)
-    pub action_index: u8,        // SimulationEvaluator が選択した配置インデックス (0〜23)
+    pub board_data: Vec<f32>,    // エンコード済み盤面 (TENSOR_SIZE floats = 120)
+    pub context_data: Vec<f32>,  // コンテキストエンコーディング (CONTEXT_TENSOR_SIZE floats = 18: ツモ one-hot)
+    pub action_index: u8,        // SimulationEvaluator が選択した配置インデックス (0〜NUM_ACTIONS-1)
     pub value_target: f32,       // 教師評価器によるスコア推定値
 }
 ```
@@ -55,9 +55,9 @@ MCTS self-play で生成されるサンプル。Policy と Value の両方の教
 
 ```rust
 pub struct AlphaZeroSample {
-    pub board_data: Vec<f32>,     // エンコード済み盤面 (504 floats)
-    pub context_data: Vec<f32>,   // コンテキストエンコーディング (24 floats: ツモ one-hot)
-    pub mcts_policy: Vec<f32>,    // MCTS 探索による配置確率分布 (24 floats)
+    pub board_data: Vec<f32>,     // エンコード済み盤面 (TENSOR_SIZE floats = 120)
+    pub context_data: Vec<f32>,   // コンテキストエンコーディング (CONTEXT_TENSOR_SIZE floats = 18: ツモ one-hot)
+    pub mcts_policy: Vec<f32>,    // MCTS 探索による配置確率分布 (NUM_ACTIONS floats = 12)
     pub value_target: f32,        // 累積割引報酬（γ=0.95 で逆算）
 }
 ```
@@ -210,9 +210,11 @@ AlphaZero モードでは val split を行わず、全データを訓練に使�
 学習時に各サンプルに対してランダムな色置換を適用し、データを実質24倍に拡張する。ぷよぷよでは4色の入れ替えはゲームの意味を変えないため、等価な訓練データを生成できる。
 
 - **適用タイミング**: AlphaZero 学習時の各ステップで、ミニバッチサンプリングと同時にオンザフライで適用（ランダムに1置換を選択）
-- **置換数**: 4! = 24通り（恒等置換を含む）
-- **適用対象**: `board_data`（ch0-3の色one-hotチャンネルを入れ替え）と `context_data`（6つの4要素one-hotブロックを入れ替え）
-- **不変項目**: `mcts_policy`（アクションは列×方向で色に依存しない）、`value_target`（累積スコア）、`board_data` の ch4（占有）・ch5（隣接度）
+- **置換数**: NUM_COLORS! 通り（NUM_COLORS=3 なら 3! = 6通り、恒等置換を含む）
+- **ColorPermutation**: `Vec<usize>`（NUM_COLORS に応じた可変長）。`all_color_permutations()` が `Vec<ColorPermutation>` を返す
+- **PLANE_SIZE**: ROWS × COLS (= 24)
+- **適用対象**: `board_data`（ch0〜(NUM_COLORS-1) の色one-hotチャンネルを入れ替え）と `context_data`（6つの NUM_COLORS 要素 one-hot ブロックを入れ替え）。`apply_color_perm_board` / `apply_color_perm_context` は NUM_COLORS でパラメータ化されている
+- **不変項目**: `mcts_policy`（アクションは列×方向で色に依存しない）、`value_target`（累積スコア）、`board_data` の ch NUM_COLORS（占有）・ch NUM_COLORS+1（隣接度）
 
 ### リプレイバッファ
 

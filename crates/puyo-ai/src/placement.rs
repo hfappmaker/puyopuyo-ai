@@ -1,14 +1,38 @@
 use puyo_core::board::{Board, ChainResult, COLS, ROWS, SPAWN_COL};
-use puyo_core::game::GameState;
 use puyo_core::piece::{Orientation, Piece, Placement};
+
+/// Place a piece directly onto a board (no GameState overhead).
+fn place_piece_on_board(board: &mut Board, piece: &Piece, placement: &Placement) {
+    let (dc, _dr) = placement.orientation.offset();
+
+    match placement.orientation {
+        Orientation::North => {
+            board.drop_puyo(placement.col, piece.axis_color);
+            let sat_col = (placement.col as i32 + dc) as usize;
+            let sat_h = board.column_height(sat_col);
+            if sat_h < ROWS && !board.get(sat_col, sat_h).is_color() {
+                board.drop_puyo(sat_col, piece.satellite_color);
+            }
+        }
+        Orientation::South => {
+            let sat_col = (placement.col as i32 + dc) as usize;
+            board.drop_puyo(sat_col, piece.satellite_color);
+            board.drop_puyo(placement.col, piece.axis_color);
+        }
+        Orientation::East | Orientation::West => {
+            board.drop_puyo(placement.col, piece.axis_color);
+            let sat_col = (placement.col as i32 + dc) as usize;
+            board.drop_puyo(sat_col, piece.satellite_color);
+        }
+    }
+}
 
 /// Simulate placing a piece on a board clone. Returns the resulting board and chain result.
 pub fn simulate_placement(board: &Board, piece: &Piece, placement: &Placement) -> (Board, ChainResult) {
-    let mut sim = GameState::new(0);
-    sim.board = board.clone();
-    sim.place_piece(piece, placement);
-    let chain_result = sim.board.resolve_chains();
-    (sim.board, chain_result)
+    let mut b = board.clone();
+    place_piece_on_board(&mut b, piece, placement);
+    let chain_result = b.resolve_chains();
+    (b, chain_result)
 }
 
 /// Compute which columns are reachable from the spawn column.
@@ -33,17 +57,17 @@ fn compute_reachable_columns(board: &Board) -> [bool; COLS] {
 }
 
 /// Enumerate all legal placements for a piece on the given board.
-/// Maximum 22 placements: North/South × 6 cols + East × 5 cols + West × 5 cols.
+/// Maximum COLS*2 + (COLS-1)*2 placements: North/South × COLS + East/West × (COLS-1).
 ///
 /// Placement rules:
 /// 1. The axis puyo must not land at row ROWS-1 (the topmost hidden row).
-/// 2. Each column involved must be reachable from the spawn column (col 2).
+/// 2. Each column involved must be reachable from the spawn column (SPAWN_COL).
 ///    A column with height >= ROWS-1 blocks traversal.
 pub fn enumerate_placements(board: &Board, piece: &Piece) -> Vec<Placement> {
     let reachable = compute_reachable_columns(board);
 
     // North: axis on bottom, satellite above. h + 2 <= max_rows ensures both fit.
-    // If row 13 has an isolated puyo, satellite cannot go there.
+    // If the top hidden row (ROWS-1) has an isolated puyo, satellite cannot go there.
     let north = (0..COLS)
         .filter(|&col| {
             let (h, isolated) = board.column_info(col);
@@ -67,7 +91,7 @@ pub fn enumerate_placements(board: &Board, piece: &Piece) -> Vec<Placement> {
         .map(|col| Placement::new(col, Orientation::South));
 
     // East: axis at col, satellite at col+1. Axis must be < ROWS-1.
-    // Satellite column with isolated row 13 puyo has reduced max height.
+    // If satellite column has an isolated puyo at the top hidden row, max height is reduced.
     let east = (0..COLS - 1)
         .filter(|&col| {
             let (sat_h, sat_isolated) = board.column_info(col + 1);
@@ -80,7 +104,7 @@ pub fn enumerate_placements(board: &Board, piece: &Piece) -> Vec<Placement> {
         .map(|col| Placement::new(col, Orientation::East));
 
     // West: axis at col, satellite at col-1. Axis must be < ROWS-1.
-    // Satellite column with isolated row 13 puyo has reduced max height.
+    // If satellite column has an isolated puyo at the top hidden row, max height is reduced.
     let west = (1..COLS)
         .filter(|&col| {
             let (sat_h, sat_isolated) = board.column_info(col - 1);
@@ -106,8 +130,8 @@ pub fn enumerate_placements(board: &Board, piece: &Piece) -> Vec<Placement> {
     placements
 }
 
-/// Total number of possible placement indices (6 cols × 4 orientations).
-pub const NUM_ACTIONS: usize = 24;
+/// Total number of possible placement indices (COLS × 4 orientations).
+pub const NUM_ACTIONS: usize = COLS * 4;
 
 /// Convert a Placement to a flat index: col * 4 + orientation.as_u8().
 pub fn placement_to_index(p: &Placement) -> usize {
@@ -115,7 +139,7 @@ pub fn placement_to_index(p: &Placement) -> usize {
 }
 
 /// Convert a flat index back to a Placement.
-/// Panics if index >= 24.
+/// Panics if index >= NUM_ACTIONS.
 pub fn index_to_placement(index: usize) -> Placement {
     assert!(index < NUM_ACTIONS, "index out of range: {}", index);
     let col = index / 4;
@@ -130,7 +154,7 @@ pub fn index_to_placement(index: usize) -> Placement {
 }
 
 /// Compute a valid-action mask from enumerate_placements.
-/// Returns [bool; 24] where true = valid placement.
+/// Returns [bool; NUM_ACTIONS] where true = valid placement.
 pub fn compute_valid_mask(board: &Board, piece: &Piece) -> [bool; NUM_ACTIONS] {
     let mut mask = [false; NUM_ACTIONS];
     for p in enumerate_placements(board, piece) {
@@ -158,15 +182,16 @@ fn normalize_placement(p: &Placement) -> (usize, usize, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use puyo_core::board::PuyoColor;
+    use puyo_core::board::{PuyoColor, VISIBLE_ROWS};
 
     #[test]
     fn test_empty_board_placements() {
         let board = Board::new();
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let placements = enumerate_placements(&board, &piece);
-        // North: 6, South: 6, East: 5, West: 5 = 22
-        assert_eq!(placements.len(), 22);
+        // North: COLS, South: COLS, East: COLS-1, West: COLS-1
+        let expected = COLS * 2 + (COLS - 1) * 2;
+        assert_eq!(placements.len(), expected);
     }
 
     #[test]
@@ -174,9 +199,9 @@ mod tests {
         let board = Board::new();
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Red);
         let placements = enumerate_placements(&board, &piece);
-        // North==South for each col (6 deduped to 6), East(c)==West(c+1) (5 deduped to 5)
-        // Total: 6 + 5 = 11
-        assert_eq!(placements.len(), 11);
+        // North==South deduped to COLS, East(c)==West(c+1) deduped to COLS-1
+        let expected = COLS + (COLS - 1);
+        assert_eq!(placements.len(), expected);
     }
 
     #[test]
@@ -188,249 +213,237 @@ mod tests {
         }
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let placements = enumerate_placements(&board, &piece);
-        // Col 0 is full (height 14 >= 13), unreachable and blocked by height checks.
-        // Remaining: North 5 + South 5 + East 4 + West 4 = 18
-        assert_eq!(placements.len(), 18);
+        // Col 0 is full (height >= ROWS-1), blocks traversal left of spawn.
+        // Col 0 unreachable. Remaining cols: COLS-1
+        // North (COLS-1) + South (COLS-1) + East (COLS-2) + West (COLS-2, but col 0 blocked)
+        let remaining = COLS - 1;
+        let expected = remaining * 2 + (remaining - 1).max(0) + (remaining - 1).max(0);
+        assert_eq!(placements.len(), expected);
     }
 
     #[test]
-    fn test_south_blocked_at_height_12() {
+    fn test_south_blocked_at_visible_height() {
         let mut board = Board::new();
-        // Fill column 3 to height 12
-        for _ in 0..12 {
-            board.drop_puyo(3, PuyoColor::Red);
+        // Fill column to VISIBLE_ROWS height
+        for _ in 0..VISIBLE_ROWS {
+            board.drop_puyo(COLS - 1, PuyoColor::Red);
         }
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let placements = enumerate_placements(&board, &piece);
 
-        // South at col 3: h=12, h+2=14 > 13=ROWS-1 → blocked (axis would be at row 13)
+        // South: h=VISIBLE_ROWS, h+2 > ROWS-1 → blocked
         assert!(!placements
             .iter()
-            .any(|p| p.col == 3 && p.orientation == Orientation::South));
+            .any(|p| p.col == COLS - 1 && p.orientation == Orientation::South));
 
-        // North at col 3: h=12, h+2=14 <= 14=ROWS → allowed (axis at row 12)
+        // North: h=VISIBLE_ROWS, h+2 <= ROWS → allowed
         assert!(placements
             .iter()
-            .any(|p| p.col == 3 && p.orientation == Orientation::North));
+            .any(|p| p.col == COLS - 1 && p.orientation == Orientation::North));
     }
 
     #[test]
-    fn test_south_allowed_at_height_11() {
+    fn test_south_allowed_at_height_below_visible() {
         let mut board = Board::new();
-        // Fill column 3 to height 11
-        for _ in 0..11 {
-            board.drop_puyo(3, PuyoColor::Red);
+        // Fill column to VISIBLE_ROWS - 1
+        for _ in 0..VISIBLE_ROWS - 1 {
+            board.drop_puyo(COLS - 1, PuyoColor::Red);
         }
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let placements = enumerate_placements(&board, &piece);
 
-        // South at col 3: h=11, h+2=13 <= 13=ROWS-1 → allowed
+        // South: h=VISIBLE_ROWS-1, h+2 <= ROWS-1 → allowed
         assert!(placements
             .iter()
-            .any(|p| p.col == 3 && p.orientation == Orientation::South));
+            .any(|p| p.col == COLS - 1 && p.orientation == Orientation::South));
     }
 
     #[test]
     fn test_high_column_blocks_traversal_left() {
         let mut board = Board::new();
-        // Fill column 1 to height 13 → blocks access to column 0
-        for _ in 0..13 {
-            board.drop_puyo(1, PuyoColor::Red);
+        // Fill column 0 to height ROWS-1 → col 0 is impassable and unreachable
+        for _ in 0..ROWS - 1 {
+            board.drop_puyo(0, PuyoColor::Red);
         }
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let placements = enumerate_placements(&board, &piece);
 
-        // Column 0 is unreachable (blocked by col 1)
-        assert!(!placements.iter().any(|p| p.col == 0));
-
-        // Column 1 is also unreachable (height >= 13)
+        // Column 0 is unreachable (height >= ROWS-1)
         assert!(!placements.iter().any(
-            |p| p.col == 1 && matches!(p.orientation, Orientation::North | Orientation::South)
+            |p| p.col == 0 && matches!(p.orientation, Orientation::North | Orientation::South)
         ));
 
-        // Columns 2-5 are reachable
+        // Columns right of col 0 are still reachable
         assert!(placements
             .iter()
-            .any(|p| p.col == 2 && p.orientation == Orientation::North));
+            .any(|p| p.col == SPAWN_COL && p.orientation == Orientation::North));
         assert!(placements
             .iter()
-            .any(|p| p.col == 5 && p.orientation == Orientation::North));
+            .any(|p| p.col == COLS - 1 && p.orientation == Orientation::North));
     }
 
     #[test]
     fn test_high_column_blocks_traversal_right() {
         let mut board = Board::new();
-        // Fill column 4 to height 13 → blocks access to column 5
-        for _ in 0..13 {
-            board.drop_puyo(4, PuyoColor::Red);
+        // Fill rightmost column to ROWS-1 → blocks access
+        for _ in 0..ROWS - 1 {
+            board.drop_puyo(COLS - 1, PuyoColor::Red);
         }
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let placements = enumerate_placements(&board, &piece);
 
-        // Column 5 is unreachable (blocked by col 4)
-        assert!(!placements.iter().any(|p| p.col == 5));
-
-        // Column 4 is also unreachable (height >= 13)
+        // Rightmost column is unreachable (height >= ROWS-1)
         assert!(!placements.iter().any(
-            |p| p.col == 4 && matches!(p.orientation, Orientation::North | Orientation::South)
+            |p| p.col == COLS - 1 && matches!(p.orientation, Orientation::North | Orientation::South)
         ));
 
-        // Columns 0-3 are reachable
+        // Columns left of rightmost are reachable
         assert!(placements
             .iter()
             .any(|p| p.col == 0 && p.orientation == Orientation::North));
         assert!(placements
             .iter()
-            .any(|p| p.col == 3 && p.orientation == Orientation::North));
+            .any(|p| p.col == SPAWN_COL && p.orientation == Orientation::North));
     }
 
     #[test]
     fn test_east_west_satellite_reachability() {
         let mut board = Board::new();
-        // Fill column 4 to height 13 → col 4 and 5 unreachable
-        for _ in 0..13 {
-            board.drop_puyo(4, PuyoColor::Red);
+        // Fill rightmost column to ROWS-1 → unreachable
+        for _ in 0..ROWS - 1 {
+            board.drop_puyo(COLS - 1, PuyoColor::Red);
         }
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let placements = enumerate_placements(&board, &piece);
 
-        // East at col 3: satellite at col 4 (unreachable) → blocked
+        // East at spawn col: satellite at COLS-1 (unreachable) → blocked
         assert!(!placements
             .iter()
-            .any(|p| p.col == 3 && p.orientation == Orientation::East));
+            .any(|p| p.col == SPAWN_COL && p.orientation == Orientation::East));
 
-        // West at col 4: axis col 4 (unreachable) → blocked
-        assert!(!placements
-            .iter()
-            .any(|p| p.col == 4 && p.orientation == Orientation::West));
-
-        // East at col 2: axis col 2, satellite col 3 (both reachable) → allowed
+        // West at spawn col: satellite col 0 (reachable) → allowed
         assert!(placements
             .iter()
-            .any(|p| p.col == 2 && p.orientation == Orientation::East));
+            .any(|p| p.col == SPAWN_COL && p.orientation == Orientation::West));
 
-        // West at col 3: axis col 3, satellite col 2 (both reachable) → allowed
+        // East at col 0: satellite at spawn col (reachable) → allowed
         assert!(placements
             .iter()
-            .any(|p| p.col == 3 && p.orientation == Orientation::West));
+            .any(|p| p.col == 0 && p.orientation == Orientation::East));
     }
 
     #[test]
-    fn test_north_blocked_by_isolated_row13() {
+    fn test_north_blocked_by_isolated_top_row() {
         let mut board = Board::new();
-        // Fill col 3 to height 12
-        for _ in 0..12 {
-            board.drop_puyo(3, PuyoColor::Red);
+        // Fill rightmost col to height ROWS-2
+        for _ in 0..ROWS - 2 {
+            board.drop_puyo(COLS - 1, PuyoColor::Red);
         }
-        // Isolated puyo at row 13
-        board.set(3, ROWS - 1, PuyoColor::Green);
+        // Isolated puyo at row ROWS-1
+        board.set(COLS - 1, ROWS - 1, PuyoColor::Green);
 
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let placements = enumerate_placements(&board, &piece);
 
-        // North at col 3: h=12, satellite would go to row 13 (occupied) → blocked
+        // North: satellite would go to ROWS-1 (occupied) → blocked
         assert!(!placements
             .iter()
-            .any(|p| p.col == 3 && p.orientation == Orientation::North));
+            .any(|p| p.col == COLS - 1 && p.orientation == Orientation::North));
     }
 
     #[test]
-    fn test_north_allowed_without_isolated_row13() {
+    fn test_north_allowed_without_isolated_top_row() {
         let mut board = Board::new();
-        // Fill col 3 to height 10 + isolated puyo at row 13
-        for _ in 0..10 {
-            board.drop_puyo(3, PuyoColor::Red);
+        // Fill rightmost col to half height + isolated puyo at ROWS-1
+        for _ in 0..VISIBLE_ROWS / 2 {
+            board.drop_puyo(COLS - 1, PuyoColor::Red);
         }
-        board.set(3, ROWS - 1, PuyoColor::Green);
+        board.set(COLS - 1, ROWS - 1, PuyoColor::Green);
 
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let placements = enumerate_placements(&board, &piece);
 
-        // North at col 3: h=10, satellite at row 11 (not row 13) → allowed
+        // North: satellite at h+1 (not ROWS-1) → allowed
         assert!(placements
             .iter()
-            .any(|p| p.col == 3 && p.orientation == Orientation::North));
+            .any(|p| p.col == COLS - 1 && p.orientation == Orientation::North));
     }
 
     #[test]
-    fn test_south_blocked_when_both_neighbors_height_13() {
+    fn test_south_blocked_when_both_neighbors_high() {
         let mut board = Board::new();
-        // Fill col 1 and col 3 to height 13
-        for _ in 0..13 {
-            board.drop_puyo(1, PuyoColor::Red);
-            board.drop_puyo(3, PuyoColor::Blue);
+        // Fill col 0 and rightmost col to height ROWS-1
+        for _ in 0..ROWS - 1 {
+            board.drop_puyo(0, PuyoColor::Red);
+            board.drop_puyo(COLS - 1, PuyoColor::Blue);
         }
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let placements = enumerate_placements(&board, &piece);
 
-        // South at col 2: both neighbors (col 1, col 3) have height 13
-        // → rotation through East or West is blocked → South not reachable
+        // South at spawn col: both neighbors high → rotation blocked → South not reachable
         assert!(!placements
             .iter()
-            .any(|p| p.col == 2 && p.orientation == Orientation::South));
+            .any(|p| p.col == SPAWN_COL && p.orientation == Orientation::South));
 
-        // North at col 2 should still be allowed
+        // North at spawn col should still be allowed
         assert!(placements
             .iter()
-            .any(|p| p.col == 2 && p.orientation == Orientation::North));
+            .any(|p| p.col == SPAWN_COL && p.orientation == Orientation::North));
     }
 
     #[test]
-    fn test_south_allowed_when_one_neighbor_height_13() {
+    fn test_south_allowed_when_one_neighbor_high() {
         let mut board = Board::new();
-        // Fill only col 1 to height 13, col 3 is low
-        for _ in 0..13 {
-            board.drop_puyo(1, PuyoColor::Red);
+        // Fill only col 0 to height ROWS-1, col 2 is low
+        for _ in 0..ROWS - 1 {
+            board.drop_puyo(0, PuyoColor::Red);
         }
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let placements = enumerate_placements(&board, &piece);
 
-        // South at col 2: col 1 blocked but col 3 is open → can rotate via East
+        // South at spawn col: col 0 blocked but rightmost is open → can rotate via East
         assert!(placements
             .iter()
-            .any(|p| p.col == 2 && p.orientation == Orientation::South));
+            .any(|p| p.col == SPAWN_COL && p.orientation == Orientation::South));
     }
 
     #[test]
     fn test_south_blocked_at_boundary_col0() {
         let mut board = Board::new();
-        // Fill col 1 to height 13 → col 0 has wall on left, col 1 blocked on right
-        for _ in 0..13 {
-            board.drop_puyo(1, PuyoColor::Red);
+        // Fill spawn col to ROWS-1 → col 0 unreachable (blocked by spawn)
+        for _ in 0..ROWS - 1 {
+            board.drop_puyo(SPAWN_COL, PuyoColor::Red);
         }
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let placements = enumerate_placements(&board, &piece);
 
-        // South at col 0: left is wall (blocked), right is col 1 height 13 (blocked)
-        // But col 0 is unreachable anyway (blocked by col 1)
+        // South at col 0: col 0 is unreachable (spawn col blocked)
         assert!(!placements
             .iter()
             .any(|p| p.col == 0 && p.orientation == Orientation::South));
     }
 
     #[test]
-    fn test_east_west_blocked_by_isolated_row13_satellite() {
+    fn test_east_west_blocked_by_isolated_top_row_satellite() {
         let mut board = Board::new();
-        // Fill col 4 to height 13 (row 0-12 filled)
-        for _ in 0..13 {
-            board.drop_puyo(4, PuyoColor::Red);
+        // Fill rightmost col to ROWS-1 + isolated puyo at ROWS-1
+        for _ in 0..ROWS - 1 {
+            board.drop_puyo(COLS - 1, PuyoColor::Red);
         }
-        // Isolated puyo at row 13 on col 4
-        board.set(4, ROWS - 1, PuyoColor::Green);
+        board.set(COLS - 1, ROWS - 1, PuyoColor::Green);
 
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let placements = enumerate_placements(&board, &piece);
 
-        // East at col 3: satellite at col 4 (height 13, isolated row 13)
-        // sat_max = ROWS - 1 = 13, height 13 < 13 is false → blocked
+        // East at spawn col: satellite at COLS-1 (blocked) → blocked
         assert!(!placements
             .iter()
-            .any(|p| p.col == 3 && p.orientation == Orientation::East));
+            .any(|p| p.col == SPAWN_COL && p.orientation == Orientation::East));
     }
 
     #[test]
     fn test_placement_to_index_roundtrip() {
-        for col in 0..6 {
+        for col in 0..COLS {
             for ori in [
                 Orientation::North,
                 Orientation::East,
@@ -451,7 +464,8 @@ mod tests {
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let mask = compute_valid_mask(&board, &piece);
         let count = mask.iter().filter(|&&v| v).count();
-        assert_eq!(count, 22); // same as enumerate_placements
+        let expected = COLS * 2 + (COLS - 1) * 2;
+        assert_eq!(count, expected);
     }
 
     #[test]
@@ -460,6 +474,7 @@ mod tests {
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Red);
         let mask = compute_valid_mask(&board, &piece);
         let count = mask.iter().filter(|&&v| v).count();
-        assert_eq!(count, 11); // deduped
+        let expected = COLS + (COLS - 1);
+        assert_eq!(count, expected);
     }
 }

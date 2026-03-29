@@ -14,44 +14,44 @@
 
 | 方向 | 軸の列範囲 | 条件 | 理由 |
 |------|-----------|------|------|
-| North | 0〜5 | 到達可能 かつ 列の高さ + 2 ≦ max_rows※ | 軸（下）と衛星（上）が縦に並ぶため2マス必要 |
-| South | 0〜5 | 到達可能 かつ 列の高さ + 2 ≦ 13 かつ 回転到達可能※2 | 衛星（下）と軸（上）。軸が14段目に入らないよう制限 |
-| East | 0〜4 | 両列到達可能 かつ 軸列の高さ < 13 かつ 衛星列の高さ < sat_max※ | 横並び。軸が14段目に入らないよう制限 |
-| West | 1〜5 | 両列到達可能 かつ 軸列の高さ < 13 かつ 衛星列の高さ < sat_max※ | 横並び。軸が14段目に入らないよう制限 |
+| North | 0〜COLS-1 | 到達可能 かつ 列の高さ + 2 ≦ max_rows※ | 軸（下）と衛星（上）が縦に並ぶため2マス必要 |
+| South | 0〜COLS-1 | 到達可能 かつ 列の高さ + 2 ≦ ROWS-1 かつ 回転到達可能※2 | 衛星（下）と軸（上）。軸が最上非可視行に入らないよう制限 |
+| East | 0〜COLS-2 | 両列到達可能 かつ 軸列の高さ < ROWS-1 かつ 衛星列の高さ < sat_max※ | 横並び。軸が最上非可視行に入らないよう制限 |
+| West | 1〜COLS-1 | 両列到達可能 かつ 軸列の高さ < ROWS-1 かつ 衛星列の高さ < sat_max※ | 横並び。軸が最上非可視行に入らないよう制限 |
 
-- 異色の場合: 最大22パターン（North 6 + South 6 + East 5 + West 5）
-- 同色の場合: North/South が重複、East(col)/West(col+1) が重複 → 最大11パターン
+- 異色の場合: 最大10パターン（COLS=3: North 3 + South 3 + East 2 + West 2）
+- 同色の場合: North/South が重複、East(col)/West(col+1) が重複 → 最大5パターン
 
-※ `max_rows` / `sat_max`: 通常は ROWS（14）だが、対象列に row 13 の孤立ぷよ（`has_isolated_top_puyo` が true）がある場合は ROWS - 1（13）に制限される。連鎖消去後に row 13 に残った孤立ぷよを上書きしないための保護。
+※ `max_rows` / `sat_max`: 通常は ROWS（8）だが、対象列に最上非可視行（row ROWS-1）の孤立ぷよ（`has_isolated_top_puyo` が true）がある場合は ROWS - 1（7）に制限される。連鎖消去後に最上非可視行に残った孤立ぷよを上書きしないための保護。
 
-※2 **回転到達可能性**: South 方向はスポーン時の North から East または West を経由して回転する必要がある。隣接する両列（col-1 と col+1）が共に高さ ≧ 13 の場合、どちらの中間方向への回転もブロックされるため South 配置は除外される。境界列（col=0, col=5）は壁側が常にブロック扱い。
+※2 **回転到達可能性**: South 方向はスポーン時の North から East または West を経由して回転する必要がある。隣接する両列（col-1 と col+1）が共に高さ ≧ ROWS-1 の場合、どちらの中間方向への回転もブロックされるため South 配置は除外される。境界列（col=0, col=COLS-1）は壁側が常にブロック扱い。
 
 4方向の配置をイテレータチェイン（`filter().map()` + `chain().collect()`）で列挙。同色の重複排除は `normalize_placement` で正規化キーを生成し `HashSet` でフィルタ。
 
 ### 配置制限ルール
 
-#### ルール1: 軸ぷよの14段目制限
+#### ルール1: 軸ぷよの最上非可視行制限
 
-軸ぷよが14段目（row 13、最上段の非可視行）に着地する配置は不正とする。ゲームプレイでは `FallingPiece` の衝突判定により自然に制限されるが、AI用の配置列挙でも同等の制限を適用する。
+軸ぷよが最上非可視行（row ROWS-1）に着地する配置は不正とする。ゲームプレイでは `FallingPiece` の衝突判定により自然に制限されるが、AI用の配置列挙でも同等の制限を適用する。
 
-- **South**: 軸は衛星の上に位置するため、列の高さが12以上だと軸が14段目に入る → `h + 2 ≦ ROWS - 1`
-- **East/West**: 軸列の高さが13以上だと軸が14段目に入る → `軸列の高さ < ROWS - 1`
-- **North**: 軸は下側なので `h + 2 ≦ ROWS` で自動的に軸は13段目以下に収まる。ただし row 13 に孤立ぷよがある場合は `max_rows = ROWS - 1` に制限される（衛星の上書き防止）
+- **South**: 軸は衛星の上に位置するため、列の高さが VISIBLE_ROWS 以上だと軸が最上非可視行に入る → `h + 2 ≦ ROWS - 1`
+- **East/West**: 軸列の高さが ROWS-1 以上だと軸が最上非可視行に入る → `軸列の高さ < ROWS - 1`
+- **North**: 軸は下側なので `h + 2 ≦ ROWS` で自動的に軸は ROWS-2 段目以下に収まる。ただし最上非可視行に孤立ぷよがある場合は `max_rows = ROWS - 1` に制限される（衛星の上書き防止）
 
 #### ルール2: スポーン列からの到達可能性
 
-ピースはスポーン列（列2）の上部から出現し、左右移動で他の列に到達する。高さが ROWS - 1（13）以上の列は上部が塞がれているため、通過できない。
+ピースはスポーン列（列1）の上部から出現し、左右移動で他の列に到達する。高さが ROWS - 1（7）以上の列は上部が塞がれているため、通過できない。
 
 `compute_reachable_columns` 関数が `SPAWN_COL` から左右に展開し、到達可能な列を計算する。イテレータチェイン（`once().chain().chain()` + `take_while`）で実装:
-- `SPAWN_COL` から左方向: 高さ ≧ 13 の列で遮断（`take_while`）
+- `SPAWN_COL` から左方向: 高さ ≧ ROWS-1 の列で遮断（`take_while`）
 - `SPAWN_COL` から右方向: 同上
-- 高さ ≧ 13 の列自体も到達不可
+- 高さ ≧ ROWS-1 の列自体も到達不可
 
 East/West 配置では軸列・衛星列の両方が到達可能でなければならない。
 
 #### ルール3: row 13 孤立ぷよとの重複配置防止
 
-連鎖消去により row 13 にぷよが孤立して残る場合がある（下の行が消えても `apply_gravity` は row 13 を移動しない）。この孤立ぷよを上書きしないよう、3層の防御を行う:
+連鎖消去により最上非可視行（row ROWS-1）にぷよが孤立して残る場合がある（下の行が消えても `apply_gravity` は最上非可視行を移動しない）。この孤立ぷよを上書きしないよう、3層の防御を行う:
 
 1. **AI配置列挙**: `column_info(col)` の孤立フラグで検出し、North/East/West の衛星配置先の上限を `ROWS - 1` に制限
 2. **ゲームプレイ衝突判定**: `FallingPiece::can_occupy` でセルレベルの衝突チェックを実施（`board.get(col, row).is_color()` で占有セルを検出）
@@ -83,7 +83,7 @@ fn find_best_move(&self, board: &Board, current: &Piece, next: &Piece, next_next
 
 ### 計算量
 
-- depth-2: 最大 22 × 22 = 484 盤面の評価
+- depth-2: 最大 10 × 10 = 100 盤面の評価（COLS=3 の場合）
 
 ## Gumbel MCTS 探索（mcts.rs）
 
@@ -94,14 +94,14 @@ Gumbel AlphaZero（Danihelka et al. 2022）に基づくモンテカルロ木探�
 | 構造体 | 説明 |
 |--------|------|
 | `MctsTree` | 探索木全体を管理。`gamma: f32` で割引率、`root_value: f32` でルートの価値推定、`min_value`/`max_value` でMin-Max正規化範囲を保持 |
-| `MctsNode` | 探索木の各ノード。`visit_count: u32`、`total_value: f32`、`prior: f32`、`priors: [f32; 24]`、`logits: [f32; 24]`、`children: [Option<usize>; 24]`、`expanded: bool`、`terminal: bool`、`immediate_reward: f32`（連鎖スコア）、`valid_mask: [bool; 24]`、`depth: u32` を保持 |
+| `MctsNode` | 探索木の各ノード。`visit_count: u32`、`total_value: f32`、`prior: f32`、`priors: [f32; NUM_ACTIONS]`、`logits: [f32; NUM_ACTIONS]`、`children: [Option<usize>; NUM_ACTIONS]`、`expanded: bool`、`terminal: bool`、`immediate_reward: f32`（連鎖スコア）、`valid_mask: [bool; NUM_ACTIONS]`、`depth: u32` を保持 |
 
 `MctsTree` の公開メソッド:
 
 | メソッド | 説明 |
 |---------|------|
 | `new(board, current, next, next_next, gamma) -> Self` | 探索木を初期化。ルートノードを作成 |
-| `root_q_values() -> [f32; 24]` | ルート直下の各アクションの平均累積報酬（Q値）を返す |
+| `root_q_values() -> [f32; NUM_ACTIONS]` | ルート直下の各アクションの平均累積報酬（Q値）を返す |
 
 ### ランダムツモの扱い
 
@@ -177,7 +177,7 @@ pub fn mcts_search(
 ```
 
 - **入力**: 盤面、3ツモ、`InferenceProvider`（推論プロバイダ）、`MctsConfig`（探索パラメータ一式）、Gumbelシード
-- **出力**: (24次元のimproved policy, 24次元のQ値)
+- **出力**: (NUM_ACTIONS次元のimproved policy, NUM_ACTIONS次元のQ値)
 
 `MctsConfig`のフィールド:
 - `num_simulations`: シミュレーション回数（デフォルト64）
@@ -190,10 +190,10 @@ pub fn mcts_search(
 
 - `simulate_placement(board, piece, placement) -> (Board, ChainResult)`: 配置シミュレーション。一時的な `GameState` でピースを設置し連鎖解決。結果の盤面と `ChainResult` を返す。元の盤面は変更されない
 - `enumerate_placements(board, piece) -> Vec<Placement>`: 盤面上の全合法配置を列挙する
-- `NUM_ACTIONS: usize = 24`: 配置インデックスの総数（6列 × 4方向）
-- `placement_to_index(placement) -> usize`: `Placement` を 0〜23 のインデックスに変換（`col * 4 + orientation.as_u8()`）
-- `index_to_placement(index) -> Placement`: インデックスを `Placement` に逆変換。`index >= 24` でパニック
-- `compute_valid_mask(board, piece) -> [bool; 24]`: 合法配置に対応するインデックスを `true` にしたマスク配列を返す
+- `NUM_ACTIONS: usize = COLS * 4`: 配置インデックスの総数（3列 × 4方向 = 12（COLS=3 の場合））
+- `placement_to_index(placement) -> usize`: `Placement` を 0〜NUM_ACTIONS-1 のインデックスに変換（`col * 4 + orientation.as_u8()`）
+- `index_to_placement(index) -> Placement`: インデックスを `Placement` に逆変換。`index >= NUM_ACTIONS` でパニック
+- `compute_valid_mask(board, piece) -> [bool; NUM_ACTIONS]`: 合法配置に対応するインデックスを `true` にしたマスク配列を返す
 
 ## ハッシュユーティリティ
 

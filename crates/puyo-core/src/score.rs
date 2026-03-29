@@ -30,7 +30,7 @@ pub fn calculate_step_score(chain_num: u32, groups: &[Group]) -> u32 {
     let chain_power = CHAIN_POWER[cp_idx];
 
     // Color bonus: count distinct colors
-    let mut colors_seen = [false; 5]; // index by PuyoColor as u8
+    let mut colors_seen = [false; 5]; // index by PuyoColor as u8 (max Yellow=4)
     for group in groups {
         colors_seen[group.color as u8 as usize] = true;
     }

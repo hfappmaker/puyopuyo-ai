@@ -1,4 +1,4 @@
-use puyo_core::board::{Board, COLS, ROWS};
+use puyo_core::board::{Board, COLS, NUM_COLORS, ROWS};
 use puyo_core::piece::Piece;
 use puyo_nn::encoding::{context_to_tensor_data, board_to_tensor_data};
 
@@ -14,9 +14,6 @@ pub trait InferenceProvider {
     /// The value is already inverse-transformed (raw cumulative reward scale).
     fn infer(&self, board_data: &[f32], context_data: &[f32]) -> (Vec<f32>, f32);
 }
-
-/// Number of puyo colors for random tsumo generation.
-const NUM_COLORS: u32 = 4;
 
 /// Game snapshot for MCTS nodes.
 #[derive(Clone)]
@@ -39,7 +36,7 @@ struct MctsNode {
     priors: [f32; NUM_ACTIONS],
     /// Raw NN logits before softmax (set when expanded).
     logits: [f32; NUM_ACTIONS],
-    /// Children indexed by action (0-23). None = not yet expanded for this action.
+    /// Children indexed by action (0..NUM_ACTIONS-1). None = not yet expanded for this action.
     children: [Option<usize>; NUM_ACTIONS],
     /// Whether this node has been expanded (network evaluated).
     expanded: bool,
@@ -674,10 +671,11 @@ mod tests {
 
     #[test]
     fn test_masked_softmax_basic() {
-        let logits = [1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-        let mut mask = [false; 24];
+        let mut logits = [0.0f32; NUM_ACTIONS];
+        logits[0] = 1.0;
+        logits[1] = 2.0;
+        logits[2] = 3.0;
+        let mut mask = [false; NUM_ACTIONS];
         mask[0] = true;
         mask[1] = true;
         mask[2] = true;
@@ -707,7 +705,7 @@ mod tests {
     fn test_mcts_tree_creation() {
         let board = Board::new();
         let current = Piece::new(PuyoColor::Red, PuyoColor::Blue);
-        let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
+        let next = Piece::new(PuyoColor::Green, PuyoColor::Blue);
         let next_next = Piece::new(PuyoColor::Blue, PuyoColor::Red);
 
         let tree = MctsTree::new(&board, &current, &next, &next_next, 0.95);
@@ -727,13 +725,15 @@ mod tests {
 
     #[test]
     fn test_compute_improved_policy_normalized() {
-        let logits = [1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-        let q = [10.0, 20.0, 15.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-        let mut mask = [false; 24];
+        let mut logits = [0.0f32; NUM_ACTIONS];
+        logits[0] = 1.0;
+        logits[1] = 2.0;
+        logits[2] = 3.0;
+        let mut q = [0.0f32; NUM_ACTIONS];
+        q[0] = 10.0;
+        q[1] = 20.0;
+        q[2] = 15.0;
+        let mut mask = [false; NUM_ACTIONS];
         mask[0] = true;
         mask[1] = true;
         mask[2] = true;

@@ -1,10 +1,10 @@
-export const COLS = 6;
-export const ROWS = 14; // 12 visible + 2 hidden (must match Rust ROWS)
-export const VISIBLE_ROWS = 12;
+export const COLS = 3;
+export const ROWS = 8; // 6 visible + 2 hidden (must match Rust ROWS)
+export const VISIBLE_ROWS = 6;
 
-export const CELL_SIZE = 40; // pixels per cell
-export const BOARD_WIDTH = COLS * CELL_SIZE;   // 240
-export const BOARD_HEIGHT = ROWS * CELL_SIZE;  // 560 (hidden rows included)
+export const CELL_SIZE = 64; // pixels per cell
+export const BOARD_WIDTH = COLS * CELL_SIZE;   // 192
+export const BOARD_HEIGHT = ROWS * CELL_SIZE;  // 512 (hidden rows included)
 
 // Puyo colors (matching Rust PuyoColor repr)
 export const COLOR_EMPTY = 0;

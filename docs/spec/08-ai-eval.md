@@ -46,15 +46,15 @@ puyo-ai/src/
 
 ### 評価の流れ
 
-1. 4色それぞれについて同色2個の `Piece` を作成
-2. `enumerate_placements()` で合法配置を列挙（同色Pieceなので最大11配置/色）
+1. `PuyoColor::all_colors()` で取得したアクティブな各色について同色2個の `Piece` を作成（NUM_COLORS=3 なら3色）
+2. `enumerate_placements()` で合法配置を列挙（同色Pieceなので最大5配置/色（3列の場合））
 3. 各配置に対して `simulate_placement()` → 連鎖解決でスコアを計算
 4. 全パターンのスコア合計を配置数で割った期待値（平均スコア）を `f64` として返す
 5. 合法配置が1つもない場合（盤面が満杯）は `W_GAME_OVER` を返す
 
 ### 仮想ぷよのルール
 
-- 色: Red, Green, Blue, Yellow の4色
+- 色: `PuyoColor::all_colors()` で取得（NUM_COLORS=3 なら Red, Green, Blue）
 - 各色について同色2個の `Piece::new(color, color)` を作成
 - `enumerate_placements()` により合法配置のみを評価対象とする（実際のゲーム操作と一致）
 - 同色Pieceのため、回転による重複配置は自動的に排除される
@@ -62,8 +62,8 @@ puyo-ai/src/
 
 ### 計算量
 
-- 最大44回（4色 × 最大11配置）のシミュレーション / 盤面評価
-- depth-2 探索と組み合わせた場合: ~484盤面 × 44 ≈ 21,296 シミュレーション / 手
+- 最大15回（3色 × 最大5配置（3列の場合））のシミュレーション / 盤面評価
+- depth-2 探索と組み合わせた場合: ~100盤面 × 15 ≈ 1,500 シミュレーション / 手
 
 ### 探索時の評価値
 
@@ -97,8 +97,8 @@ Dual Head Network（`PuyoNet`）で盤面とコンテキスト情報（3ツモ�
 
 ### Policy-only モードの評価の流れ
 
-1. 盤面を one-hot エンコーディング（6ch × 14行 × 6列）に変換
-2. 3ツモを `context_to_tensor_data()` で24次元ベクトルに変換
+1. 盤面を one-hot エンコーディング（5ch × 8行 × 3列）に変換
+2. 3ツモを `context_to_tensor_data()` で18次元ベクトルに変換
 3. Dual Head Network の forward pass で (policy_logits, value) を取得
 4. `compute_valid_mask()` で合法配置のマスクを生成
 5. 不正な配置の logits を `-inf` でマスクし、argmax で最善配置インデックスを選択
@@ -106,7 +106,7 @@ Dual Head Network（`PuyoNet`）で盤面とコンテキスト情報（3ツモ�
 
 ### MCTS モードの評価の流れ
 
-1. `mcts_search()` を呼び出し、Gumbel MCTS（Sequential Halving + PUCT）で improved policy `[f32; 24]` を取得。`gamma` 引数で将来報酬の割引率を指定する
+1. `mcts_search()` を呼び出し、Gumbel MCTS（Sequential Halving + PUCT）で improved policy `[f32; NUM_ACTIONS]` を取得。`gamma` 引数で将来報酬の割引率を指定する
 2. improved policy から最善配置を選択
 3. 詳細は `docs/spec/09-ai-search.md` の Gumbel MCTS 探索セクションを参照
 
@@ -116,11 +116,11 @@ Dual Head Network（`PuyoNet`）で盤面とコンテキスト情報（3ツモ�
 
 | 関数 | 説明 |
 |------|------|
-| `placement_to_index(placement) -> usize` | `Placement` を 0〜23 のインデックスに変換 |
+| `placement_to_index(placement) -> usize` | `Placement` を 0〜NUM_ACTIONS-1 のインデックスに変換 |
 | `index_to_placement(index) -> Placement` | インデックスを `Placement` に逆変換 |
-| `compute_valid_mask(board, piece) -> [bool; 24]` | 合法配置に対応するインデックスを `true` にしたマスク配列を返す |
+| `compute_valid_mask(board, piece) -> [bool; NUM_ACTIONS]` | 合法配置に対応するインデックスを `true` にしたマスク配列を返す |
 
-出力次元は24（6列 × 4方向）で、各インデックスは `col * 4 + orientation` に対応する。
+出力次元は NUM_ACTIONS（COLS × 4 = 12（3列の場合））で、各インデックスは `col * 4 + orientation` に対応する。
 
 ### InferenceProvider トレイト
 

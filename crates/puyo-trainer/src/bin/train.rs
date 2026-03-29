@@ -44,7 +44,7 @@ const AZ_LR_STAGES: [(usize, f64); 4] = [
     (430000, 0.0001), // step 430k〜: LR = 0.0001
 ];
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
-const NUM_ACTIONS: usize = 24;
+const NUM_ACTIONS: usize = COLS * 4;
 const VALUE_LOSS_WEIGHT: f32 = 0.5;
 
 /// MSE loss between predicted value and transformed targets.

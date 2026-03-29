@@ -66,16 +66,9 @@ pub const W_GAME_OVER: f64 = -1000000.0;
 // シミュレーション評価
 // ---------------------------------------------------------------------------
 
-const COLORS: [PuyoColor; 4] = [
-    PuyoColor::Red,
-    PuyoColor::Green,
-    PuyoColor::Blue,
-    PuyoColor::Yellow,
-];
-
 /// 仮想ぷよ（同色2個Piece）を全合法配置に落として連鎖スコアの期待値（全パターン平均）を推定する。
 fn simulate_expected_score(board: &Board) -> f64 {
-    let (sum, count) = COLORS
+    let (sum, count) = PuyoColor::all_colors()
         .iter()
         .flat_map(|&color| {
             let piece = Piece::new(color, color);
@@ -103,14 +96,14 @@ fn simulate_expected_score(board: &Board) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use puyo_core::board::{PuyoColor, COLS};
+    use puyo_core::board::{PuyoColor, COLS, VISIBLE_ROWS};
 
     #[test]
     fn test_depth1_finds_move() {
         let board = Board::new();
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
         let evaluator = SimulationEvaluator;
-        let result = evaluator.find_best_move(&board, &piece, &Piece::new(PuyoColor::Red, PuyoColor::Blue), &Piece::new(PuyoColor::Green, PuyoColor::Yellow));
+        let result = evaluator.find_best_move(&board, &piece, &Piece::new(PuyoColor::Red, PuyoColor::Blue), &Piece::new(PuyoColor::Green, PuyoColor::Blue));
         assert!(result.is_some());
     }
 
@@ -118,17 +111,17 @@ mod tests {
     fn test_depth2_finds_move() {
         let board = Board::new();
         let current = Piece::new(PuyoColor::Red, PuyoColor::Blue);
-        let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
+        let next = Piece::new(PuyoColor::Green, PuyoColor::Blue);
         let evaluator = SimulationEvaluator;
-        let result = evaluator.find_best_move(&board, &current, &next, &Piece::new(PuyoColor::Green, PuyoColor::Yellow));
+        let result = evaluator.find_best_move(&board, &current, &next, &Piece::new(PuyoColor::Green, PuyoColor::Blue));
         assert!(result.is_some());
     }
 
     #[test]
     fn test_ai_avoids_game_over() {
         let mut board = Board::new();
-        for col in 0..6 {
-            for i in 0..10 {
+        for col in 0..COLS {
+            for i in 0..4 {
                 let color = if (col + i) % 2 == 0 {
                     PuyoColor::Red
                 } else {
@@ -139,9 +132,9 @@ mod tests {
         }
 
         let current = Piece::new(PuyoColor::Red, PuyoColor::Blue);
-        let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
+        let next = Piece::new(PuyoColor::Green, PuyoColor::Blue);
         let evaluator = SimulationEvaluator;
-        let result = evaluator.find_best_move(&board, &current, &next, &Piece::new(PuyoColor::Green, PuyoColor::Yellow));
+        let result = evaluator.find_best_move(&board, &current, &next, &Piece::new(PuyoColor::Green, PuyoColor::Blue));
         assert!(result.is_some());
     }
 
@@ -153,9 +146,9 @@ mod tests {
         board.drop_puyo(0, PuyoColor::Red);
 
         let piece = Piece::new(PuyoColor::Red, PuyoColor::Blue);
-        let next = Piece::new(PuyoColor::Green, PuyoColor::Yellow);
+        let next = Piece::new(PuyoColor::Green, PuyoColor::Blue);
         let evaluator = SimulationEvaluator;
-        let result = evaluator.find_best_move(&board, &piece, &next, &Piece::new(PuyoColor::Green, PuyoColor::Yellow));
+        let result = evaluator.find_best_move(&board, &piece, &next, &Piece::new(PuyoColor::Green, PuyoColor::Blue));
         assert!(result.is_some());
     }
 
@@ -217,7 +210,7 @@ mod tests {
         // ほぼ満杯の盤面はゲームオーバーペナルティで大きな負のスコア
         let mut board = Board::new();
         for col in 0..COLS {
-            for i in 0..12 {
+            for i in 0..VISIBLE_ROWS {
                 let color = if (col + i) % 2 == 0 {
                     PuyoColor::Red
                 } else {
@@ -239,7 +232,7 @@ mod tests {
         let mut board = Board::new();
         board.drop_puyo(2, PuyoColor::Green);
         board.drop_puyo(2, PuyoColor::Green);
-        board.drop_puyo(3, PuyoColor::Yellow);
+        board.drop_puyo(1, PuyoColor::Blue);
 
         let s1 = simulate_expected_score(&board);
         let s2 = simulate_expected_score(&board);

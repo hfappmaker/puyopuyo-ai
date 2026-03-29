@@ -35,7 +35,7 @@ AIの探索結果は「軸ぷよをどの列に、どの方向で置くか」で
 
 ```rust
 pub struct Placement {
-    pub col: usize,            // 軸の列 (0-5)
+    pub col: usize,            // 軸の列 (0-2)
     pub orientation: Orientation,
 }
 ```
@@ -43,7 +43,7 @@ pub struct Placement {
 | メソッド | 説明 |
 |---------|------|
 | `new(col, orientation)` | 新しい `Placement` を生成する |
-| `satellite_col()` | 衛星ぷよの列を `Option<usize>` で返す。盤面外（列0でWest、列5でEast）なら `None` |
+| `satellite_col()` | 衛星ぷよの列を `Option<usize>` で返す。盤面外（列0でWest、列2でEast）なら `None` |
 
 ## 落下中のぷよ組 (FallingPiece)
 
@@ -66,12 +66,12 @@ pub struct FallingPiece {
 
 | メソッド | 説明 |
 |---------|------|
-| `FallingPiece::spawn(piece)` | `SPAWN_COL`（列2）・`VISIBLE_ROWS as f32`（12.0）・North方向で出現する `FallingPiece` を生成する |
+| `FallingPiece::spawn(piece)` | `SPAWN_COL`（列1）・`VISIBLE_ROWS as f32`（6.0）・North方向で出現する `FallingPiece` を生成する |
 | `satellite_pos()` | 衛星ぷよの位置 `(col: i32, row: i32)` を返す |
 
 ## 出現位置
 
-- `SPAWN_COL`（列2）の `VISIBLE_ROWS as f32`（12.0）に出現
+- `SPAWN_COL`（列1）の `VISIBLE_ROWS as f32`（6.0）に出現
 - 初期方向は North（衛星が上）
 
 ## ウォールキック

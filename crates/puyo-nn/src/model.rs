@@ -4,15 +4,16 @@ use burn::nn::{Dropout, DropoutConfig, GroupNorm, GroupNormConfig, Linear, Linea
 use burn::prelude::*;
 
 use crate::encoding::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS};
+use puyo_core::board::COLS;
 
 const RESIDUAL_CHANNELS: usize = 64;
 const NUM_RESIDUAL_BLOCKS: usize = 6;
 const HEAD_CHANNELS: usize = 128;
-const POOL_H: usize = 4;
-const POOL_W: usize = 3;
+const POOL_H: usize = 2;
+const POOL_W: usize = 1;
 const HIDDEN_SIZE: usize = 256;
-const NUM_ACTIONS: usize = 24; // 6 cols × 4 orientations
-const BACKBONE_OUTPUT: usize = HEAD_CHANNELS * POOL_H * POOL_W; // 1536
+const NUM_ACTIONS: usize = COLS * 4; // COLS × 4 orientations
+const BACKBONE_OUTPUT: usize = HEAD_CHANNELS * POOL_H * POOL_W;
 const HEAD_DROPOUT: f64 = 0.2;
 
 /// FiLM parameters generated from context (pieces).
@@ -86,16 +87,16 @@ impl<B: Backend> ResidualBlock<B> {
 /// Dual-head CNN for Puyo Puyo with per-block FiLM conditioning (AlphaZero-style).
 ///
 /// Architecture:
-///   FiLM generator: context(24) → Linear(24→128) → ReLU → Linear(128→768)
-///     → split into 6 × (gamma[64], beta[64]) for each residual block
-///   Backbone: stem (6ch → 64ch) → (GroupNorm + FiLM) ResidualBlock ×6 (64ch) → head_conv (64ch → 128ch)
-///     → AdaptiveAvgPool → flatten [1536]
-///   Policy Head: Linear(1536→256) → ReLU → Dropout(0.2) → Linear(256→24)
-///   Value Head:  Linear(1536→256) → ReLU → Dropout(0.2) → Linear(256→1)
+///   FiLM generator: context(CONTEXT_TENSOR_SIZE) → Linear → ReLU → Linear → FILM_OUTPUT
+///     → split into NUM_RESIDUAL_BLOCKS × (gamma[ch], beta[ch]) for each residual block
+///   Backbone: stem (NUM_CHANNELS ch → 64ch) → (GroupNorm + FiLM) ResidualBlock ×6 (64ch) → head_conv (64ch → 128ch)
+///     → AdaptiveAvgPool → flatten [BACKBONE_OUTPUT]
+///   Policy Head: Linear(BACKBONE_OUTPUT→HIDDEN_SIZE) → ReLU → Dropout → Linear(HIDDEN_SIZE→NUM_ACTIONS)
+///   Value Head:  Linear(BACKBONE_OUTPUT→HIDDEN_SIZE) → ReLU → Dropout → Linear(HIDDEN_SIZE→1)
 ///
-/// Board input: [batch, 6, 14, 6]
-/// Context input: [batch, 24] (pieces one-hot encoding)
-/// Output: (policy_logits [batch, 24], value [batch, 1])
+/// Board input: [batch, NUM_CHANNELS, ROWS, COLS]
+/// Context input: [batch, CONTEXT_TENSOR_SIZE] (pieces one-hot encoding)
+/// Output: (policy_logits [batch, NUM_ACTIONS], value [batch, 1])
 #[derive(Module, Debug)]
 pub struct PuyoNet<B: Backend> {
     // FiLM generator
@@ -147,8 +148,8 @@ impl PuyoNetConfig {
 
 impl<B: Backend> PuyoNet<B> {
     /// Forward pass.
-    /// board: [batch, 6, 14, 6], context: [batch, 24]
-    /// Returns: (policy_logits [batch, 24], value [batch, 1])
+    /// board: [batch, NUM_CHANNELS, ROWS, COLS], context: [batch, CONTEXT_TENSOR_SIZE]
+    /// Returns: (policy_logits [batch, NUM_ACTIONS], value [batch, 1])
     pub fn forward(
         &self,
         board: Tensor<B, 4>,

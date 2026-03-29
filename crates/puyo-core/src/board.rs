@@ -11,6 +11,14 @@ pub enum PuyoColor {
     Yellow = 4,
 }
 
+/// All color variants in order (excluding Empty). NUM_COLORS selects the active subset.
+const ALL_COLOR_VARIANTS: [PuyoColor; 4] = [
+    PuyoColor::Red,
+    PuyoColor::Green,
+    PuyoColor::Blue,
+    PuyoColor::Yellow,
+];
+
 impl PuyoColor {
     pub fn from_u8(v: u8) -> Self {
         match v {
@@ -25,15 +33,27 @@ impl PuyoColor {
     pub fn is_color(self) -> bool {
         self != PuyoColor::Empty
     }
+
+    /// Returns the active color variants based on NUM_COLORS.
+    pub fn all_colors() -> &'static [PuyoColor] {
+        &ALL_COLOR_VARIANTS[..NUM_COLORS]
+    }
 }
 
-pub const COLS: usize = 6;
-pub const ROWS: usize = 14; // 12 visible + 2 hidden top rows
-pub const VISIBLE_ROWS: usize = 12;
-pub const SPAWN_COL: usize = 2;
+pub const COLS: usize = 3;
+pub const ROWS: usize = 8; // VISIBLE_ROWS + 2 hidden top rows
+pub const VISIBLE_ROWS: usize = 6;
+/// Spawn column: center of the board (0-indexed). Derived from COLS.
+pub const SPAWN_COL: usize = (COLS - 1) / 2;
+pub const NUM_COLORS: usize = 3;
 
 /// Minimum number of connected same-color puyos required to clear.
 pub const MIN_GROUP_SIZE: usize = 4;
+
+// Compile-time validation of board parameters.
+const _: () = assert!(NUM_COLORS >= 1 && NUM_COLORS <= 4, "NUM_COLORS must be 1..=4");
+const _: () = assert!(COLS >= 1, "COLS must be >= 1");
+const _: () = assert!(ROWS == VISIBLE_ROWS + 2, "ROWS must be VISIBLE_ROWS + 2");
 
 // ---- Chain types ----
 
@@ -54,7 +74,7 @@ pub struct ChainResult {
 // ---- Board ----
 
 /// Board stored in column-major order: columns[col][row].
-/// Row 0 is the bottom, row 13 is the top (hidden).
+/// Row 0 is the bottom, the top hidden row (ROWS-1) is the top (hidden).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
     pub columns: [[PuyoColor; ROWS]; COLS],
@@ -69,13 +89,13 @@ impl Board {
 
     /// Returns the height of a column (number of contiguous non-empty cells from bottom).
     /// Bottom-up scan: finds the first empty cell from row 0 upward.
-    /// This correctly handles isolated puyos in row 13 (top hidden row)
+    /// This correctly handles isolated puyos in the top hidden row (ROWS-1) (top hidden row)
     /// that may remain after chain elimination clears cells below them.
     pub fn column_height(&self, col: usize) -> usize {
         self.column_info(col).0
     }
 
-    /// 列の高さと row 13 孤立ぷよの有無を同時に返す。
+    /// 列の高さと the top hidden row (ROWS-1) 孤立ぷよの有無を同時に返す。
     pub fn column_info(&self, col: usize) -> (usize, bool) {
         let mut height = ROWS;
         for row in 0..ROWS {
@@ -111,7 +131,7 @@ impl Board {
     }
 
     /// Apply gravity: make all puyos fall down to fill gaps.
-    /// Row 13 (top hidden row) is excluded — puyos there stay until game over.
+    /// The top hidden row (ROWS-1) (top hidden row) is excluded — puyos there stay until game over.
     pub fn apply_gravity(&mut self) {
         for col in 0..COLS {
             let mut write = 0;
@@ -124,7 +144,7 @@ impl Board {
                     write += 1;
                 }
             }
-            // Row 13 (top hidden row) is not touched by gravity
+            // The top hidden row (ROWS-1) (top hidden row) is not touched by gravity
         }
     }
 
@@ -290,10 +310,10 @@ mod tests {
         let mut board = Board::new();
         assert!(!board.is_game_over());
         for _ in 0..VISIBLE_ROWS-1 {
-            board.drop_puyo(2, PuyoColor::Red);
+            board.drop_puyo(SPAWN_COL, PuyoColor::Red);
         }
         assert!(!board.is_game_over());
-        board.drop_puyo(2, PuyoColor::Red);
+        board.drop_puyo(SPAWN_COL, PuyoColor::Red);
         assert!(board.is_game_over());
     }
 
@@ -307,24 +327,24 @@ mod tests {
     }
 
     #[test]
-    fn test_column_height_with_isolated_row13() {
+    fn test_column_height_with_isolated_top_hidden_row() {
         let mut board = Board::new();
         board.set(0, ROWS - 1, PuyoColor::Red);
         assert_eq!(board.column_height(0), 0);
     }
 
     #[test]
-    fn test_column_height_with_stack_and_row13() {
+    fn test_column_height_with_stack_and_top_hidden_row() {
         let mut board = Board::new();
         board.set(0, 0, PuyoColor::Red);
         board.set(0, 1, PuyoColor::Blue);
         board.set(0, 2, PuyoColor::Green);
-        board.set(0, ROWS - 1, PuyoColor::Yellow);
+        board.set(0, ROWS - 1, PuyoColor::Blue);
         assert_eq!(board.column_height(0), 3);
     }
 
     #[test]
-    fn test_drop_puyo_with_isolated_row13() {
+    fn test_drop_puyo_with_isolated_top_hidden_row() {
         let mut board = Board::new();
         board.set(0, ROWS - 1, PuyoColor::Red);
         let row = board.drop_puyo(0, PuyoColor::Blue);
@@ -376,11 +396,13 @@ mod tests {
     }
 
     #[test]
-    fn test_horizontal_group() {
+    fn test_l_shape_group_clear() {
+        // With only 3 columns, can't do 4 horizontal. Use L-shape instead.
         let mut board = Board::new();
-        for col in 0..4 {
-            board.drop_puyo(col, PuyoColor::Red);
-        }
+        board.set(0, 0, PuyoColor::Red);
+        board.set(1, 0, PuyoColor::Red);
+        board.set(2, 0, PuyoColor::Red);
+        board.set(0, 1, PuyoColor::Red);
         let result = board.resolve_chains();
         assert_eq!(result.chain_count, 1);
     }
@@ -455,9 +477,11 @@ mod tests {
     #[test]
     fn test_hidden_row_only_does_not_clear() {
         let mut board = Board::new();
-        for col in 0..4 {
+        for col in 0..COLS {
             board.set(col, VISIBLE_ROWS, PuyoColor::Red);
         }
+        // Also place one in the next hidden row to get 4 puyos
+        board.set(0, VISIBLE_ROWS + 1, PuyoColor::Red);
         let groups = board.find_clearable_groups();
         assert!(
             groups.is_empty(),
