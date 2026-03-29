@@ -110,7 +110,7 @@ SimulationEvaluator AI に自動対戦させ、訓練データを収集する。
 | `AZ_LR_MAX` / `AZ_LR_MIN` | 2e-4 / 1e-5 | AlphaZero 学習の Cosine Annealing 学習率範囲 |
 | `EARLY_STOPPING_PATIENCE` | 5 | 教師あり学習の Early Stopping patience（AlphaZero モードでは不使用） |
 | `TRAIN_SPLIT_RATIO` | 0.9 | 教師あり学習の訓練/検証データ分割比率 |
-| `VALUE_LOSS_WEIGHT` | 0.5 | Value 損失の重み係数 |
+| `DEFAULT_VALUE_LOSS_WEIGHT` | 0.25 | Value 損失のデフォルト重み係数（`--value-weight` で変更可能） |
 | `MODEL_PATH` | `artifacts/puyo_model` | モデル保存先 |
 
 ### 学習率スケジューラ（Cosine Annealing）
@@ -144,7 +144,7 @@ Validation loss が `EARLY_STOPPING_PATIENCE` エポック連続で改善しな�
 1. 全データを訓練に使用（val split なし — 性能は self-play の報酬で判断）
 2. ステップごとに Cosine Annealing で学習率を計算（`AZ_LR_MAX` → `AZ_LR_MIN`）
 3. 各ステップでランダムミニバッチをサンプリングし、オンザフライで色置換データ拡張を適用
-4. 損失関数: Policy は Soft Cross-Entropy（MCTS 訪問分布を正解ラベル、無効アクションをマスク）+ Value は MSE（`value_transform` 適用、重み `VALUE_LOSS_WEIGHT=0.5`）
+4. 損失関数: Policy は Soft Cross-Entropy（MCTS 訪問分布を正解ラベル、無効アクションをマスク）+ Value は MSE（`value_transform` 適用、重み `DEFAULT_VALUE_LOSS_WEIGHT=0.25`）
 5. 最適化: Adam（Weight decay 1e-4 付き）
 6. 全ステップ完了後にモデルを `BinFileRecorder` で保存
 7. 既存モデルがあれば読み込んで継続学習（なければランダム初期化）
@@ -201,7 +201,7 @@ Gumbel AlphaZero では、各手番でGumbel(0,1)ノイズをサンプリング�
    ```
    `estimate_value()` が `value_inverse_transform()` を適用した実スケール推定値を返す。これにより、手数打ち切りによる value の過小評価（未来スコアの切り捨て）を緩和し、学習品質を改善する
 5. `AlphaZeroSample`（board_data, context_data, mcts_policy, value_target）を生成し、出力ファイル（デフォルト: `data/alphazero_data.bin`、`--output` で変更可能）に保存
-6. 生成データは `train --alphazero` で Policy Head（Cross-Entropy 損失）と Value Head（MSE 損失、MuZero Invertible Value Transform 適用、重み `VALUE_LOSS_WEIGHT=0.5`）を同時に学習
+6. 生成データは `train --alphazero` で Policy Head（Cross-Entropy 損失）と Value Head（MSE 損失、MuZero Invertible Value Transform 適用、重み `DEFAULT_VALUE_LOSS_WEIGHT=0.25`）を同時に学習
 
 #### AlphaZero 学習のデータサンプリング
 

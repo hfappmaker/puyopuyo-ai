@@ -47,7 +47,7 @@ const AZ_LR_STAGES: [(usize, f64); 4] = [
     (430000, 0.0001), // step 430k〜: LR = 0.0001
 ];
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
-const VALUE_LOSS_WEIGHT: f32 = 0.5;
+const DEFAULT_VALUE_LOSS_WEIGHT: f32 = 0.25;
 const VALUE_SCALE: f32 = 15.0;
 
 /// MSE loss between predicted value and transformed targets.
@@ -147,18 +147,23 @@ fn main() {
     let global_step = args.iter().position(|a| a == "--global-step")
         .map(|i| args[i + 1].parse::<usize>().expect("--global-step requires integer"))
         .unwrap_or(0);
+    let value_loss_weight = args.iter().position(|a| a == "--value-weight")
+        .map(|i| args[i + 1].parse::<f32>().expect("--value-weight requires float"))
+        .unwrap_or(DEFAULT_VALUE_LOSS_WEIGHT);
 
     #[cfg(feature = "gpu")]
     println!("Backend: CUDA (GPU)");
     #[cfg(not(feature = "gpu"))]
     println!("Backend: NdArray (CPU)");
 
+    println!("Value loss weight: {}", value_loss_weight);
+
     if alphazero_mode {
         println!("Mode: AlphaZero (Policy CE + Value MSE)");
-        train_alphazero(data_dir.as_deref(), global_step);
+        train_alphazero(data_dir.as_deref(), global_step, value_loss_weight);
     } else {
         println!("Mode: Supervised (Policy CE only)");
-        train_supervised();
+        train_supervised(value_loss_weight);
     }
 }
 
@@ -166,7 +171,7 @@ fn main() {
 // Supervised training (from generate-data)
 // ---------------------------------------------------------------------------
 
-fn train_supervised() {
+fn train_supervised(value_loss_weight: f32) {
     let device: <TrainBackend as Backend>::Device = Default::default();
     let data_path = "data/training_data.bin";
 
@@ -226,7 +231,7 @@ fn train_supervised() {
 
             let value_loss = value_mse_loss(value, &value_targets, &device);
 
-            let loss = policy_loss + value_loss * VALUE_LOSS_WEIGHT;
+            let loss = policy_loss + value_loss * value_loss_weight;
 
             let loss_val = loss.clone().into_data().to_vec::<f32>().expect("Failed to extract loss")[0];
             epoch_loss += loss_val;
@@ -245,7 +250,7 @@ fn train_supervised() {
 
         let val_model = model.valid();
         let val_device: <InnerBackend as Backend>::Device = Default::default();
-        let val_loss = compute_val_loss_supervised(&val_model, val_samples, &val_device);
+        let val_loss = compute_val_loss_supervised(&val_model, val_samples, &val_device, value_loss_weight);
 
         let avg_train_loss = epoch_loss / num_batches as f32;
         println!("Epoch {}/{}: train_loss={:.6}, val_loss={:.6}, lr={:.6}", epoch + 1, NUM_EPOCHS, avg_train_loss, val_loss, lr);
@@ -272,6 +277,7 @@ fn compute_val_loss_supervised(
     model: &puyo_nn::model::PuyoNet<InnerBackend>,
     val_samples: &[puyo_trainer::data::Sample],
     device: &<InnerBackend as Backend>::Device,
+    value_loss_weight: f32,
 ) -> f32 {
     let mut total_loss = 0.0f32;
     let mut num_batches = 0;
@@ -304,7 +310,7 @@ fn compute_val_loss_supervised(
         let value_loss = value_mse_loss(value, &value_targets, device);
 
         let loss_val = policy_loss.into_data().to_vec::<f32>().expect("Failed to extract policy loss")[0]
-            + value_loss.into_data().to_vec::<f32>().expect("Failed to extract value loss")[0] * VALUE_LOSS_WEIGHT;
+            + value_loss.into_data().to_vec::<f32>().expect("Failed to extract value loss")[0] * value_loss_weight;
         total_loss += loss_val;
         num_batches += 1;
     }
@@ -316,7 +322,7 @@ fn compute_val_loss_supervised(
 // AlphaZero training (from self-play data)
 // ---------------------------------------------------------------------------
 
-fn train_alphazero(data_dir: Option<&str>, global_step_start: usize) {
+fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, value_loss_weight: f32) {
     let device: <TrainBackend as Backend>::Device = Default::default();
 
     let dataset = if let Some(dir) = data_dir {
@@ -446,7 +452,7 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize) {
             let p_loss_val = policy_loss.clone().into_data().to_vec::<f32>().expect("Failed to extract policy loss")[0];
             let v_loss_val = value_loss.clone().into_data().to_vec::<f32>().expect("Failed to extract value loss")[0];
             // Scale loss by 1/ACCUM_STEPS so accumulated gradients average correctly
-            let total_loss = (policy_loss + value_loss * VALUE_LOSS_WEIGHT) / (ACCUM_STEPS as f32);
+            let total_loss = (policy_loss + value_loss * value_loss_weight) / (ACCUM_STEPS as f32);
 
             running_p_loss += p_loss_val;
             running_v_loss += v_loss_val;
@@ -462,11 +468,14 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize) {
         model = optim.step(lr, model, grads);
 
         if (step + 1) % 50 == 0 {
+            let avg_p = running_p_loss / running_count as f32;
+            let avg_v = running_v_loss / running_count as f32;
+            let weighted_v = avg_v * value_loss_weight;
             eprint!(
-                "\r  step {}/{} p_loss={:.4} v_loss={:.4} lr={:.6}",
+                "\r  step {}/{} p_loss={:.4} v_loss={:.4} (weighted={:.4}) ratio(v/p)={:.2} lr={:.6}",
                 step + 1, AZ_NUM_STEPS,
-                running_p_loss / running_count as f32,
-                running_v_loss / running_count as f32,
+                avg_p, avg_v, weighted_v,
+                weighted_v / avg_p.max(1e-8),
                 lr,
             );
         }
