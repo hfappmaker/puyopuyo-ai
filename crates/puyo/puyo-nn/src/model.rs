@@ -1,24 +1,16 @@
 use burn::nn::conv::{Conv2d, Conv2dConfig};
-use burn::nn::pool::{AdaptiveAvgPool2d, AdaptiveAvgPool2dConfig};
 use burn::nn::{Dropout, DropoutConfig, GroupNorm, GroupNormConfig, Linear, LinearConfig, PaddingConfig2d, Relu};
 use burn::prelude::*;
 
-use puyo_core::config::{COLS, CONTEXT_TENSOR_SIZE, NUM_ACTIONS, NUM_CHANNELS};
+use puyo_core::config::{COLS, CONTEXT_TENSOR_SIZE, NUM_ACTIONS, NUM_CHANNELS, ROWS};
 
 const RESIDUAL_CHANNELS: usize = 64;
 const NUM_RESIDUAL_BLOCKS: usize = 6;
-const HIDDEN_SIZE: usize = 256;
 const HEAD_DROPOUT: f64 = 0.2;
 
-// Policy head: conv-based (空間情報を保持)
-const POLICY_HIDDEN_CHANNELS: usize = 32;
-const POLICY_OUT_CHANNELS: usize = 4; // 4方向 (N/E/S/W)
-
-// Value head
-const VALUE_HEAD_CHANNELS: usize = 128;
-const VALUE_POOL_H: usize = 2;
-const VALUE_POOL_W: usize = 1;
-const VALUE_BACKBONE_OUTPUT: usize = VALUE_HEAD_CHANNELS * VALUE_POOL_H * VALUE_POOL_W;
+// Shared FC trunk (backbone flatten + context → shared hidden → policy/value)
+const BACKBONE_FLAT: usize = RESIDUAL_CHANNELS * ROWS * COLS;
+const SHARED_HIDDEN: usize = 256;
 
 /// FiLM parameters generated from context (pieces).
 const FILM_HIDDEN: usize = 128;
@@ -94,12 +86,10 @@ impl<B: Backend> ResidualBlock<B> {
 ///   FiLM generator: context(CONTEXT_TENSOR_SIZE) → Linear → ReLU → Linear → FILM_OUTPUT
 ///     → split into NUM_RESIDUAL_BLOCKS × (gamma[ch], beta[ch]) for each residual block
 ///   Backbone: stem (NUM_CHANNELS ch → 64ch) → (GroupNorm + FiLM) ResidualBlock ×6 (64ch)
-///   Policy Head (conv-based, 空間情報保持):
-///     1×1 conv(64→32) → GroupNorm → ReLU → 1×1 conv(32→4) → AdaptiveAvgPool(1,COLS)
-///     → reshape [batch, 4, COLS] → swap_dims → reshape [batch, NUM_ACTIONS]
-///   Value Head:
-///     1×1 conv(64→128) → ReLU → AdaptiveAvgPool(2,1) → flatten
-///     → Linear(256→256) → ReLU → Dropout → Linear(256→1)
+///   Shared FC trunk:
+///     flatten(backbone) + context → Linear(1554→256) → ReLU → Dropout
+///   Policy Head: Linear(256→NUM_ACTIONS)
+///   Value Head: Linear(256→1)
 ///
 /// Board input: [batch, NUM_CHANNELS, ROWS, COLS]
 /// Context input: [batch, CONTEXT_TENSOR_SIZE] (pieces one-hot encoding)
@@ -112,16 +102,10 @@ pub struct PuyoNet<B: Backend> {
     // CNN backbone
     stem: Conv2d<B>,
     res_blocks: Vec<ResidualBlock<B>>,
-    // Policy head (conv-based)
-    policy_conv1: Conv2d<B>,
-    policy_norm: GroupNorm<B>,
-    policy_conv2: Conv2d<B>,
-    policy_pool: AdaptiveAvgPool2d,
-    // Value head
-    value_conv: Conv2d<B>,
-    value_pool: AdaptiveAvgPool2d,
-    value_fc1: Linear<B>,
-    value_fc2: Linear<B>,
+    // Shared FC trunk + heads
+    shared_fc: Linear<B>,
+    policy_fc: Linear<B>,
+    value_fc: Linear<B>,
     activation: Relu,
     head_dropout: Dropout,
 }
@@ -143,19 +127,10 @@ impl PuyoNetConfig {
                 .with_padding(PaddingConfig2d::Same)
                 .init(device),
             res_blocks,
-            // Policy head (conv-based)
-            policy_conv1: Conv2dConfig::new([RESIDUAL_CHANNELS, POLICY_HIDDEN_CHANNELS], [1, 1])
-                .init(device),
-            policy_norm: GroupNormConfig::new(1, POLICY_HIDDEN_CHANNELS).init(device),
-            policy_conv2: Conv2dConfig::new([POLICY_HIDDEN_CHANNELS, POLICY_OUT_CHANNELS], [1, 1])
-                .init(device),
-            policy_pool: AdaptiveAvgPool2dConfig::new([1, COLS]).init(),
-            // Value head
-            value_conv: Conv2dConfig::new([RESIDUAL_CHANNELS, VALUE_HEAD_CHANNELS], [1, 1])
-                .init(device),
-            value_pool: AdaptiveAvgPool2dConfig::new([VALUE_POOL_H, VALUE_POOL_W]).init(),
-            value_fc1: LinearConfig::new(VALUE_BACKBONE_OUTPUT, HIDDEN_SIZE).init(device),
-            value_fc2: LinearConfig::new(HIDDEN_SIZE, 1).init(device),
+            // Shared FC trunk + heads
+            shared_fc: LinearConfig::new(BACKBONE_FLAT + CONTEXT_TENSOR_SIZE, SHARED_HIDDEN).init(device),
+            policy_fc: LinearConfig::new(SHARED_HIDDEN, NUM_ACTIONS).init(device),
+            value_fc: LinearConfig::new(SHARED_HIDDEN, 1).init(device),
             activation: Relu::new(),
             head_dropout: DropoutConfig::new(HEAD_DROPOUT).init(),
         }
@@ -174,7 +149,7 @@ impl<B: Backend> PuyoNet<B> {
         let batch_size = board.dims()[0];
 
         // FiLM generator: context → per-block (gamma, beta)
-        let film = self.film_fc1.forward(context);
+        let film = self.film_fc1.forward(context.clone());
         let film = self.activation.forward(film);
         let film = self.film_fc2.forward(film); // [batch, 768]
 
@@ -192,25 +167,18 @@ impl<B: Backend> PuyoNet<B> {
             x = block.forward(x, gamma, beta);
         }
 
-        // Policy head (conv-based, 空間情報保持)
-        let p = self.policy_conv1.forward(x.clone()); // [batch, 32, 8, 3]
-        let p = self.policy_norm.forward(p);
-        let p = self.activation.forward(p);
-        let p = self.policy_conv2.forward(p); // [batch, 4, 8, 3]
-        let p = self.policy_pool.forward(p); // [batch, 4, 1, 3]
-        let p = p.reshape([batch_size, POLICY_OUT_CHANNELS, COLS]); // [batch, 4, 3]
-        let p = p.swap_dims(1, 2); // [batch, 3, 4] = [batch, cols, orientations]
-        let policy_logits = p.reshape([batch_size, NUM_ACTIONS]); // [batch, 12] = col*4+ori
+        // Shared FC trunk: flatten backbone + context
+        let flat = x.reshape([batch_size, BACKBONE_FLAT]);
+        let combined = Tensor::cat(vec![flat, context], 1);
+        let shared = self.shared_fc.forward(combined);
+        let shared = self.activation.forward(shared);
 
-        // Value head (outputs discounted cumulative reward, no activation)
-        let v = self.value_conv.forward(x); // [batch, 128, 8, 3]
-        let v = self.activation.forward(v);
-        let v = self.value_pool.forward(v); // [batch, 128, 2, 1]
-        let v = v.reshape([batch_size, VALUE_BACKBONE_OUTPUT]); // [batch, 256]
-        let v = self.value_fc1.forward(v);
-        let v = self.activation.forward(v);
-        let v = self.head_dropout.forward(v);
-        let value = self.value_fc2.forward(v);
+        // Policy head (no dropout to preserve MCTS policy quality)
+        let policy_logits = self.policy_fc.forward(shared.clone());
+
+        // Value head (dropout for regularization)
+        let v = self.head_dropout.forward(shared);
+        let value = self.value_fc.forward(v);
 
         (policy_logits, value)
     }
