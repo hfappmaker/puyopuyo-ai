@@ -40,11 +40,10 @@ const EARLY_STOPPING_PATIENCE: usize = 5;
 const AZ_NUM_STEPS: usize = 1000;
 const ACCUM_STEPS: usize = 4; // gradient accumulation: effective batch = BATCH_SIZE * ACCUM_STEPS
 // Global step LR schedule (AlphaZero-style 3-stage drop)
-const AZ_LR_STAGES: [(usize, f64); 4] = [
-    (0,     0.1),    // step 0〜300k: LR = 0.1
-    (5000, 0.01),   // step 300k〜400k: LR = 0.01
-    (6000, 0.001),  // step 400k〜430k: LR = 0.001
-    (7000, 0.0001), // step 430k〜: LR = 0.0001
+const AZ_LR_STAGES: [(usize, f64); 3] = [
+    (0,     0.1),    // step 0〜5k: LR = 0.1
+    (5000, 0.01),   // step 5k〜6k: LR = 0.01
+    (6000, 0.001),  // step 6k〜: LR = 0.001
 ];
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
 const VALUE_LOSS_WEIGHT: f32 = 0.5;
