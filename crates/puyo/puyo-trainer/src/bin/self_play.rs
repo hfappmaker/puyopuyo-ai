@@ -282,6 +282,9 @@ fn main() {
     {
         main_cpu(args);
     }
+
+    // Skip destructors to avoid CUDA cleanup crash (double free on exit)
+    std::process::exit(0);
 }
 
 #[cfg(not(feature = "gpu"))]
