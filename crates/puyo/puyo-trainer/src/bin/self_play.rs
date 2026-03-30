@@ -282,9 +282,6 @@ fn main() {
     {
         main_cpu(args);
     }
-
-    // Skip destructors to avoid CUDA cleanup crash (double free on exit)
-    std::process::exit(0);
 }
 
 #[cfg(not(feature = "gpu"))]
@@ -327,6 +324,9 @@ fn main_gpu(args: Args) {
         let thread_client = client.clone();
         (thread_client, 0usize)
     });
+
+    // Skip destructors to avoid CUDA cleanup crash (double free on exit)
+    std::process::exit(0);
 }
 
 /// Run self-play games in parallel.
