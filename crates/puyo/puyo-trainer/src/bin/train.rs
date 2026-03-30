@@ -39,11 +39,12 @@ const EARLY_STOPPING_PATIENCE: usize = 5;
 // AlphaZero-specific training parameters (step-based)
 const AZ_NUM_STEPS: usize = 1000;
 const ACCUM_STEPS: usize = 4; // gradient accumulation: effective batch = BATCH_SIZE * ACCUM_STEPS
-// Global step LR schedule (AlphaZero-style 3-stage drop)
-const AZ_LR_STAGES: [(usize, f64); 3] = [
-    (0,      0.1),    // step 0〜300k: LR = 0.1
-    (300000, 0.01),   // step 300k〜340k: LR = 0.01
-    (340000, 0.001),  // step 340k〜: LR = 0.001
+// Global step LR schedule (AlphaZero-style 4-stage drop)
+const AZ_LR_STAGES: [(usize, f64); 4] = [
+    (0,      0.2),    // step 0〜100k: LR = 0.1
+    (100000, 0.02),   // step 100k〜300k: LR = 0.01
+    (300000, 0.002),  // step 300k〜500k: LR = 0.001
+    (500000, 0.0002),  // step 500k〜: LR = 0.001
 ];
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
 const VALUE_LOSS_WEIGHT: f32 = 0.5;
