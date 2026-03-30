@@ -1,5 +1,5 @@
 use burn::nn::conv::{Conv2d, Conv2dConfig};
-use burn::nn::{GroupNorm, GroupNormConfig, Linear, LinearConfig, PaddingConfig2d, Relu};
+use burn::nn::{BatchNorm, BatchNormConfig, Linear, LinearConfig, PaddingConfig2d, Relu};
 use burn::prelude::*;
 
 use puyo_core::config::{COLS, CONTEXT_TENSOR_SIZE, NUM_ACTIONS, NUM_CHANNELS, ROWS};
@@ -21,16 +21,16 @@ const FILM_HIDDEN: usize = 128;
 /// FiLM output size: per-block (gamma + beta) for each residual block.
 const FILM_OUTPUT: usize = RESIDUAL_CHANNELS * 2 * NUM_RESIDUAL_BLOCKS; // 768
 
-/// Residual block with GroupNorm and FiLM conditioning.
+/// Residual block with BatchNorm and FiLM conditioning.
 ///
-/// Conv → GroupNorm → ReLU → Conv → GroupNorm → Residual FiLM(gamma, beta) → add skip → ReLU.
+/// Conv → BatchNorm → ReLU → Conv → BatchNorm → Residual FiLM(gamma, beta) → add skip → ReLU.
 /// Residual FiLM: y = x * (1 + gamma) + beta (identity when gamma=0, beta=0).
 #[derive(Module, Debug)]
 pub struct ResidualBlock<B: Backend> {
     conv1: Conv2d<B>,
-    norm1: GroupNorm<B>,
+    norm1: BatchNorm<B, 2>,
     conv2: Conv2d<B>,
-    norm2: GroupNorm<B>,
+    norm2: BatchNorm<B, 2>,
     activation: Relu,
 }
 
@@ -45,11 +45,11 @@ impl ResidualBlockConfig {
             conv1: Conv2dConfig::new([self.channels, self.channels], [3, 3])
                 .with_padding(PaddingConfig2d::Same)
                 .init(device),
-            norm1: GroupNormConfig::new(1, self.channels).init(device),
+            norm1: BatchNormConfig::new(self.channels).init(device),
             conv2: Conv2dConfig::new([self.channels, self.channels], [3, 3])
                 .with_padding(PaddingConfig2d::Same)
                 .init(device),
-            norm2: GroupNormConfig::new(1, self.channels).init(device),
+            norm2: BatchNormConfig::new(self.channels).init(device),
             activation: Relu::new(),
         }
     }
@@ -89,9 +89,9 @@ impl<B: Backend> ResidualBlock<B> {
 /// Architecture:
 ///   FiLM generator: context(CONTEXT_TENSOR_SIZE) → Linear → ReLU → Linear → FILM_OUTPUT
 ///     → split into NUM_RESIDUAL_BLOCKS × (gamma[ch], beta[ch]) for each residual block
-///   Backbone: stem (NUM_CHANNELS ch → 64ch) → (GroupNorm + FiLM) ResidualBlock ×6 (64ch)
-///   Policy Head: Conv1×1(64→2) → GroupNorm → ReLU → flatten + context → FC(→NUM_ACTIONS)
-///   Value Head:  Conv1×1(64→1) → GroupNorm → ReLU → flatten + context → FC(→64) → ReLU → FC(→1)
+///   Backbone: stem (NUM_CHANNELS ch → 128ch) → (BatchNorm + FiLM) ResidualBlock ×12 (128ch)
+///   Policy Head: Conv1×1(128→2) → BatchNorm → ReLU → flatten + context → FC(→NUM_ACTIONS)
+///   Value Head:  Conv1×1(128→1) → BatchNorm → ReLU → flatten + context → FC(→64) → ReLU → FC(→1)
 ///
 /// Board input: [batch, NUM_CHANNELS, ROWS, COLS]
 /// Context input: [batch, CONTEXT_TENSOR_SIZE] (pieces one-hot encoding)
@@ -106,11 +106,11 @@ pub struct PuyoNet<B: Backend> {
     res_blocks: Vec<ResidualBlock<B>>,
     // Policy head
     policy_conv: Conv2d<B>,
-    policy_norm: GroupNorm<B>,
+    policy_norm: BatchNorm<B, 2>,
     policy_fc: Linear<B>,
     // Value head
     value_conv: Conv2d<B>,
-    value_norm: GroupNorm<B>,
+    value_norm: BatchNorm<B, 2>,
     value_fc1: Linear<B>,
     value_fc2: Linear<B>,
     activation: Relu,
@@ -135,11 +135,11 @@ impl PuyoNetConfig {
             res_blocks,
             // Policy head
             policy_conv: Conv2dConfig::new([RESIDUAL_CHANNELS, POLICY_CONV_CHANNELS], [1, 1]).init(device),
-            policy_norm: GroupNormConfig::new(1, POLICY_CONV_CHANNELS).init(device),
+            policy_norm: BatchNormConfig::new(POLICY_CONV_CHANNELS).init(device),
             policy_fc: LinearConfig::new(POLICY_FLAT + CONTEXT_TENSOR_SIZE, NUM_ACTIONS).init(device),
             // Value head
             value_conv: Conv2dConfig::new([RESIDUAL_CHANNELS, VALUE_CONV_CHANNELS], [1, 1]).init(device),
-            value_norm: GroupNormConfig::new(1, VALUE_CONV_CHANNELS).init(device),
+            value_norm: BatchNormConfig::new(VALUE_CONV_CHANNELS).init(device),
             value_fc1: LinearConfig::new(VALUE_FLAT + CONTEXT_TENSOR_SIZE, VALUE_HIDDEN).init(device),
             value_fc2: LinearConfig::new(VALUE_HIDDEN, 1).init(device),
             activation: Relu::new(),
