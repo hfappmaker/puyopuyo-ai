@@ -158,10 +158,10 @@ export class Renderer {
     const { cols, rows } = this.config;
 
     const getHeight = (c: number): number => {
-      for (let r = rows - 1; r >= 0; r--) {
-        if (board[c * rows + r] !== COLOR_EMPTY) return r + 1;
+      for (let r = 0; r < rows; r++) {
+        if (board[c * rows + r] === COLOR_EMPTY) return r;
       }
-      return 0;
+      return rows;
     };
 
     const satCol = piece.col + dc;
@@ -231,10 +231,10 @@ export class Renderer {
     const { cols, rows } = this.config;
 
     const getHeight = (c: number): number => {
-      for (let r = rows - 1; r >= 0; r--) {
-        if (board[c * rows + r] !== COLOR_EMPTY) return r + 1;
+      for (let r = 0; r < rows; r++) {
+        if (board[c * rows + r] === COLOR_EMPTY) return r;
       }
-      return 0;
+      return rows;
     };
 
     const satCol = col + dc;
