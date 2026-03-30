@@ -6,10 +6,10 @@
 // ─── 基本パラメータ ───
 
 /// ボードの列数（横幅）。
-pub const COLS: usize = 3;
+pub const COLS: usize = 6;
 
 /// ボードの行数（表示行 + 隠し2行）。
-pub const ROWS: usize = 8;
+pub const ROWS: usize = 14;
 
 /// 表示行数。上2行は隠し行でゲームオーバー判定に使う。
 pub const VISIBLE_ROWS: usize = ROWS - 2;
@@ -18,7 +18,7 @@ pub const VISIBLE_ROWS: usize = ROWS - 2;
 pub const SPAWN_COL: usize = (COLS - 1) / 2;
 
 /// 使用する色の数（1〜4）。PuyoColor の先頭 N 色を使う。
-pub const NUM_COLORS: usize = 3;
+pub const NUM_COLORS: usize = 4;
 
 /// 連鎖で消えるために必要な同色ぷよの最小接続数。
 pub const MIN_GROUP_SIZE: usize = 4;
