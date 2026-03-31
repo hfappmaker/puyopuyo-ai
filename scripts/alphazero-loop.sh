@@ -95,13 +95,13 @@ while true; do
         GLOBAL_STEP=$(cat "$GLOBAL_STEP_FILE")
     fi
 
-    # 5. Git commit model
-    git add artifacts/puyo_model.bin artifacts/iteration.txt artifacts/global_step.txt
-    git commit -m "alphazero: iter $ITERATION training complete"
-
-    # 6. 次のイテレーションへ
+    # 5. 次のイテレーションへ
     ITERATION=$((ITERATION + 1))
     echo "$ITERATION" > "$ITER_FILE"
+
+    # 6. Git commit model
+    git add artifacts/puyo_model.bin artifacts/iteration.txt artifacts/global_step.txt
+    git commit -m "alphazero: iter $((ITERATION - 1)) training complete"
 
     log "=== Iteration $((ITERATION - 1)) complete ==="
 done
