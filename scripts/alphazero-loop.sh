@@ -82,6 +82,7 @@ while true; do
     # 3. Git commit self-play data
     git add data/alphazero_iter_*.bin
     git add -u data/  # stage deletions
+    git add "$LOG_FILE"
     git commit -m "alphazero: iter $ITERATION self-play (games=$GAMES, sims=$SIMS)" || true
 
     # 4. Train (GPU) with replay buffer
@@ -100,7 +101,7 @@ while true; do
     echo "$ITERATION" > "$ITER_FILE"
 
     # 6. Git commit model
-    git add artifacts/puyo_model.bin artifacts/iteration.txt artifacts/global_step.txt
+    git add artifacts/puyo_model.bin artifacts/iteration.txt artifacts/global_step.txt "$LOG_FILE"
     git commit -m "alphazero: iter $((ITERATION - 1)) training complete"
 
     log "=== Iteration $((ITERATION - 1)) complete ==="
