@@ -16196,4 +16196,4 @@ Loaded 447582 total samples
 Train: 447582 samples (color augmented on-the-fly, no val split)
 Loaded existing model from artifacts/puyo_model
 AlphaZero training: 1000 steps, global_step=45000, LR 2e-1 (end ~2e-1)
-  step 50/1000 p_loss=2.0501 v_loss=0.3286 lr=0.200000  step 100/1000 p_loss=2.0589 v_loss=0.3286 lr=0.200000
+  step 50/1000 p_loss=2.0501 v_loss=0.3286 lr=0.200000  step 100/1000 p_loss=2.0589 v_loss=0.3286 lr=0.200000  step 150/1000 p_loss=2.0617 v_loss=0.3301 lr=0.200000  step 200/1000 p_loss=2.0622 v_loss=0.3300 lr=0.200000  step 250/1000 p_loss=2.0604 v_loss=0.3299 lr=0.200000
