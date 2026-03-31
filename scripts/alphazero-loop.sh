@@ -16,7 +16,7 @@ C_VISIT="${C_VISIT:-50.0}"            # Q値スケーリング
 GAMMA="${GAMMA:-0.95}"              # 割引率
 REPLAY_WINDOW="${REPLAY_WINDOW:-30}"  # 直近N個のイテレーションデータを保持
 MIN_CHAIN="${MIN_CHAIN:-0}"          # 最低連鎖数フィルタ（0=無効）
-LOG_FILE="artifacts/alphazero-loop.log"
+LOG_FILE="artifacts/alphazero-loop-$(date '+%Y%m%d_%H%M%S').log"
 
 # イテレーションカウンタ（永続化）
 ITER_FILE="artifacts/iteration.txt"
