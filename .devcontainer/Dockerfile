@@ -38,6 +38,7 @@ RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
     > /etc/apt/sources.list.d/nodesource.list \
     && apt-get update -o Acquire::AllowInsecureRepositories=true \
     && apt-get install -y --no-install-recommends --allow-unauthenticated nodejs git-lfs tmux \
+    pulseaudio-utils alsa-utils sox libsox-fmt-pulse \
     && rm -rf /var/lib/apt/lists/* \
     && git lfs install
 

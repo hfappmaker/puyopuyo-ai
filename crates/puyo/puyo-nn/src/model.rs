@@ -4,8 +4,8 @@ use burn::prelude::*;
 
 use puyo_core::config::{COLS, CONTEXT_TENSOR_SIZE, NUM_ACTIONS, NUM_CHANNELS, ROWS};
 
-const RESIDUAL_CHANNELS: usize = 128;
-const NUM_RESIDUAL_BLOCKS: usize = 12;
+const RESIDUAL_CHANNELS: usize = 64;
+const NUM_RESIDUAL_BLOCKS: usize = 6;
 
 // Policy head: Conv1×1 → GroupNorm → ReLU → flatten + context → FC
 const POLICY_CONV_CHANNELS: usize = 2;
@@ -89,9 +89,9 @@ impl<B: Backend> ResidualBlock<B> {
 /// Architecture:
 ///   FiLM generator: context(CONTEXT_TENSOR_SIZE) → Linear → ReLU → Linear → FILM_OUTPUT
 ///     → split into NUM_RESIDUAL_BLOCKS × (gamma[ch], beta[ch]) for each residual block
-///   Backbone: stem (NUM_CHANNELS ch → 128ch) → (BatchNorm + FiLM) ResidualBlock ×12 (128ch)
-///   Policy Head: Conv1×1(128→2) → BatchNorm → ReLU → flatten + context → FC(→NUM_ACTIONS)
-///   Value Head:  Conv1×1(128→1) → BatchNorm → ReLU → flatten + context → FC(→64) → ReLU → FC(→1)
+///   Backbone: stem (NUM_CHANNELS ch → 64ch) → (BatchNorm + FiLM) ResidualBlock ×6 (64ch)
+///   Policy Head: Conv1×1(64→2) → BatchNorm → ReLU → flatten + context → FC(→NUM_ACTIONS)
+///   Value Head:  Conv1×1(64→1) → BatchNorm → ReLU → flatten + context → FC(→64) → ReLU → FC(→1)
 ///
 /// Board input: [batch, NUM_CHANNELS, ROWS, COLS]
 /// Context input: [batch, CONTEXT_TENSOR_SIZE] (pieces one-hot encoding)
