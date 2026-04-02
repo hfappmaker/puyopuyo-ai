@@ -5291,3 +5291,32 @@ Using 128 game threads, max_batch_size=128
 [ 300/300] samples:  14261 | chain(game/max/avg): 3/4/3.0 | reward(game/avg): 6320/5358 | 4.18 games/s | ETA: 0s
 Self-play complete: 300 games, 14261 samples, max chain: 4
 Saved to data/alphazero_iter_16.bin
+[2026-04-02 11:55:45] Train start (AlphaZero mode, replay buffer, global_step=15000)
+    Finished `release` profile [optimized] target(s) in 4.11s
+     Running `target/release/train --alphazero --data-dir data --global-step 15000`
+Backend: CUDA (GPU)
+Mode: AlphaZero (Policy CE + Value MSE)
+Loading AlphaZero datasets from data...
+Found 16 data files
+  Loaded 7492 samples from data/alphazero_iter_1.bin
+  Loaded 14437 samples from data/alphazero_iter_10.bin
+  Loaded 14331 samples from data/alphazero_iter_11.bin
+  Loaded 14346 samples from data/alphazero_iter_12.bin
+  Loaded 14409 samples from data/alphazero_iter_13.bin
+  Loaded 14357 samples from data/alphazero_iter_14.bin
+  Loaded 14513 samples from data/alphazero_iter_15.bin
+  Loaded 14261 samples from data/alphazero_iter_16.bin
+  Loaded 13965 samples from data/alphazero_iter_2.bin
+  Loaded 13954 samples from data/alphazero_iter_3.bin
+  Loaded 13924 samples from data/alphazero_iter_4.bin
+  Loaded 14394 samples from data/alphazero_iter_5.bin
+  Loaded 14261 samples from data/alphazero_iter_6.bin
+  Loaded 14408 samples from data/alphazero_iter_7.bin
+  Loaded 14357 samples from data/alphazero_iter_8.bin
+  Loaded 13839 samples from data/alphazero_iter_9.bin
+Loaded 221248 total samples
+Train: 221248 samples (color augmented on-the-fly, no val split)
+Loaded existing model from artifacts/puyo_model
+AlphaZero training: 1000 steps, global_step=15000, LR 2e-2 (end ~2e-2)
+  step 50/1000 p_loss=0.7419 v_loss=0.2939 lr=0.020000  step 100/1000 p_loss=0.7344 v_loss=0.2899 lr=0.020000  step 150/1000 p_loss=0.7272 v_loss=0.2883 lr=0.020000  step 200/1000 p_loss=0.7217 v_loss=0.2882 lr=0.020000  step 250/1000 p_loss=0.7168 v_loss=0.2885 lr=0.020000  step 300/1000 p_loss=0.7113 v_loss=0.2891 lr=0.020000  step 350/1000 p_loss=0.7078 v_loss=0.2886 lr=0.020000  step 400/1000 p_loss=0.7035 v_loss=0.2881 lr=0.020000  step 450/1000 p_loss=0.6999 v_loss=0.2884 lr=0.020000  step 500/1000 p_loss=0.6965 v_loss=0.2885 lr=0.020000  step 550/1000 p_loss=0.6935 v_loss=0.2883 lr=0.020000  step 600/1000 p_loss=0.6901 v_loss=0.2884 lr=0.020000  step 650/1000 p_loss=0.6877 v_loss=0.2881 lr=0.020000  step 700/1000 p_loss=0.6849 v_loss=0.2880 lr=0.020000  step 750/1000 p_loss=0.6818 v_loss=0.2879 lr=0.020000  step 800/1000 p_loss=0.6787 v_loss=0.2879 lr=0.020000  step 850/1000 p_loss=0.6762 v_loss=0.2876 lr=0.020000  step 900/1000 p_loss=0.6741 v_loss=0.2875 lr=0.020000  step 950/1000 p_loss=0.6715 v_loss=0.2872 lr=0.020000  step 1000/1000 p_loss=0.6692 v_loss=0.2872 lr=0.020000
+AlphaZero training complete. final train_loss(p=0.669239, v=0.287204) global_step=16000
