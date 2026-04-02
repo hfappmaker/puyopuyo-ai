@@ -28,7 +28,7 @@ type InnerBackend = <TrainBackend as AutodiffBackend>::InnerBackend;
 
 const MODEL_PATH: &str = "artifacts/puyo_model";
 #[cfg(feature = "gpu")]
-const BATCH_SIZE: usize = 256;
+const BATCH_SIZE: usize = 512;
 #[cfg(not(feature = "gpu"))]
 const BATCH_SIZE: usize = 64;
 const NUM_EPOCHS: usize = 50;
@@ -38,13 +38,13 @@ const EARLY_STOPPING_PATIENCE: usize = 5;
 
 // AlphaZero-specific training parameters (step-based)
 const AZ_NUM_STEPS: usize = 1000;
-const ACCUM_STEPS: usize = 8; // gradient accumulation: effective batch = BATCH_SIZE * ACCUM_STEPS = 2048
+const ACCUM_STEPS: usize = 4; // gradient accumulation: effective batch = BATCH_SIZE * ACCUM_STEPS = 2048
 // Global step LR schedule (AlphaZero-style 4-stage drop)
 const AZ_LR_STAGES: [(usize, f64); 4] = [
     (0,      0.2),    // step 0〜100k: LR = 0.2
-    (100000, 0.02),   // step 100k〜300k: LR = 0.02
-    (300000, 0.002),  // step 300k〜500k: LR = 0.002
-    (500000, 0.0002),  // step 500k〜: LR = 0.0002
+    (10000, 0.02),   // step 100k〜300k: LR = 0.02
+    (30000, 0.002),  // step 300k〜500k: LR = 0.002
+    (50000, 0.0002),  // step 500k〜: LR = 0.0002
 ];
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
 const VALUE_LOSS_WEIGHT: f32 = 0.5;
