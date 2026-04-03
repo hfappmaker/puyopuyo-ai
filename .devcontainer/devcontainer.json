@@ -10,15 +10,9 @@
     "--env-file", ".devcontainer/.env",
     "--gpus", "all"
   ],
-  "mounts": [
-    "source=/mnt/wslg/PulseServer,target=/mnt/wslg/PulseServer,type=bind",
-    "source=/mnt/wslg/runtime-dir,target=/mnt/wslg/runtime-dir,type=bind"
-  ],
   "containerEnv": {
     "NVIDIA_VISIBLE_DEVICES": "all",
-    "NVIDIA_DRIVER_CAPABILITIES": "compute,utility",
-    "PULSE_SERVER": "unix:/mnt/wslg/PulseServer",
-    "XDG_RUNTIME_DIR": "/mnt/wslg/runtime-dir"
+    "NVIDIA_DRIVER_CAPABILITIES": "compute,utility"
   },
   "customizations": {
     "vscode": {
