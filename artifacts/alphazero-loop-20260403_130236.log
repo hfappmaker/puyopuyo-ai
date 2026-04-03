@@ -3509,3 +3509,46 @@ Using 128 game threads, max_batch_size=128
 Self-play complete: 300 games, 14746 samples, max chain: 5
 Saved to data/alphazero_iter_178.bin
 [2026-04-03 13:49:05] Removing old data: data/alphazero_iter_148.bin
+[2026-04-03 13:49:06] Train start (AlphaZero mode, replay buffer, global_step=177000)
+    Finished `release` profile [optimized] target(s) in 5.92s
+     Running `target/release/train --alphazero --data-dir data --global-step 177000`
+Backend: CUDA (GPU)
+Mode: AlphaZero (Policy CE + Value MSE)
+Loading AlphaZero datasets from data...
+Found 30 data files
+  Loaded 14658 samples from data/alphazero_iter_149.bin
+  Loaded 14608 samples from data/alphazero_iter_150.bin
+  Loaded 14842 samples from data/alphazero_iter_151.bin
+  Loaded 14724 samples from data/alphazero_iter_152.bin
+  Loaded 14891 samples from data/alphazero_iter_153.bin
+  Loaded 14732 samples from data/alphazero_iter_154.bin
+  Loaded 14704 samples from data/alphazero_iter_155.bin
+  Loaded 14799 samples from data/alphazero_iter_156.bin
+  Loaded 14861 samples from data/alphazero_iter_157.bin
+  Loaded 14843 samples from data/alphazero_iter_158.bin
+  Loaded 14662 samples from data/alphazero_iter_159.bin
+  Loaded 14923 samples from data/alphazero_iter_160.bin
+  Loaded 14858 samples from data/alphazero_iter_161.bin
+  Loaded 14875 samples from data/alphazero_iter_162.bin
+  Loaded 14830 samples from data/alphazero_iter_163.bin
+  Loaded 14717 samples from data/alphazero_iter_164.bin
+  Loaded 14778 samples from data/alphazero_iter_165.bin
+  Loaded 14761 samples from data/alphazero_iter_166.bin
+  Loaded 14779 samples from data/alphazero_iter_167.bin
+  Loaded 14673 samples from data/alphazero_iter_168.bin
+  Loaded 14809 samples from data/alphazero_iter_169.bin
+  Loaded 14817 samples from data/alphazero_iter_170.bin
+  Loaded 14940 samples from data/alphazero_iter_171.bin
+  Loaded 14935 samples from data/alphazero_iter_172.bin
+  Loaded 14858 samples from data/alphazero_iter_173.bin
+  Loaded 14608 samples from data/alphazero_iter_174.bin
+  Loaded 14827 samples from data/alphazero_iter_175.bin
+  Loaded 14660 samples from data/alphazero_iter_176.bin
+  Loaded 14829 samples from data/alphazero_iter_177.bin
+  Loaded 14746 samples from data/alphazero_iter_178.bin
+Loaded 443547 total samples
+Train: 443547 samples (color augmented on-the-fly, no val split)
+Loaded existing model from artifacts/puyo_model
+AlphaZero training: 1000 steps, global_step=177000, LR 2e-4 (end ~2e-4)
+  step 50/1000 p_loss=1.3377 v_loss=0.2462 lr=0.000200  step 100/1000 p_loss=1.3378 v_loss=0.2490 lr=0.000200  step 150/1000 p_loss=1.3395 v_loss=0.2499 lr=0.000200  step 200/1000 p_loss=1.3396 v_loss=0.2487 lr=0.000200  step 250/1000 p_loss=1.3394 v_loss=0.2485 lr=0.000200  step 300/1000 p_loss=1.3387 v_loss=0.2484 lr=0.000200  step 350/1000 p_loss=1.3390 v_loss=0.2485 lr=0.000200  step 400/1000 p_loss=1.3389 v_loss=0.2489 lr=0.000200  step 450/1000 p_loss=1.3392 v_loss=0.2492 lr=0.000200  step 500/1000 p_loss=1.3392 v_loss=0.2487 lr=0.000200  step 550/1000 p_loss=1.3386 v_loss=0.2490 lr=0.000200  step 600/1000 p_loss=1.3384 v_loss=0.2490 lr=0.000200  step 650/1000 p_loss=1.3386 v_loss=0.2495 lr=0.000200  step 700/1000 p_loss=1.3384 v_loss=0.2497 lr=0.000200  step 750/1000 p_loss=1.3383 v_loss=0.2493 lr=0.000200  step 800/1000 p_loss=1.3377 v_loss=0.2491 lr=0.000200  step 850/1000 p_loss=1.3378 v_loss=0.2493 lr=0.000200  step 900/1000 p_loss=1.3379 v_loss=0.2496 lr=0.000200  step 950/1000 p_loss=1.3380 v_loss=0.2496 lr=0.000200  step 1000/1000 p_loss=1.3378 v_loss=0.2495 lr=0.000200
+AlphaZero training complete. final train_loss(p=1.337762, v=0.249526) global_step=178000
