@@ -21,7 +21,7 @@ fn main() {
     let start_time = std::time::Instant::now();
 
     for seed in 0..NUM_GAMES {
-        let mut game = GameState::new();
+        let mut game = GameState::default();
         let mut move_count = 0usize;
 
         while game.phase != GamePhase::GameOver {

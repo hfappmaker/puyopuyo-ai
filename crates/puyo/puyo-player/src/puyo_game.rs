@@ -1,18 +1,25 @@
 use az_framework::game::Game;
-use puyo_core::board::{ChainResult, COLS, ROWS};
+use puyo_core::board::ChainResult;
+use puyo_core::config::GameConfig;
 use puyo_core::piece::Placement;
 use puyo_core::state::{
-    board_to_tensor_data, context_to_tensor_data, PuyoState, CONTEXT_TENSOR_SIZE, NUM_CHANNELS,
+    board_to_tensor_data, context_to_tensor_data, PuyoState,
 };
 
 use puyo_core::placement::{
     compute_valid_mask, enumerate_placements, index_to_placement, placement_to_index,
-    simulate_placement, NUM_ACTIONS,
+    simulate_placement,
 };
 
 /// ぷよぷよゲームの Game trait 実装。
 #[derive(Clone)]
 pub struct PuyoGame;
+
+impl PuyoGame {
+    fn config() -> GameConfig {
+        GameConfig::default()
+    }
+}
 
 impl Game for PuyoGame {
     type State = PuyoState;
@@ -20,15 +27,16 @@ impl Game for PuyoGame {
     type ActionResult = ChainResult;
 
     fn num_actions() -> usize {
-        NUM_ACTIONS
+        Self::config().num_actions()
     }
 
     fn board_tensor_shape() -> (usize, usize, usize) {
-        (NUM_CHANNELS, ROWS, COLS)
+        let gc = Self::config();
+        (gc.num_channels(), gc.rows, gc.cols)
     }
 
     fn context_tensor_size() -> usize {
-        CONTEXT_TENSOR_SIZE
+        Self::config().context_tensor_size()
     }
 
     fn is_terminal(state: &PuyoState) -> bool {
@@ -40,7 +48,7 @@ impl Game for PuyoGame {
     }
 
     fn valid_action_mask(state: &PuyoState) -> Vec<bool> {
-        compute_valid_mask(&state.board, &state.current).to_vec()
+        compute_valid_mask(&state.board, &state.current)
     }
 
     fn action_to_index(action: &Placement) -> usize {
@@ -48,7 +56,8 @@ impl Game for PuyoGame {
     }
 
     fn index_to_action(index: usize) -> Placement {
-        index_to_placement(index)
+        let gc = Self::config();
+        index_to_placement(index, gc.cols)
     }
 
     fn apply_action(state: &PuyoState, action: &Placement) -> (PuyoState, ChainResult) {
@@ -72,11 +81,13 @@ impl Game for PuyoGame {
     }
 
     fn encode_context(state: &PuyoState) -> Vec<f32> {
-        context_to_tensor_data(&state.current, &state.next, &state.next_next)
+        let cfg = &state.board.config;
+        context_to_tensor_data(cfg, &state.current, &state.next, &state.next_next)
     }
 
     fn advance_turn(state: &mut PuyoState) {
-        state.next_next = puyo_core::rand::random_piece();
+        let num_colors = state.board.config.num_colors;
+        state.next_next = puyo_core::rand::random_piece(num_colors);
     }
 }
 
@@ -88,13 +99,14 @@ mod tests {
 
     #[test]
     fn test_puyo_game_num_actions() {
-        assert_eq!(PuyoGame::num_actions(), COLS * 4);
+        let gc = GameConfig::default();
+        assert_eq!(PuyoGame::num_actions(), gc.cols * 4);
     }
 
     #[test]
     fn test_puyo_game_apply_action() {
         let state = PuyoState {
-            board: Board::new(),
+            board: Board::default(),
             current: Piece::new(PuyoColor::Red, PuyoColor::Blue),
             next: Piece::new(PuyoColor::Green, PuyoColor::Blue),
             next_next: Piece::new(PuyoColor::Blue, PuyoColor::Red),
@@ -110,7 +122,7 @@ mod tests {
     #[test]
     fn test_puyo_game_encode_board_size() {
         let state = PuyoState {
-            board: Board::new(),
+            board: Board::default(),
             current: Piece::new(PuyoColor::Red, PuyoColor::Blue),
             next: Piece::new(PuyoColor::Green, PuyoColor::Blue),
             next_next: Piece::new(PuyoColor::Blue, PuyoColor::Red),
@@ -123,7 +135,7 @@ mod tests {
     #[test]
     fn test_puyo_game_encode_context_size() {
         let state = PuyoState {
-            board: Board::new(),
+            board: Board::default(),
             current: Piece::new(PuyoColor::Red, PuyoColor::Blue),
             next: Piece::new(PuyoColor::Green, PuyoColor::Blue),
             next_next: Piece::new(PuyoColor::Blue, PuyoColor::Red),
@@ -134,7 +146,8 @@ mod tests {
 
     #[test]
     fn test_random_piece_valid() {
-        let p = puyo_core::rand::random_piece();
+        let gc = GameConfig::default();
+        let p = puyo_core::rand::random_piece(gc.num_colors);
         assert_ne!(p.axis_color, PuyoColor::Empty);
         assert_ne!(p.satellite_color, PuyoColor::Empty);
     }

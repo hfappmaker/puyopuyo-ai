@@ -1,48 +1,58 @@
 //! ゲームパラメータの一元管理モジュール。
 //!
-//! ボードサイズ・色数・消去条件などの定数を変更する場合は、このファイルだけを編集して
-//! 再コンパイルしてください。NN モデルの再学習も必要です。
+//! `GameConfig` でボードサイズ・色数を実行時に指定可能。
 
-// ─── 基本パラメータ ───
-
-/// ボードの列数（横幅）。
-pub const COLS: usize = 3;
-
-/// ボードの行数（表示行 + 隠し2行）。
-pub const ROWS: usize = 8;
-
-/// 表示行数。上2行は隠し行でゲームオーバー判定に使う。
-pub const VISIBLE_ROWS: usize = ROWS - 2;
-
-/// ぷよの出現列（0-indexed、ボード中央）。
-pub const SPAWN_COL: usize = (COLS - 1) / 2;
-
-/// 使用する色の数（1〜4）。PuyoColor の先頭 N 色を使う。
-pub const NUM_COLORS: usize = 3;
+use serde::{Serialize, Deserialize};
 
 /// 連鎖で消えるために必要な同色ぷよの最小接続数。
 pub const MIN_GROUP_SIZE: usize = 4;
 
-// ─── 派生定数（NN テンソル関連） ───
+/// ゲームの基本パラメータ。盤面サイズ・色数を実行時に指定できる。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GameConfig {
+    /// ボードの列数（横幅）。
+    pub cols: usize,
+    /// ボードの行数（表示行 + 隠し2行）。
+    pub rows: usize,
+    /// 使用する色の数（1〜4）。PuyoColor の先頭 N 色を使う。
+    pub num_colors: usize,
+}
 
-/// 入力チャンネル数: 色ごとの one-hot + occupancy + adjacency。
-pub const NUM_CHANNELS: usize = NUM_COLORS + 2;
+impl GameConfig {
+    pub fn new(cols: usize, rows: usize, num_colors: usize) -> Self {
+        assert!(cols >= 1, "cols must be >= 1");
+        assert!(rows >= 3, "rows must be >= 3");
+        assert!(num_colors >= 1 && num_colors <= 4, "num_colors must be 1..=4");
+        Self { cols, rows, num_colors }
+    }
 
-/// 盤面テンソルのフラットサイズ。
-pub const TENSOR_SIZE: usize = NUM_CHANNELS * ROWS * COLS;
+    /// 表示行数。上2行は隠し行。
+    pub fn visible_rows(&self) -> usize { self.rows - 2 }
 
-/// ピースエンコーディングのサイズ: 3ピース × 2色 × NUM_COLORS one-hot。
-pub const PIECE_TENSOR_SIZE: usize = 3 * 2 * NUM_COLORS;
+    /// ぷよの出現列（0-indexed、ボード中央）。
+    pub fn spawn_col(&self) -> usize { (self.cols - 1) / 2 }
 
-/// コンテキストテンソルサイズ。
-pub const CONTEXT_TENSOR_SIZE: usize = PIECE_TENSOR_SIZE;
+    /// アクション空間のサイズ: cols × 4方向。
+    pub fn num_actions(&self) -> usize { self.cols * 4 }
 
-/// アクション空間のサイズ: COLS × 4方向。
-pub const NUM_ACTIONS: usize = COLS * 4;
+    /// 入力チャンネル数: 色ごとの one-hot + occupancy + adjacency。
+    pub fn num_channels(&self) -> usize { self.num_colors + 2 }
 
-// ─── コンパイル時バリデーション ───
+    /// 盤面テンソルのフラットサイズ。
+    pub fn tensor_size(&self) -> usize { self.num_channels() * self.rows * self.cols }
 
-const _: () = assert!(NUM_COLORS >= 1 && NUM_COLORS <= 4, "NUM_COLORS must be 1..=4");
-const _: () = assert!(COLS >= 1, "COLS must be >= 1");
-const _: () = assert!(ROWS == VISIBLE_ROWS + 2, "ROWS must be VISIBLE_ROWS + 2");
-const _: () = assert!(MIN_GROUP_SIZE >= 2, "MIN_GROUP_SIZE must be >= 2");
+    /// ピースエンコーディングのサイズ: 3ピース × 2色 × num_colors one-hot。
+    pub fn piece_tensor_size(&self) -> usize { 3 * 2 * self.num_colors }
+
+    /// コンテキストテンソルサイズ。
+    pub fn context_tensor_size(&self) -> usize { self.piece_tensor_size() }
+
+    /// 連鎖で消えるために必要な同色ぷよの最小接続数。
+    pub fn min_group_size(&self) -> usize { MIN_GROUP_SIZE }
+}
+
+impl Default for GameConfig {
+    fn default() -> Self {
+        Self { cols: 3, rows: 8, num_colors: 3 }
+    }
+}

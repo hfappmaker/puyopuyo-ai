@@ -11,6 +11,7 @@ use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 
 use az_framework::game::Game;
+use puyo_core::config::GameConfig;
 use puyo_core::rand::time_seed;
 use puyo_player::mcts::{mcts_search, InferenceProvider};
 use puyo_player::nn_eval::MctsConfig;
@@ -43,6 +44,15 @@ struct Args {
     threads: Option<usize>,
     batch_size: Option<usize>,
     min_chain: u32,
+    cols: usize,
+    rows: usize,
+    num_colors: usize,
+    residual_channels: usize,
+    num_blocks: usize,
+    policy_conv_channels: usize,
+    value_conv_channels: usize,
+    value_hidden: usize,
+    film_hidden: usize,
 }
 
 fn parse_args() -> Args {
@@ -60,6 +70,15 @@ fn parse_args() -> Args {
         threads: None,
         batch_size: None,
         min_chain: 0,
+        cols: 3,
+        rows: 8,
+        num_colors: 3,
+        residual_channels: 64,
+        num_blocks: 6,
+        policy_conv_channels: 2,
+        value_conv_channels: 1,
+        value_hidden: 64,
+        film_hidden: 128,
     };
     let next_val = |i: usize, flag: &str| -> &String {
         args.get(i).unwrap_or_else(|| {
@@ -118,6 +137,42 @@ fn parse_args() -> Args {
                 i += 1;
                 result.min_chain = next_val(i, "--min-chain").parse().expect("--min-chain requires integer");
             }
+            "--cols" => {
+                i += 1;
+                result.cols = next_val(i, "--cols").parse().expect("--cols requires integer");
+            }
+            "--rows" => {
+                i += 1;
+                result.rows = next_val(i, "--rows").parse().expect("--rows requires integer");
+            }
+            "--num-colors" => {
+                i += 1;
+                result.num_colors = next_val(i, "--num-colors").parse().expect("--num-colors requires integer");
+            }
+            "--residual-channels" => {
+                i += 1;
+                result.residual_channels = next_val(i, "--residual-channels").parse().expect("--residual-channels requires integer");
+            }
+            "--num-blocks" => {
+                i += 1;
+                result.num_blocks = next_val(i, "--num-blocks").parse().expect("--num-blocks requires integer");
+            }
+            "--policy-conv-channels" => {
+                i += 1;
+                result.policy_conv_channels = next_val(i, "--policy-conv-channels").parse().expect("--policy-conv-channels requires integer");
+            }
+            "--value-conv-channels" => {
+                i += 1;
+                result.value_conv_channels = next_val(i, "--value-conv-channels").parse().expect("--value-conv-channels requires integer");
+            }
+            "--value-hidden" => {
+                i += 1;
+                result.value_hidden = next_val(i, "--value-hidden").parse().expect("--value-hidden requires integer");
+            }
+            "--film-hidden" => {
+                i += 1;
+                result.film_hidden = next_val(i, "--film-hidden").parse().expect("--film-hidden requires integer");
+            }
             other => eprintln!("Unknown option: {} (ignoring)", other),
         }
         i += 1;
@@ -144,8 +199,10 @@ struct GameResult {
 fn play_one_game(
     provider: &dyn InferenceProvider,
     args: &Args,
+    gc: &GameConfig,
 ) -> GameResult {
-    let mut game = GameState::new();
+    let cols = gc.cols;
+    let mut game = GameState::new(gc.clone());
     let mut move_records: Vec<MoveRecord> = Vec::with_capacity(MAX_TURNS as usize);
     let mut move_count = 0u32;
 
@@ -181,7 +238,7 @@ fn play_one_game(
         let valid_mask = PuyoGame::valid_action_mask(&puyo_state);
         let action = select_from_policy(&mcts_policy, &valid_mask);
 
-        let placement = puyo_player::placement::index_to_placement(action);
+        let placement = puyo_core::placement::index_to_placement(action, cols);
         let chain_result = game.apply_placement(&placement);
 
         move_records.push(MoveRecord {
@@ -229,8 +286,26 @@ fn play_one_game(
     }
 }
 
-fn load_model<B: Backend>(device: &B::Device, model_path: &str) -> PuyoNet<B> {
-    let config = PuyoNetConfig::new();
+fn validate_model_metadata(model_path: &str, gc: &GameConfig) {
+    let meta_path = format!("{}.config.json", model_path);
+    if let Ok(json) = std::fs::read_to_string(&meta_path) {
+        #[derive(serde::Deserialize)]
+        struct ModelMetadata {
+            game_config: GameConfig,
+        }
+        if let Ok(meta) = serde_json::from_str::<ModelMetadata>(&json) {
+            if meta.game_config != *gc {
+                eprintln!(
+                    "WARNING: Model was trained with {:?} but current config is {:?}",
+                    meta.game_config, gc
+                );
+            }
+        }
+    }
+}
+
+fn load_model<B: Backend>(device: &B::Device, model_path: &str, net_config: &PuyoNetConfig) -> PuyoNet<B> {
+    let config = net_config.clone();
     let path = model_path.to_string();
     let load_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
@@ -262,18 +337,32 @@ fn load_model<B: Backend>(device: &B::Device, model_path: &str) -> PuyoNet<B> {
 
 fn main() {
     let args = parse_args();
+    let gc = GameConfig::new(args.cols, args.rows, args.num_colors);
+    let net_config = PuyoNetConfig::new()
+        .with_residual_channels(args.residual_channels)
+        .with_num_residual_blocks(args.num_blocks)
+        .with_policy_conv_channels(args.policy_conv_channels)
+        .with_value_conv_channels(args.value_conv_channels)
+        .with_value_hidden(args.value_hidden)
+        .with_film_hidden(args.film_hidden)
+        .with_game_config(gc.clone());
+    validate_model_metadata(&args.model_path, &gc);
 
     println!(
         "games={}, simulations={}, c_puct_init={}, c_puct_base={}, m={}, c_visit={}, gamma={}",
         args.num_games, args.num_simulations, args.c_puct_init, args.c_puct_base, args.m,
         args.c_visit, args.gamma,
     );
+    println!(
+        "Game config: cols={}, rows={}, num_colors={}, residual_channels={}, num_blocks={}",
+        gc.cols, gc.rows, gc.num_colors, args.residual_channels, args.num_blocks,
+    );
 
     type GpuBackend = CudaJit<f32>;
 
     println!("Backend: CudaJit (GPU) — Gumbel MCTS self-play (batched)");
     let device: <GpuBackend as Backend>::Device = Default::default();
-    let model = load_model::<GpuBackend>(&device, &args.model_path);
+    let model = load_model::<GpuBackend>(&device, &args.model_path, &net_config);
 
     let num_threads = args.threads.unwrap_or(DEFAULT_GPU_THREADS);
     let batch_size = args.batch_size.unwrap_or(DEFAULT_MAX_BATCH_SIZE);
@@ -282,9 +371,9 @@ fn main() {
         num_threads, batch_size,
     );
 
-    let client = inference_server::start_inference_server(PuyoGameModel::new(model), device, batch_size);
+    let client = inference_server::start_inference_server(PuyoGameModel::with_config(model, gc.clone()), device, batch_size);
 
-    run_games_parallel(&args, num_threads, |_| {
+    run_games_parallel(&args, &gc, num_threads, |_| {
         let thread_client = client.clone();
         (thread_client, 0usize)
     });
@@ -296,7 +385,7 @@ fn main() {
 /// Run self-play games in parallel.
 /// `make_provider_data` is called once per thread from the main thread,
 /// returning a tuple of (provider, extra_data). The provider must be Send.
-fn run_games_parallel<F, P>(args: &Args, num_threads: usize, make_provider_data: F)
+fn run_games_parallel<F, P>(args: &Args, gc: &GameConfig, num_threads: usize, make_provider_data: F)
 where
     F: Fn(usize) -> (P, usize),
     P: InferenceProvider + Send,
@@ -333,7 +422,7 @@ where
                 s.spawn(move || {
                     let mut thread_results = Vec::new();
                     for _ in start..end {
-                        let result = play_one_game(&thread_provider, args);
+                        let result = play_one_game(&thread_provider, args, gc);
 
                         let done = games_done.fetch_add(1, Ordering::Relaxed) + 1;
                         total_samples.fetch_add(result.samples.len() as u64, Ordering::Relaxed);

@@ -1,7 +1,6 @@
-use crate::board::{Board, COLS, NUM_COLORS, ROWS};
+use crate::board::Board;
+use crate::config::GameConfig;
 use crate::piece::Piece;
-
-pub use crate::config::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS, PIECE_TENSOR_SIZE, TENSOR_SIZE};
 
 /// MCTS/AI用の軽量ゲーム状態。
 /// GameStateからUI関連（FallingPiece, phase等）を除いた純粋な盤面+ピースキュー。
@@ -16,34 +15,40 @@ pub struct PuyoState {
 /// Board を [channel][row][col] のフラット f32 配列に変換する。
 ///
 /// チャンネル:
-/// - 0..(NUM_COLORS-1): 色ごとのone-hot
-/// - NUM_COLORS: occupancy map (ぷよの有無)
-/// - NUM_COLORS+1: adjacency map (同色隣接数 / 4.0)
+/// - 0..(num_colors-1): 色ごとのone-hot
+/// - num_colors: occupancy map (ぷよの有無)
+/// - num_colors+1: adjacency map (同色隣接数 / 4.0)
 pub fn board_to_tensor_data(board: &Board) -> Vec<f32> {
-    let mut data = vec![0.0f32; TENSOR_SIZE];
+    let cfg = &board.config;
+    let cols = cfg.cols;
+    let rows = cfg.rows;
+    let num_colors = cfg.num_colors;
+    let tensor_size = cfg.tensor_size();
 
-    let occ_offset = NUM_COLORS * ROWS * COLS;
-    let adj_offset = (NUM_COLORS + 1) * ROWS * COLS;
+    let mut data = vec![0.0f32; tensor_size];
 
-    for col in 0..COLS {
-        for row in 0..ROWS {
+    let occ_offset = num_colors * rows * cols;
+    let adj_offset = (num_colors + 1) * rows * cols;
+
+    for col in 0..cols {
+        for row in 0..rows {
             let color = board.get(col, row);
             if color.is_color() {
                 let ch = color as u8 as usize - 1;
-                data[ch * ROWS * COLS + row * COLS + col] = 1.0;
+                data[ch * rows * cols + row * cols + col] = 1.0;
 
-                data[occ_offset + row * COLS + col] = 1.0;
+                data[occ_offset + row * cols + col] = 1.0;
 
                 let count = [
                     col > 0 && board.get(col - 1, row) == color,
-                    col + 1 < COLS && board.get(col + 1, row) == color,
+                    col + 1 < cols && board.get(col + 1, row) == color,
                     row > 0 && board.get(col, row - 1) == color,
-                    row + 1 < ROWS && board.get(col, row + 1) == color,
+                    row + 1 < rows && board.get(col, row + 1) == color,
                 ]
                 .iter()
                 .filter(|&&b| b)
                 .count();
-                data[adj_offset + row * COLS + col] = count as f32 / 4.0;
+                data[adj_offset + row * cols + col] = count as f32 / 4.0;
             }
         }
     }
@@ -52,25 +57,28 @@ pub fn board_to_tensor_data(board: &Board) -> Vec<f32> {
 }
 
 /// 3ピース（current, next, next_next）をフラット f32 配列に変換する。
-/// 各ピースの axis_color, satellite_color を NUM_COLORS 次元 one-hot でエンコード。
-pub fn pieces_to_tensor_data(current: &Piece, next: &Piece, next_next: &Piece) -> Vec<f32> {
-    let mut data = vec![0.0f32; PIECE_TENSOR_SIZE];
+/// 各ピースの axis_color, satellite_color を num_colors 次元 one-hot でエンコード。
+pub fn pieces_to_tensor_data(config: &GameConfig, current: &Piece, next: &Piece, next_next: &Piece) -> Vec<f32> {
+    let num_colors = config.num_colors;
+    let piece_tensor_size = config.piece_tensor_size();
+    let mut data = vec![0.0f32; piece_tensor_size];
     let pieces = [current, next, next_next];
     for (i, piece) in pieces.iter().enumerate() {
-        let base = i * (2 * NUM_COLORS);
+        let base = i * (2 * num_colors);
         let axis_ch = piece.axis_color as u8 as usize - 1;
         data[base + axis_ch] = 1.0;
         let sat_ch = piece.satellite_color as u8 as usize - 1;
-        data[base + NUM_COLORS + sat_ch] = 1.0;
+        data[base + num_colors + sat_ch] = 1.0;
     }
     data
 }
 
 /// コンテキストテンソル（FiLM条件付け用）に変換する。
 pub fn context_to_tensor_data(
+    config: &GameConfig,
     current: &Piece,
     next: &Piece,
     next_next: &Piece,
 ) -> Vec<f32> {
-    pieces_to_tensor_data(current, next, next_next)
+    pieces_to_tensor_data(config, current, next, next_next)
 }

@@ -9,13 +9,12 @@ use burn::prelude::*;
 use burn::record::{BinFileRecorder, FullPrecisionSettings};
 use burn::tensor::backend::AutodiffBackend;
 
-use puyo_core::board::{COLS, ROWS};
-use puyo_core::config::NUM_ACTIONS;
-use puyo_core::state::{CONTEXT_TENSOR_SIZE, NUM_CHANNELS, TENSOR_SIZE};
+use puyo_core::config::GameConfig;
 use puyo_nn::model::PuyoNetConfig;
 use az_framework::value_transform::value_transform;
 use puyo_core::rand::time_seed;
 use puyo_trainer::data::{AlphaZeroDataset, Dataset};
+use serde::{Serialize, Deserialize};
 
 type TrainBackend = Autodiff<CudaJit<f32>>;
 type InnerBackend = <TrainBackend as AutodiffBackend>::InnerBackend;
@@ -32,10 +31,10 @@ const AZ_NUM_STEPS: usize = 1000;
 const ACCUM_STEPS: usize = 4; // gradient accumulation: effective batch = BATCH_SIZE * ACCUM_STEPS = 2048
 // Global step LR schedule (AlphaZero-style 4-stage drop)
 const AZ_LR_STAGES: [(usize, f64); 4] = [
-    (0,      0.2),    // step 0〜100k: LR = 0.2
-    (10000, 0.02),   // step 100k〜300k: LR = 0.02
-    (30000, 0.002),  // step 300k〜500k: LR = 0.002
-    (50000, 0.0002),  // step 500k〜: LR = 0.0002
+    (0,      0.2),    // step 0~100k: LR = 0.2
+    (10000, 0.02),   // step 100k~300k: LR = 0.02
+    (30000, 0.002),  // step 300k~500k: LR = 0.002
+    (50000, 0.0002),  // step 500k~: LR = 0.0002
 ];
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
 const VALUE_LOSS_WEIGHT: f32 = 0.5;
@@ -64,7 +63,7 @@ fn cosine_lr(epoch: usize, total_epochs: usize) -> f64 {
 
 /// Cross-entropy loss for policy: -sum(target * log_softmax(logits)) / batch_size.
 /// `targets` can be one-hot (u8 index) or soft (f32 distribution).
-fn cross_entropy_loss_hard<B: Backend>(logits: Tensor<B, 2>, targets: &[u8], device: &B::Device) -> Tensor<B, 1> {
+fn cross_entropy_loss_hard<B: Backend>(logits: Tensor<B, 2>, targets: &[u8], device: &B::Device, num_actions: usize) -> Tensor<B, 1> {
     let batch_size = logits.dims()[0];
     let max_logits = logits.clone().max_dim(1);
     let shifted = logits - max_logits;
@@ -73,12 +72,12 @@ fn cross_entropy_loss_hard<B: Backend>(logits: Tensor<B, 2>, targets: &[u8], dev
     let log_sum_exp = sum_exp.log();
     let log_softmax = shifted - log_sum_exp;
 
-    let mut target_one_hot = vec![0.0f32; batch_size * NUM_ACTIONS];
+    let mut target_one_hot = vec![0.0f32; batch_size * num_actions];
     for (i, &t) in targets.iter().enumerate() {
-        target_one_hot[i * NUM_ACTIONS + t as usize] = 1.0;
+        target_one_hot[i * num_actions + t as usize] = 1.0;
     }
     let target_tensor = Tensor::<B, 1>::from_floats(target_one_hot.as_slice(), device)
-        .reshape([batch_size, NUM_ACTIONS]);
+        .reshape([batch_size, num_actions]);
 
     let selected = (log_softmax * target_tensor).sum();
     selected.neg() / (batch_size as f32)
@@ -87,20 +86,20 @@ fn cross_entropy_loss_hard<B: Backend>(logits: Tensor<B, 2>, targets: &[u8], dev
 /// Cross-entropy loss for soft policy targets (MCTS visit distribution).
 /// Invalid actions (target == 0.0) are masked out of the softmax computation
 /// so that no gradient flows through their logits.
-fn cross_entropy_loss_soft<B: Backend>(logits: Tensor<B, 2>, targets_flat: &[f32], device: &B::Device) -> Tensor<B, 1> {
+fn cross_entropy_loss_soft<B: Backend>(logits: Tensor<B, 2>, targets_flat: &[f32], device: &B::Device, num_actions: usize) -> Tensor<B, 1> {
     let batch_size = logits.dims()[0];
 
     // Build mask: -1e9 for invalid actions (target == 0), 0 for valid
-    let mut mask_data = vec![0.0f32; batch_size * NUM_ACTIONS];
+    let mut mask_data = vec![0.0f32; batch_size * num_actions];
     for i in 0..batch_size {
-        for a in 0..NUM_ACTIONS {
-            if targets_flat[i * NUM_ACTIONS + a] == 0.0 {
-                mask_data[i * NUM_ACTIONS + a] = -1e9;
+        for a in 0..num_actions {
+            if targets_flat[i * num_actions + a] == 0.0 {
+                mask_data[i * num_actions + a] = -1e9;
             }
         }
     }
     let mask_tensor = Tensor::<B, 1>::from_floats(mask_data.as_slice(), device)
-        .reshape([batch_size, NUM_ACTIONS]);
+        .reshape([batch_size, num_actions]);
 
     let masked_logits = logits + mask_tensor;
     let max_logits = masked_logits.clone().max_dim(1);
@@ -111,13 +110,41 @@ fn cross_entropy_loss_soft<B: Backend>(logits: Tensor<B, 2>, targets_flat: &[f32
     let log_softmax = shifted - log_sum_exp;
 
     let target_tensor = Tensor::<B, 1>::from_floats(targets_flat, device)
-        .reshape([batch_size, NUM_ACTIONS]);
+        .reshape([batch_size, num_actions]);
 
     let selected = (log_softmax * target_tensor).sum();
     selected.neg() / (batch_size as f32)
 }
 
 /// Get learning rate based on global step (AlphaZero-style stage drop).
+/// Model metadata saved alongside the model file for config validation.
+#[derive(Serialize, Deserialize)]
+struct ModelMetadata {
+    game_config: GameConfig,
+    residual_channels: usize,
+    num_residual_blocks: usize,
+    policy_conv_channels: usize,
+    value_conv_channels: usize,
+    value_hidden: usize,
+    film_hidden: usize,
+}
+
+fn save_model_metadata(model_path: &str, gc: &GameConfig, net_config: &PuyoNetConfig) {
+    let meta = ModelMetadata {
+        game_config: gc.clone(),
+        residual_channels: net_config.residual_channels,
+        num_residual_blocks: net_config.num_residual_blocks,
+        policy_conv_channels: net_config.policy_conv_channels,
+        value_conv_channels: net_config.value_conv_channels,
+        value_hidden: net_config.value_hidden,
+        film_hidden: net_config.film_hidden,
+    };
+    let path = format!("{}.config.json", model_path);
+    let json = serde_json::to_string_pretty(&meta).expect("Failed to serialize metadata");
+    std::fs::write(&path, json).expect("Failed to write model metadata");
+    println!("Model metadata saved to {}", path);
+}
+
 fn az_lr_for_global_step(global_step: usize) -> f64 {
     let mut lr = AZ_LR_STAGES[0].1;
     for &(threshold, stage_lr) in &AZ_LR_STAGES {
@@ -145,17 +172,57 @@ fn main() {
     let batch_size = args.iter().position(|a| a == "--batch-size")
         .map(|i| args[i + 1].parse::<usize>().expect("--batch-size requires integer"))
         .unwrap_or(BATCH_SIZE);
+    let cols = args.iter().position(|a| a == "--cols")
+        .map(|i| args[i + 1].parse::<usize>().expect("--cols requires integer"))
+        .unwrap_or(3);
+    let rows = args.iter().position(|a| a == "--rows")
+        .map(|i| args[i + 1].parse::<usize>().expect("--rows requires integer"))
+        .unwrap_or(8);
+    let num_colors = args.iter().position(|a| a == "--num-colors")
+        .map(|i| args[i + 1].parse::<usize>().expect("--num-colors requires integer"))
+        .unwrap_or(3);
+
+    let residual_channels = args.iter().position(|a| a == "--residual-channels")
+        .map(|i| args[i + 1].parse::<usize>().expect("--residual-channels requires integer"))
+        .unwrap_or(64);
+    let num_blocks = args.iter().position(|a| a == "--num-blocks")
+        .map(|i| args[i + 1].parse::<usize>().expect("--num-blocks requires integer"))
+        .unwrap_or(6);
+    let policy_conv_channels = args.iter().position(|a| a == "--policy-conv-channels")
+        .map(|i| args[i + 1].parse::<usize>().expect("--policy-conv-channels requires integer"))
+        .unwrap_or(2);
+    let value_conv_channels = args.iter().position(|a| a == "--value-conv-channels")
+        .map(|i| args[i + 1].parse::<usize>().expect("--value-conv-channels requires integer"))
+        .unwrap_or(1);
+    let value_hidden = args.iter().position(|a| a == "--value-hidden")
+        .map(|i| args[i + 1].parse::<usize>().expect("--value-hidden requires integer"))
+        .unwrap_or(64);
+    let film_hidden = args.iter().position(|a| a == "--film-hidden")
+        .map(|i| args[i + 1].parse::<usize>().expect("--film-hidden requires integer"))
+        .unwrap_or(128);
 
     std::fs::create_dir_all(&artifacts_dir).expect("Failed to create artifacts directory");
 
+    let gc = GameConfig::new(cols, rows, num_colors);
+    let net_config = PuyoNetConfig::new()
+        .with_residual_channels(residual_channels)
+        .with_num_residual_blocks(num_blocks)
+        .with_policy_conv_channels(policy_conv_channels)
+        .with_value_conv_channels(value_conv_channels)
+        .with_value_hidden(value_hidden)
+        .with_film_hidden(film_hidden)
+        .with_game_config(gc.clone());
+
     println!("Backend: CUDA (GPU)");
+    println!("Game config: cols={}, rows={}, num_colors={}", gc.cols, gc.rows, gc.num_colors);
+    println!("Net config: residual_channels={}, num_blocks={}", residual_channels, num_blocks);
 
     if alphazero_mode {
         println!("Mode: AlphaZero (Policy CE + Value MSE)");
-        train_alphazero(data_dir.as_deref(), global_step, &model_path, &artifacts_dir, batch_size);
+        train_alphazero(data_dir.as_deref(), global_step, &model_path, &artifacts_dir, batch_size, &gc, &net_config);
     } else {
         println!("Mode: Supervised (Policy CE only)");
-        train_supervised(&model_path, batch_size);
+        train_supervised(&model_path, batch_size, &gc, &net_config);
     }
 }
 
@@ -163,9 +230,16 @@ fn main() {
 // Supervised training (from generate-data)
 // ---------------------------------------------------------------------------
 
-fn train_supervised(model_path: &str, batch_size: usize) {
+fn train_supervised(model_path: &str, batch_size: usize, gc: &GameConfig, net_config: &PuyoNetConfig) {
     let device: <TrainBackend as Backend>::Device = Default::default();
     let data_path = "data/training_data.bin";
+
+    let num_channels = gc.num_channels();
+    let rows = gc.rows;
+    let cols = gc.cols;
+    let tensor_size = gc.tensor_size();
+    let context_tensor_size = gc.context_tensor_size();
+    let num_actions = gc.num_actions();
 
     println!("Loading dataset from {}...", data_path);
     let dataset = Dataset::load(data_path).expect("Failed to load dataset");
@@ -177,8 +251,7 @@ fn train_supervised(model_path: &str, batch_size: usize) {
     let val_samples = &dataset.samples[split..];
     println!("Train: {}, Val: {}", train_samples.len(), val_samples.len());
 
-    let config = PuyoNetConfig::new();
-    let mut model = config.init::<TrainBackend>(&device);
+    let mut model = net_config.init::<TrainBackend>(&device);
     let mut optim = SgdConfig::new()
         .with_momentum(Some(MomentumConfig::new().with_momentum(0.9)))
         .with_weight_decay(Some(WeightDecayConfig::new(1e-4)))
@@ -200,8 +273,8 @@ fn train_supervised(model_path: &str, batch_size: usize) {
             let batch_size = batch_end - batch_start;
             if batch_size == 0 { break; }
 
-            let mut board_data = Vec::with_capacity(batch_size * TENSOR_SIZE);
-            let mut context_data = Vec::with_capacity(batch_size * CONTEXT_TENSOR_SIZE);
+            let mut board_data = Vec::with_capacity(batch_size * tensor_size);
+            let mut context_data = Vec::with_capacity(batch_size * context_tensor_size);
             let mut target_actions = Vec::with_capacity(batch_size);
             let mut value_targets = Vec::with_capacity(batch_size);
 
@@ -214,12 +287,12 @@ fn train_supervised(model_path: &str, batch_size: usize) {
             }
 
             let board_inputs = Tensor::<TrainBackend, 1>::from_floats(board_data.as_slice(), &device)
-                .reshape([batch_size, NUM_CHANNELS, ROWS, COLS]);
+                .reshape([batch_size, num_channels, rows, cols]);
             let context_inputs = Tensor::<TrainBackend, 1>::from_floats(context_data.as_slice(), &device)
-                .reshape([batch_size, CONTEXT_TENSOR_SIZE]);
+                .reshape([batch_size, context_tensor_size]);
 
             let (logits, value) = model.forward(board_inputs, context_inputs);
-            let policy_loss = cross_entropy_loss_hard(logits, &target_actions, &device);
+            let policy_loss = cross_entropy_loss_hard(logits, &target_actions, &device, num_actions);
 
             let value_loss = value_mse_loss(value, &value_targets, &device);
 
@@ -242,7 +315,7 @@ fn train_supervised(model_path: &str, batch_size: usize) {
 
         let val_model = model.valid();
         let val_device: <InnerBackend as Backend>::Device = Default::default();
-        let val_loss = compute_val_loss_supervised(&val_model, val_samples, &val_device, batch_size);
+        let val_loss = compute_val_loss_supervised(&val_model, val_samples, &val_device, batch_size, gc);
 
         let avg_train_loss = epoch_loss / num_batches as f32;
         println!("Epoch {}/{}: train_loss={:.6}, val_loss={:.6}, lr={:.6}", epoch + 1, NUM_EPOCHS, avg_train_loss, val_loss, lr);
@@ -251,6 +324,7 @@ fn train_supervised(model_path: &str, batch_size: usize) {
             best_val_loss = val_loss;
             patience_counter = 0;
             model.valid().save_file(model_path, &BinFileRecorder::<FullPrecisionSettings>::new()).expect("Failed to save model");
+            save_model_metadata(model_path, gc, net_config);
             println!("  -> Best model saved (val_loss={:.6})", val_loss);
         } else {
             patience_counter += 1;
@@ -270,7 +344,15 @@ fn compute_val_loss_supervised(
     val_samples: &[puyo_trainer::data::Sample],
     device: &<InnerBackend as Backend>::Device,
     batch_size: usize,
+    gc: &GameConfig,
 ) -> f32 {
+    let num_channels = gc.num_channels();
+    let rows = gc.rows;
+    let cols = gc.cols;
+    let tensor_size = gc.tensor_size();
+    let context_tensor_size = gc.context_tensor_size();
+    let num_actions = gc.num_actions();
+
     let mut total_loss = 0.0f32;
     let mut num_batches = 0;
 
@@ -279,8 +361,8 @@ fn compute_val_loss_supervised(
         let batch_size = batch_end - batch_start;
         if batch_size == 0 { break; }
 
-        let mut board_data = Vec::with_capacity(batch_size * TENSOR_SIZE);
-        let mut context_data = Vec::with_capacity(batch_size * CONTEXT_TENSOR_SIZE);
+        let mut board_data = Vec::with_capacity(batch_size * tensor_size);
+        let mut context_data = Vec::with_capacity(batch_size * context_tensor_size);
         let mut target_actions = Vec::with_capacity(batch_size);
         let mut value_targets = Vec::with_capacity(batch_size);
 
@@ -292,12 +374,12 @@ fn compute_val_loss_supervised(
         }
 
         let board_inputs = Tensor::<InnerBackend, 1>::from_floats(board_data.as_slice(), device)
-            .reshape([batch_size, NUM_CHANNELS, ROWS, COLS]);
+            .reshape([batch_size, num_channels, rows, cols]);
         let context_inputs = Tensor::<InnerBackend, 1>::from_floats(context_data.as_slice(), device)
-            .reshape([batch_size, CONTEXT_TENSOR_SIZE]);
+            .reshape([batch_size, context_tensor_size]);
 
         let (logits, value) = model.forward(board_inputs, context_inputs);
-        let policy_loss = cross_entropy_loss_hard(logits, &target_actions, device);
+        let policy_loss = cross_entropy_loss_hard(logits, &target_actions, device, num_actions);
 
         let value_loss = value_mse_loss(value, &value_targets, device);
 
@@ -314,8 +396,15 @@ fn compute_val_loss_supervised(
 // AlphaZero training (from self-play data)
 // ---------------------------------------------------------------------------
 
-fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path: &str, artifacts_dir: &str, batch_size: usize) {
+fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path: &str, artifacts_dir: &str, batch_size: usize, gc: &GameConfig, net_config: &PuyoNetConfig) {
     let device: <TrainBackend as Backend>::Device = Default::default();
+
+    let num_channels = gc.num_channels();
+    let rows = gc.rows;
+    let cols = gc.cols;
+    let tensor_size = gc.tensor_size();
+    let context_tensor_size = gc.context_tensor_size();
+    let num_actions = gc.num_actions();
 
     let dataset = if let Some(dir) = data_dir {
         // Replay buffer mode: load all alphazero_iter_*.bin files from the directory
@@ -347,22 +436,20 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path:
     let num_samples = dataset.samples.len();
     println!("Loaded {} total samples", num_samples);
 
-    // All data used for training (no val split — performance judged by self-play reward)
-    let all_perms = puyo_trainer::data::all_color_permutations();
+    // All data used for training (no val split -- performance judged by self-play reward)
+    let all_perms = puyo_trainer::data::all_color_permutations(gc.num_colors);
     let train_samples = dataset.samples;
 
     println!("Train: {} samples (color augmented on-the-fly, no val split)", train_samples.len());
-
-    let config = PuyoNetConfig::new();
 
     // Try to load existing model, otherwise init fresh
     let mut model = {
         let device_clone = device.clone();
         let path = model_path.to_string();
+        let nc = net_config.clone();
         let load_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
-            config
-                .init::<TrainBackend>(&device_clone)
+            nc.init::<TrainBackend>(&device_clone)
                 .load_file(&path, &recorder, &device_clone)
         }));
         match load_result {
@@ -375,14 +462,14 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path:
                     "Failed to load model from {}: {}. Initializing fresh",
                     model_path, e
                 );
-                config.init::<TrainBackend>(&device)
+                net_config.init::<TrainBackend>(&device)
             }
             Err(_) => {
                 println!(
                     "Model file {} is incompatible with current architecture. Initializing fresh",
                     model_path
                 );
-                config.init::<TrainBackend>(&device)
+                net_config.init::<TrainBackend>(&device)
             }
         }
     };
@@ -409,9 +496,9 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path:
         // Gradient accumulation: run ACCUM_STEPS micro-batches per optimizer step
         for _micro in 0..ACCUM_STEPS {
             let batch_size = batch_size.min(train_samples.len());
-            let mut board_data = Vec::with_capacity(batch_size * TENSOR_SIZE);
-            let mut context_data = Vec::with_capacity(batch_size * CONTEXT_TENSOR_SIZE);
-            let mut policy_targets = Vec::with_capacity(batch_size * NUM_ACTIONS);
+            let mut board_data = Vec::with_capacity(batch_size * tensor_size);
+            let mut context_data = Vec::with_capacity(batch_size * context_tensor_size);
+            let mut policy_targets = Vec::with_capacity(batch_size * num_actions);
             let mut value_targets = Vec::with_capacity(batch_size);
 
             for _ in 0..batch_size {
@@ -433,13 +520,13 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path:
             }
 
             let board_inputs = Tensor::<TrainBackend, 1>::from_floats(board_data.as_slice(), &device)
-                .reshape([batch_size, NUM_CHANNELS, ROWS, COLS]);
+                .reshape([batch_size, num_channels, rows, cols]);
             let context_inputs = Tensor::<TrainBackend, 1>::from_floats(context_data.as_slice(), &device)
-                .reshape([batch_size, CONTEXT_TENSOR_SIZE]);
+                .reshape([batch_size, context_tensor_size]);
 
             let (logits, value) = model.forward(board_inputs, context_inputs);
 
-            let policy_loss = cross_entropy_loss_soft(logits, &policy_targets, &device);
+            let policy_loss = cross_entropy_loss_soft(logits, &policy_targets, &device, num_actions);
             let value_loss = value_mse_loss(value, &value_targets, &device);
 
             let p_loss_val = policy_loss.clone().into_data().to_vec::<f32>().expect("Failed to extract policy loss")[0];
@@ -475,8 +562,9 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path:
     let final_p = running_p_loss / running_count as f32;
     let final_v = running_v_loss / running_count as f32;
 
-    // Save model (always — no val-based selection, performance judged by self-play)
+    // Save model (always -- no val-based selection, performance judged by self-play)
     model.valid().save_file(model_path, &BinFileRecorder::<FullPrecisionSettings>::new()).expect("Failed to save model");
+    save_model_metadata(model_path, gc, net_config);
 
     let global_step_end = global_step_start + AZ_NUM_STEPS;
     println!("AlphaZero training complete. final train_loss(p={:.6}, v={:.6}) global_step={}", final_p, final_v, global_step_end);

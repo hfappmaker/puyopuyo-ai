@@ -1,4 +1,4 @@
-use crate::board::{PuyoColor, NUM_COLORS};
+use crate::board::PuyoColor;
 use crate::piece::Piece;
 
 /// splitmix64 finalizer — mixes a u64 seed into a well-distributed hash.
@@ -26,12 +26,12 @@ pub fn time_seed() -> u64 {
 }
 
 /// time_seed() を使ってランダムなピースを生成する。
-pub fn random_piece() -> Piece {
+pub fn random_piece(num_colors: usize) -> Piece {
     let mut x = time_seed();
-    let axis = ((x % NUM_COLORS as u64) as u8) + 1;
+    let axis = ((x % num_colors as u64) as u8) + 1;
     x = (x ^ (x >> 30)).wrapping_mul(0x517cc1b727220a95);
     x = x ^ (x >> 27);
-    let sat = ((x % NUM_COLORS as u64) as u8) + 1;
+    let sat = ((x % num_colors as u64) as u8) + 1;
     Piece::new(PuyoColor::from_u8(axis), PuyoColor::from_u8(sat))
 }
 
@@ -39,11 +39,13 @@ pub fn random_piece() -> Piece {
 mod tests {
     use super::*;
     use crate::board::PuyoColor;
+    use crate::config::GameConfig;
 
     #[test]
     fn test_random_piece_valid() {
+        let num_colors = GameConfig::default().num_colors;
         for _ in 0..100 {
-            let p = random_piece();
+            let p = random_piece(num_colors);
             assert_ne!(p.axis_color, PuyoColor::Empty);
             assert_ne!(p.satellite_color, PuyoColor::Empty);
         }

@@ -4,6 +4,7 @@ use burn::backend::ndarray::NdArray;
 use burn::prelude::*;
 use burn::record::{BinBytesRecorder, FullPrecisionSettings, Recorder};
 
+use puyo_core::config::GameConfig;
 use puyo_player::eval::SimulationEvaluator;
 use puyo_player::nn_eval::{MctsConfig, NnEvaluator};
 use puyo_player::placement::enumerate_placements;
@@ -20,25 +21,25 @@ type InferBackend = NdArray;
 /// ボードの列数。
 #[wasm_bindgen]
 pub fn board_cols() -> u32 {
-    puyo_core::config::COLS as u32
+    GameConfig::default().cols as u32
 }
 
 /// ボードの行数（隠し行含む）。
 #[wasm_bindgen]
 pub fn board_rows() -> u32 {
-    puyo_core::config::ROWS as u32
+    GameConfig::default().rows as u32
 }
 
 /// 表示行数。
 #[wasm_bindgen]
 pub fn board_visible_rows() -> u32 {
-    puyo_core::config::VISIBLE_ROWS as u32
+    GameConfig::default().visible_rows() as u32
 }
 
 /// 使用する色の数。
 #[wasm_bindgen]
 pub fn num_colors() -> u32 {
-    puyo_core::config::NUM_COLORS as u32
+    GameConfig::default().num_colors as u32
 }
 
 #[wasm_bindgen]
@@ -53,7 +54,7 @@ impl WasmGame {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmGame {
         WasmGame {
-            state: GameState::new(),
+            state: GameState::default(),
             evaluator: Box::new(SimulationEvaluator),
         }
     }

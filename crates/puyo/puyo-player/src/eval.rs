@@ -58,7 +58,8 @@ pub const W_GAME_OVER: f64 = -1000000.0;
 
 /// 仮想ぷよ（同色2個Piece）を全合法配置に落として連鎖スコアの期待値（全パターン平均）を推定する。
 fn simulate_expected_score(board: &Board) -> f64 {
-    let (sum, count) = PuyoColor::all_colors()
+    let num_colors = board.config.num_colors;
+    let (sum, count) = PuyoColor::active_colors(num_colors)
         .iter()
         .flat_map(|&color| {
             let piece = Piece::new(color, color);
@@ -86,8 +87,11 @@ fn simulate_expected_score(board: &Board) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use puyo_core::board::{PuyoColor, COLS, VISIBLE_ROWS};
+    use puyo_core::board::PuyoColor;
+    use puyo_core::config::GameConfig;
     use puyo_core::piece::Piece;
+
+    fn cfg() -> GameConfig { GameConfig::default() }
 
     fn make_state(board: Board, current: Piece, next: Piece) -> PuyoState {
         PuyoState {
@@ -101,7 +105,7 @@ mod tests {
     #[test]
     fn test_depth1_finds_move() {
         let state = make_state(
-            Board::new(),
+            Board::default(),
             Piece::new(PuyoColor::Red, PuyoColor::Blue),
             Piece::new(PuyoColor::Red, PuyoColor::Blue),
         );
@@ -113,7 +117,7 @@ mod tests {
     #[test]
     fn test_depth2_finds_move() {
         let state = make_state(
-            Board::new(),
+            Board::default(),
             Piece::new(PuyoColor::Red, PuyoColor::Blue),
             Piece::new(PuyoColor::Green, PuyoColor::Blue),
         );
@@ -124,8 +128,9 @@ mod tests {
 
     #[test]
     fn test_ai_avoids_game_over() {
-        let mut board = Board::new();
-        for col in 0..COLS {
+        let c = cfg();
+        let mut board = Board::default();
+        for col in 0..c.cols {
             for i in 0..4 {
                 let color = if (col + i) % 2 == 0 {
                     PuyoColor::Red
@@ -148,7 +153,7 @@ mod tests {
 
     #[test]
     fn test_ai_prefers_chain() {
-        let mut board = Board::new();
+        let mut board = Board::default();
         board.drop_puyo(0, PuyoColor::Red);
         board.drop_puyo(0, PuyoColor::Red);
         board.drop_puyo(0, PuyoColor::Red);
@@ -169,7 +174,7 @@ mod tests {
 
     #[test]
     fn test_simulate_expected_score_empty_board() {
-        let board = Board::new();
+        let board = Board::default();
         let score = simulate_expected_score(&board);
         assert!(
             score.abs() < 1.0,
@@ -179,7 +184,7 @@ mod tests {
 
     #[test]
     fn test_simulate_expected_score_near_chain() {
-        let mut board = Board::new();
+        let mut board = Board::default();
         board.drop_puyo(0, PuyoColor::Red);
         board.drop_puyo(0, PuyoColor::Red);
         board.drop_puyo(0, PuyoColor::Red);
@@ -192,12 +197,12 @@ mod tests {
 
     #[test]
     fn test_simulate_expected_score_more_potential_is_higher() {
-        let mut board1 = Board::new();
+        let mut board1 = Board::default();
         board1.drop_puyo(0, PuyoColor::Red);
         board1.drop_puyo(0, PuyoColor::Red);
         board1.drop_puyo(0, PuyoColor::Red);
 
-        let mut board2 = Board::new();
+        let mut board2 = Board::default();
         board2.drop_puyo(0, PuyoColor::Red);
         board2.drop_puyo(0, PuyoColor::Red);
         board2.drop_puyo(0, PuyoColor::Red);
@@ -215,9 +220,10 @@ mod tests {
 
     #[test]
     fn test_simulate_expected_score_game_over_penalty() {
-        let mut board = Board::new();
-        for col in 0..COLS {
-            for i in 0..VISIBLE_ROWS {
+        let c = cfg();
+        let mut board = Board::default();
+        for col in 0..c.cols {
+            for i in 0..c.visible_rows() {
                 let color = if (col + i) % 2 == 0 {
                     PuyoColor::Red
                 } else {
@@ -235,7 +241,7 @@ mod tests {
 
     #[test]
     fn test_simulate_expected_score_deterministic() {
-        let mut board = Board::new();
+        let mut board = Board::default();
         board.drop_puyo(2, PuyoColor::Green);
         board.drop_puyo(2, PuyoColor::Green);
         board.drop_puyo(1, PuyoColor::Blue);

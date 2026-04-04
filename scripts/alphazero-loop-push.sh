@@ -45,6 +45,15 @@ MIN_CHAIN="${MIN_CHAIN:-0}"          # 最低連鎖数フィルタ（0=無効）
 THREADS="${THREADS:-128}"            # self-playスレッド数
 INFER_BATCH_SIZE="${INFER_BATCH_SIZE:-128}"  # GPU推論バッチサイズ
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-512}"  # 学習バッチサイズ
+BOARD_COLS="${BOARD_COLS:-3}"                # ボード列数
+BOARD_ROWS="${BOARD_ROWS:-8}"               # ボード行数
+NUM_COLORS="${NUM_COLORS:-3}"               # 色数
+RESIDUAL_CHANNELS="${RESIDUAL_CHANNELS:-64}" # モデルチャネル数
+NUM_BLOCKS="${NUM_BLOCKS:-6}"               # モデルブロック数
+POLICY_CONV_CHANNELS="${POLICY_CONV_CHANNELS:-2}"   # Policy head Conv チャネル数
+VALUE_CONV_CHANNELS="${VALUE_CONV_CHANNELS:-1}"     # Value head Conv チャネル数
+VALUE_HIDDEN="${VALUE_HIDDEN:-64}"                   # Value head FC 隠れ層サイズ
+FILM_HIDDEN="${FILM_HIDDEN:-128}"                    # FiLM 隠れ層サイズ
 LOG_FILE="$ARTIFACTS_DIR/alphazero-loop.log"
 
 # イテレーションカウンタ（永続化）
@@ -114,6 +123,15 @@ while true; do
         --threads "$THREADS" \
         --batch-size "$INFER_BATCH_SIZE" \
         --model-path "$MODEL_PATH" \
+        --cols "$BOARD_COLS" \
+        --rows "$BOARD_ROWS" \
+        --num-colors "$NUM_COLORS" \
+        --residual-channels "$RESIDUAL_CHANNELS" \
+        --num-blocks "$NUM_BLOCKS" \
+        --policy-conv-channels "$POLICY_CONV_CHANNELS" \
+        --value-conv-channels "$VALUE_CONV_CHANNELS" \
+        --value-hidden "$VALUE_HIDDEN" \
+        --film-hidden "$FILM_HIDDEN" \
         --output "$OUTPUT_FILE" \
         2>&1 | tee -a "$LOG_FILE"
 
@@ -139,6 +157,15 @@ while true; do
         --model-path "$MODEL_PATH" \
         --artifacts-dir "$ARTIFACTS_DIR" \
         --batch-size "$TRAIN_BATCH_SIZE" \
+        --cols "$BOARD_COLS" \
+        --rows "$BOARD_ROWS" \
+        --num-colors "$NUM_COLORS" \
+        --residual-channels "$RESIDUAL_CHANNELS" \
+        --num-blocks "$NUM_BLOCKS" \
+        --policy-conv-channels "$POLICY_CONV_CHANNELS" \
+        --value-conv-channels "$VALUE_CONV_CHANNELS" \
+        --value-hidden "$VALUE_HIDDEN" \
+        --film-hidden "$FILM_HIDDEN" \
         2>&1 | tee -a "$LOG_FILE"
 
     # Update global step from training output
