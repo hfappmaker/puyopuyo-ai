@@ -124311,3 +124311,49 @@ Using 128 game threads, max_batch_size=128
 Self-play complete: 300 games, 14779 samples, max chain: 5
 Saved to runs/develop/data/alphazero_iter_398.bin
 [2026-04-04 12:11:12] Removing old data: runs/develop/data/alphazero_iter_368.bin
+[2026-04-04 12:11:21] Train start (AlphaZero mode, replay buffer, global_step=397000)
+    Finished `release` profile [optimized] target(s) in 4.21s
+     Running `target/release/train --alphazero --data-dir runs/develop/data --global-step 397000 --model-path runs/develop/artifacts/puyo_model --artifacts-dir runs/develop/artifacts --batch-size 512 --cols 3 --rows 8 --num-colors 3 --residual-channels 64 --num-blocks 6 --policy-conv-channels 2 --value-conv-channels 1 --value-hidden 64 --film-hidden 128`
+Backend: CUDA (GPU)
+Game config: cols=3, rows=8, num_colors=3
+Net config: residual_channels=64, num_blocks=6
+Mode: AlphaZero (Policy CE + Value MSE)
+Loading AlphaZero datasets from runs/develop/data...
+Found 30 data files
+  Loaded 14794 samples from runs/develop/data/alphazero_iter_369.bin
+  Loaded 14834 samples from runs/develop/data/alphazero_iter_370.bin
+  Loaded 14760 samples from runs/develop/data/alphazero_iter_371.bin
+  Loaded 14775 samples from runs/develop/data/alphazero_iter_372.bin
+  Loaded 14845 samples from runs/develop/data/alphazero_iter_373.bin
+  Loaded 14929 samples from runs/develop/data/alphazero_iter_374.bin
+  Loaded 14832 samples from runs/develop/data/alphazero_iter_375.bin
+  Loaded 14627 samples from runs/develop/data/alphazero_iter_376.bin
+  Loaded 14760 samples from runs/develop/data/alphazero_iter_377.bin
+  Loaded 14841 samples from runs/develop/data/alphazero_iter_378.bin
+  Loaded 14658 samples from runs/develop/data/alphazero_iter_379.bin
+  Loaded 14687 samples from runs/develop/data/alphazero_iter_380.bin
+  Loaded 14842 samples from runs/develop/data/alphazero_iter_381.bin
+  Loaded 14829 samples from runs/develop/data/alphazero_iter_382.bin
+  Loaded 14739 samples from runs/develop/data/alphazero_iter_383.bin
+  Loaded 14838 samples from runs/develop/data/alphazero_iter_384.bin
+  Loaded 14753 samples from runs/develop/data/alphazero_iter_385.bin
+  Loaded 14735 samples from runs/develop/data/alphazero_iter_386.bin
+  Loaded 14844 samples from runs/develop/data/alphazero_iter_387.bin
+  Loaded 14636 samples from runs/develop/data/alphazero_iter_388.bin
+  Loaded 14901 samples from runs/develop/data/alphazero_iter_389.bin
+  Loaded 14847 samples from runs/develop/data/alphazero_iter_390.bin
+  Loaded 14670 samples from runs/develop/data/alphazero_iter_391.bin
+  Loaded 14814 samples from runs/develop/data/alphazero_iter_392.bin
+  Loaded 14720 samples from runs/develop/data/alphazero_iter_393.bin
+  Loaded 14808 samples from runs/develop/data/alphazero_iter_394.bin
+  Loaded 14763 samples from runs/develop/data/alphazero_iter_395.bin
+  Loaded 14819 samples from runs/develop/data/alphazero_iter_396.bin
+  Loaded 14774 samples from runs/develop/data/alphazero_iter_397.bin
+  Loaded 14779 samples from runs/develop/data/alphazero_iter_398.bin
+Loaded 443453 total samples
+Train: 443453 samples (color augmented on-the-fly, no val split)
+Loaded existing model from runs/develop/artifacts/puyo_model
+AlphaZero training: 1000 steps, global_step=397000, LR 2e-4 (end ~2e-4)
+  step 50/1000 p_loss=1.2193 v_loss=0.2515 lr=0.000200  step 100/1000 p_loss=1.2211 v_loss=0.2501 lr=0.000200  step 150/1000 p_loss=1.2219 v_loss=0.2529 lr=0.000200  step 200/1000 p_loss=1.2227 v_loss=0.2504 lr=0.000200  step 250/1000 p_loss=1.2227 v_loss=0.2499 lr=0.000200  step 300/1000 p_loss=1.2229 v_loss=0.2506 lr=0.000200  step 350/1000 p_loss=1.2230 v_loss=0.2503 lr=0.000200  step 400/1000 p_loss=1.2230 v_loss=0.2510 lr=0.000200  step 450/1000 p_loss=1.2231 v_loss=0.2500 lr=0.000200  step 500/1000 p_loss=1.2229 v_loss=0.2497 lr=0.000200  step 550/1000 p_loss=1.2234 v_loss=0.2497 lr=0.000200  step 600/1000 p_loss=1.2232 v_loss=0.2499 lr=0.000200  step 650/1000 p_loss=1.2231 v_loss=0.2502 lr=0.000200  step 700/1000 p_loss=1.2232 v_loss=0.2504 lr=0.000200  step 750/1000 p_loss=1.2229 v_loss=0.2499 lr=0.000200  step 800/1000 p_loss=1.2227 v_loss=0.2498 lr=0.000200  step 850/1000 p_loss=1.2227 v_loss=0.2500 lr=0.000200  step 900/1000 p_loss=1.2227 v_loss=0.2500 lr=0.000200  step 950/1000 p_loss=1.2225 v_loss=0.2498 lr=0.000200  step 1000/1000 p_loss=1.2226 v_loss=0.2496 lr=0.000200
+Model metadata saved to runs/develop/artifacts/puyo_model.config.json
+AlphaZero training complete. final train_loss(p=1.222561, v=0.249590) global_step=398000
