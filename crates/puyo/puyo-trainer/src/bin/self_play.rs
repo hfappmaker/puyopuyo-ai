@@ -338,6 +338,7 @@ fn load_model<B: Backend>(device: &B::Device, model_path: &str, net_config: &Puy
 fn main() {
     let args = parse_args();
     let gc = GameConfig::new(args.cols, args.rows, args.num_colors);
+    puyo_player::puyo_game::init_config(gc.clone());
     let net_config = PuyoNetConfig::new()
         .with_residual_channels(args.residual_channels)
         .with_num_residual_blocks(args.num_blocks)

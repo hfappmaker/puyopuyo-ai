@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use az_framework::game::Game;
 use puyo_core::board::ChainResult;
 use puyo_core::config::GameConfig;
@@ -11,13 +13,23 @@ use puyo_core::placement::{
     simulate_placement,
 };
 
+/// グローバルゲーム設定。`init_config()` で一度だけ設定可能。
+static GAME_CONFIG: OnceLock<GameConfig> = OnceLock::new();
+
+/// ランタイムのゲーム設定を初期化する。
+/// 最初の呼び出しのみ有効。2回目以降は無視される。
+/// 呼ばない場合は `GameConfig::default()` が使われる。
+pub fn init_config(config: GameConfig) {
+    let _ = GAME_CONFIG.set(config);
+}
+
 /// ぷよぷよゲームの Game trait 実装。
 #[derive(Clone)]
 pub struct PuyoGame;
 
 impl PuyoGame {
     fn config() -> GameConfig {
-        GameConfig::default()
+        GAME_CONFIG.get().cloned().unwrap_or_default()
     }
 }
 

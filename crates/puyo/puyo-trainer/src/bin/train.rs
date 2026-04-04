@@ -172,6 +172,9 @@ fn main() {
     let batch_size = args.iter().position(|a| a == "--batch-size")
         .map(|i| args[i + 1].parse::<usize>().expect("--batch-size requires integer"))
         .unwrap_or(BATCH_SIZE);
+    let accum_steps = args.iter().position(|a| a == "--accum-steps")
+        .map(|i| args[i + 1].parse::<usize>().expect("--accum-steps requires integer"))
+        .unwrap_or(ACCUM_STEPS);
     let cols = args.iter().position(|a| a == "--cols")
         .map(|i| args[i + 1].parse::<usize>().expect("--cols requires integer"))
         .unwrap_or(3);
@@ -219,7 +222,7 @@ fn main() {
 
     if alphazero_mode {
         println!("Mode: AlphaZero (Policy CE + Value MSE)");
-        train_alphazero(data_dir.as_deref(), global_step, &model_path, &artifacts_dir, batch_size, &gc, &net_config);
+        train_alphazero(data_dir.as_deref(), global_step, &model_path, &artifacts_dir, batch_size, accum_steps, &gc, &net_config);
     } else {
         println!("Mode: Supervised (Policy CE only)");
         train_supervised(&model_path, batch_size, &gc, &net_config);
@@ -396,7 +399,7 @@ fn compute_val_loss_supervised(
 // AlphaZero training (from self-play data)
 // ---------------------------------------------------------------------------
 
-fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path: &str, artifacts_dir: &str, batch_size: usize, gc: &GameConfig, net_config: &PuyoNetConfig) {
+fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path: &str, artifacts_dir: &str, batch_size: usize, accum_steps: usize, gc: &GameConfig, net_config: &PuyoNetConfig) {
     let device: <TrainBackend as Backend>::Device = Default::default();
 
     let num_channels = gc.num_channels();
@@ -482,8 +485,8 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path:
 
     let start_lr = az_lr_for_global_step(global_step_start);
     let end_lr = az_lr_for_global_step(global_step_start + AZ_NUM_STEPS);
-    println!("AlphaZero training: {} steps, global_step={}, LR {:.0e} (end ~{:.0e})",
-        AZ_NUM_STEPS, global_step_start, start_lr, end_lr);
+    println!("AlphaZero training: {} steps, global_step={}, LR {:.0e} (end ~{:.0e}), batch_size={}, accum_steps={}, effective_batch={}",
+        AZ_NUM_STEPS, global_step_start, start_lr, end_lr, batch_size, accum_steps, batch_size * accum_steps);
 
     let mut running_p_loss = 0.0f32;
     let mut running_v_loss = 0.0f32;
@@ -493,8 +496,8 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path:
     for step in 0..AZ_NUM_STEPS {
         let lr = az_lr_for_global_step(global_step_start + step);
 
-        // Gradient accumulation: run ACCUM_STEPS micro-batches per optimizer step
-        for _micro in 0..ACCUM_STEPS {
+        // Gradient accumulation: run accum_steps micro-batches per optimizer step
+        for _micro in 0..accum_steps {
             let batch_size = batch_size.min(train_samples.len());
             let mut board_data = Vec::with_capacity(batch_size * tensor_size);
             let mut context_data = Vec::with_capacity(batch_size * context_tensor_size);
@@ -531,8 +534,8 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path:
 
             let p_loss_val = policy_loss.clone().into_data().to_vec::<f32>().expect("Failed to extract policy loss")[0];
             let v_loss_val = value_loss.clone().into_data().to_vec::<f32>().expect("Failed to extract value loss")[0];
-            // Scale loss by 1/ACCUM_STEPS so accumulated gradients average correctly
-            let total_loss = (policy_loss + value_loss * VALUE_LOSS_WEIGHT) / (ACCUM_STEPS as f32);
+            // Scale loss by 1/accum_steps so accumulated gradients average correctly
+            let total_loss = (policy_loss + value_loss * VALUE_LOSS_WEIGHT) / (accum_steps as f32);
 
             running_p_loss += p_loss_val;
             running_v_loss += v_loss_val;
