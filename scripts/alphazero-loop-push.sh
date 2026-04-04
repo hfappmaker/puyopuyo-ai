@@ -50,7 +50,12 @@ POLICY_CONV_CHANNELS="${POLICY_CONV_CHANNELS:-2}"   # Policy head Conv チャネ
 VALUE_CONV_CHANNELS="${VALUE_CONV_CHANNELS:-1}"     # Value head Conv チャネル数
 VALUE_HIDDEN="${VALUE_HIDDEN:-64}"                   # Value head FC 隠れ層サイズ
 FILM_HIDDEN="${FILM_HIDDEN:-128}"                    # FiLM 隠れ層サイズ
-LOG_FILE="$ARTIFACTS_DIR/alphazero-loop.log"
+# ログファイル名を算出（100イテレーションごとにローテーション）
+update_log_file() {
+    local start=$(( ((ITERATION - 1) / 100) * 100 + 1 ))
+    local end=$(( start + 99 ))
+    LOG_FILE="$ARTIFACTS_DIR/alphazero-loop-$(printf '%04d' $start)-$(printf '%04d' $end).log"
+}
 
 # イテレーションカウンタ（永続化）
 ITER_FILE="$ARTIFACTS_DIR/iteration.txt"
@@ -92,6 +97,7 @@ commit_and_push() {
     git push -u origin "$TARGET_BRANCH" || log "WARNING: push failed, will retry next commit"
 }
 
+update_log_file
 log "=== AlphaZero Loop Start (branch=$TARGET_BRANCH, run_dir=$RUN_DIR, iteration=$ITERATION, games=$GAMES, sims=$SIMS_BASE+$SIMS_STEP/iter, max=$SIMS_MAX, min_chain=$MIN_CHAIN, threads=$THREADS) ==="
 
 while true; do
@@ -101,6 +107,7 @@ while true; do
         SIMS=$SIMS_MAX
     fi
 
+    update_log_file
     log "--- Iteration $ITERATION (sims=$SIMS, global_step=$GLOBAL_STEP) ---"
 
     OUTPUT_FILE="$DATA_DIR/alphazero_iter_${ITERATION}.bin"
@@ -143,7 +150,7 @@ while true; do
 
     # 3. Commit & push self-play data
     commit_and_push "alphazero: iter $ITERATION self-play (games=$GAMES, sims=$SIMS)" \
-        "$DATA_DIR/alphazero_iter_*.bin" "$LOG_FILE"
+        "$DATA_DIR/alphazero_iter_*.bin" "$ARTIFACTS_DIR/alphazero-loop-*.log"
 
     # 4. Train (GPU) with replay buffer
     log "Train start (AlphaZero mode, replay buffer, global_step=$GLOBAL_STEP)"
@@ -175,7 +182,7 @@ while true; do
 
     # 6. Commit & push model
     commit_and_push "alphazero: iter $((ITERATION - 1)) training complete" \
-        "$ARTIFACTS_DIR/puyo_model.bin" "$ARTIFACTS_DIR/puyo_model.config.json" "$ITER_FILE" "$GLOBAL_STEP_FILE" "$LOG_FILE"
+        "$ARTIFACTS_DIR/puyo_model.bin" "$ARTIFACTS_DIR/puyo_model.config.json" "$ITER_FILE" "$GLOBAL_STEP_FILE" "$ARTIFACTS_DIR/alphazero-loop-*.log"
 
     log "=== Iteration $((ITERATION - 1)) complete ==="
 done
