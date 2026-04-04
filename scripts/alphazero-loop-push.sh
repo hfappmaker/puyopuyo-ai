@@ -36,12 +36,15 @@ SIMS_BASE="${SIMS_BASE:-64}"        # シミュレーション初期値
 SIMS_STEP="${SIMS_STEP:-0}"        # イテレーションごとの増加量
 SIMS_MAX="${SIMS_MAX:-64}"         # シミュレ���ション上限
 C_PUCT="${C_PUCT:-1.5}"
+C_PUCT_BASE="${C_PUCT_BASE:-19652.0}"  # PUCT探索ベース定数
 M="${M:-16}"                        # Gumbel Top-k初期サンプル数
 C_VISIT="${C_VISIT:-50.0}"            # Q値スケーリング
 GAMMA="${GAMMA:-0.95}"              # 割引率
 REPLAY_WINDOW="${REPLAY_WINDOW:-30}"  # 直近N個のイテレーションデータを保持
 MIN_CHAIN="${MIN_CHAIN:-0}"          # 最低連鎖数フィルタ（0=無効）
 THREADS="${THREADS:-128}"            # self-playスレッド数
+INFER_BATCH_SIZE="${INFER_BATCH_SIZE:-128}"  # GPU推論バッチサイズ
+TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-512}"  # 学習バッチサイズ
 LOG_FILE="$ARTIFACTS_DIR/alphazero-loop.log"
 
 # イテレーションカウンタ（永続化）
@@ -103,11 +106,13 @@ while true; do
         --games "$GAMES" \
         --simulations "$SIMS" \
         --c-puct-init "$C_PUCT" \
+        --c-puct-base "$C_PUCT_BASE" \
         --m "$M" \
         --c-visit "$C_VISIT" \
         --gamma "$GAMMA" \
         --min-chain "$MIN_CHAIN" \
         --threads "$THREADS" \
+        --batch-size "$INFER_BATCH_SIZE" \
         --model-path "$MODEL_PATH" \
         --output "$OUTPUT_FILE" \
         2>&1 | tee -a "$LOG_FILE"
@@ -133,6 +138,7 @@ while true; do
         --global-step "$GLOBAL_STEP" \
         --model-path "$MODEL_PATH" \
         --artifacts-dir "$ARTIFACTS_DIR" \
+        --batch-size "$TRAIN_BATCH_SIZE" \
         2>&1 | tee -a "$LOG_FILE"
 
     # Update global step from training output

@@ -3,8 +3,7 @@
 //! Plays games using Gumbel MCTS + neural network, collects training data,
 //! and saves it for the training binary.
 //!
-//! CPU mode: each thread clones the model and runs NdArray inference.
-//! GPU mode: a dedicated GPU thread batches inference requests from game threads.
+//! A dedicated GPU thread batches inference requests from game threads.
 
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
@@ -21,24 +20,14 @@ use puyo_core::state::PuyoState;
 use puyo_nn::model::{PuyoNet, PuyoNetConfig};
 use puyo_trainer::data::{AlphaZeroDataset, AlphaZeroSample};
 
-#[cfg(not(feature = "gpu"))]
-use burn::backend::ndarray::NdArray;
-#[cfg(not(feature = "gpu"))]
-use puyo_player::DirectInference;
-
-use puyo_player::nn_eval::PuyoGameModel;
-
-#[cfg(feature = "gpu")]
 use burn::backend::CudaJit;
-#[cfg(feature = "gpu")]
+use puyo_player::nn_eval::PuyoGameModel;
 use puyo_player::inference_server;
 
 const MODEL_PATH: &str = "artifacts/puyo_model";
 const DEFAULT_OUTPUT_PATH: &str = "data/alphazero_data.bin";
 const MAX_TURNS: u32 = 50;
-#[cfg(feature = "gpu")]
 const DEFAULT_GPU_THREADS: usize = 128;
-#[cfg(feature = "gpu")]
 const DEFAULT_MAX_BATCH_SIZE: usize = 128;
 
 struct Args {
@@ -280,37 +269,6 @@ fn main() {
         args.c_visit, args.gamma,
     );
 
-    #[cfg(feature = "gpu")]
-    {
-        main_gpu(args);
-    }
-
-    #[cfg(not(feature = "gpu"))]
-    {
-        main_cpu(args);
-    }
-}
-
-#[cfg(not(feature = "gpu"))]
-fn main_cpu(args: Args) {
-    println!("Backend: NdArray (CPU) — Gumbel MCTS self-play (parallel)");
-    let device: <NdArray as Backend>::Device = Default::default();
-    let model = load_model::<NdArray>(&device, &args.model_path);
-
-    let num_threads = args.threads.unwrap_or_else(|| {
-        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
-    });
-    println!("Using {} threads for parallel self-play", num_threads);
-
-    // CPU: clone model per thread (NdArray model is not Sync)
-    run_games_parallel(&args, num_threads, |thread_idx| {
-        let thread_provider = DirectInference::new(PuyoGameModel::new(model.clone()), device);
-        (thread_provider, thread_idx)
-    });
-}
-
-#[cfg(feature = "gpu")]
-fn main_gpu(args: Args) {
     type GpuBackend = CudaJit<f32>;
 
     println!("Backend: CudaJit (GPU) — Gumbel MCTS self-play (batched)");
@@ -326,7 +284,6 @@ fn main_gpu(args: Args) {
 
     let client = inference_server::start_inference_server(PuyoGameModel::new(model), device, batch_size);
 
-    // GPU: clone client per thread (InferenceClient is Send+Clone)
     run_games_parallel(&args, num_threads, |_| {
         let thread_client = client.clone();
         (thread_client, 0usize)

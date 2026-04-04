@@ -18,7 +18,6 @@ path = "src/bin/self_play.rs"
 [features]
 default = ["gpu"]
 gpu = ["burn/cuda-jit", "burn/fusion", "burn/autotune", "puyo-player/cuda"]
-cpu = ["burn/ndarray"]
 
 [dependencies]
 az-framework = { path = "../../az-framework" }

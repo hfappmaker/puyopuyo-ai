@@ -1,7 +1,4 @@
-#[cfg(not(feature = "gpu"))]
-use burn::backend::ndarray::NdArray;
 use burn::backend::Autodiff;
-#[cfg(feature = "gpu")]
 use burn::backend::CudaJit;
 use burn::module::AutodiffModule;
 use burn::grad_clipping::GradientClippingConfig;
@@ -20,17 +17,11 @@ use az_framework::value_transform::value_transform;
 use puyo_core::rand::time_seed;
 use puyo_trainer::data::{AlphaZeroDataset, Dataset};
 
-#[cfg(feature = "gpu")]
 type TrainBackend = Autodiff<CudaJit<f32>>;
-#[cfg(not(feature = "gpu"))]
-type TrainBackend = Autodiff<NdArray>;
 type InnerBackend = <TrainBackend as AutodiffBackend>::InnerBackend;
 
 const MODEL_PATH: &str = "artifacts/puyo_model";
-#[cfg(feature = "gpu")]
 const BATCH_SIZE: usize = 512;
-#[cfg(not(feature = "gpu"))]
-const BATCH_SIZE: usize = 64;
 const NUM_EPOCHS: usize = 50;
 const LR_MAX: f64 = 0.1;
 const LR_MIN: f64 = 1e-3;
@@ -151,20 +142,20 @@ fn main() {
     let artifacts_dir = args.iter().position(|a| a == "--artifacts-dir")
         .map(|i| args[i + 1].clone())
         .unwrap_or_else(|| "artifacts".to_string());
+    let batch_size = args.iter().position(|a| a == "--batch-size")
+        .map(|i| args[i + 1].parse::<usize>().expect("--batch-size requires integer"))
+        .unwrap_or(BATCH_SIZE);
 
     std::fs::create_dir_all(&artifacts_dir).expect("Failed to create artifacts directory");
 
-    #[cfg(feature = "gpu")]
     println!("Backend: CUDA (GPU)");
-    #[cfg(not(feature = "gpu"))]
-    println!("Backend: NdArray (CPU)");
 
     if alphazero_mode {
         println!("Mode: AlphaZero (Policy CE + Value MSE)");
-        train_alphazero(data_dir.as_deref(), global_step, &model_path, &artifacts_dir);
+        train_alphazero(data_dir.as_deref(), global_step, &model_path, &artifacts_dir, batch_size);
     } else {
         println!("Mode: Supervised (Policy CE only)");
-        train_supervised(&model_path);
+        train_supervised(&model_path, batch_size);
     }
 }
 
@@ -172,7 +163,7 @@ fn main() {
 // Supervised training (from generate-data)
 // ---------------------------------------------------------------------------
 
-fn train_supervised(model_path: &str) {
+fn train_supervised(model_path: &str, batch_size: usize) {
     let device: <TrainBackend as Backend>::Device = Default::default();
     let data_path = "data/training_data.bin";
 
@@ -204,8 +195,8 @@ fn train_supervised(model_path: &str) {
         let mut indices: Vec<usize> = (0..train_samples.len()).collect();
         shuffle_indices(&mut indices);
 
-        for batch_start in (0..train_samples.len()).step_by(BATCH_SIZE) {
-            let batch_end = (batch_start + BATCH_SIZE).min(train_samples.len());
+        for batch_start in (0..train_samples.len()).step_by(batch_size) {
+            let batch_end = (batch_start + batch_size).min(train_samples.len());
             let batch_size = batch_end - batch_start;
             if batch_size == 0 { break; }
 
@@ -243,7 +234,7 @@ fn train_supervised(model_path: &str) {
             model = optim.step(lr, model, grads);
 
             if num_batches % 50 == 0 {
-                let total_batches = train_samples.len().div_ceil(BATCH_SIZE);
+                let total_batches = train_samples.len().div_ceil(batch_size);
                 eprint!("\r  batch {}/{} loss={:.6}", num_batches, total_batches, epoch_loss / num_batches as f32);
             }
         }
@@ -251,7 +242,7 @@ fn train_supervised(model_path: &str) {
 
         let val_model = model.valid();
         let val_device: <InnerBackend as Backend>::Device = Default::default();
-        let val_loss = compute_val_loss_supervised(&val_model, val_samples, &val_device);
+        let val_loss = compute_val_loss_supervised(&val_model, val_samples, &val_device, batch_size);
 
         let avg_train_loss = epoch_loss / num_batches as f32;
         println!("Epoch {}/{}: train_loss={:.6}, val_loss={:.6}, lr={:.6}", epoch + 1, NUM_EPOCHS, avg_train_loss, val_loss, lr);
@@ -278,12 +269,13 @@ fn compute_val_loss_supervised(
     model: &puyo_nn::model::PuyoNet<InnerBackend>,
     val_samples: &[puyo_trainer::data::Sample],
     device: &<InnerBackend as Backend>::Device,
+    batch_size: usize,
 ) -> f32 {
     let mut total_loss = 0.0f32;
     let mut num_batches = 0;
 
-    for batch_start in (0..val_samples.len()).step_by(BATCH_SIZE) {
-        let batch_end = (batch_start + BATCH_SIZE).min(val_samples.len());
+    for batch_start in (0..val_samples.len()).step_by(batch_size) {
+        let batch_end = (batch_start + batch_size).min(val_samples.len());
         let batch_size = batch_end - batch_start;
         if batch_size == 0 { break; }
 
@@ -322,7 +314,7 @@ fn compute_val_loss_supervised(
 // AlphaZero training (from self-play data)
 // ---------------------------------------------------------------------------
 
-fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path: &str, artifacts_dir: &str) {
+fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path: &str, artifacts_dir: &str, batch_size: usize) {
     let device: <TrainBackend as Backend>::Device = Default::default();
 
     let dataset = if let Some(dir) = data_dir {
@@ -416,7 +408,7 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path:
 
         // Gradient accumulation: run ACCUM_STEPS micro-batches per optimizer step
         for _micro in 0..ACCUM_STEPS {
-            let batch_size = BATCH_SIZE.min(train_samples.len());
+            let batch_size = batch_size.min(train_samples.len());
             let mut board_data = Vec::with_capacity(batch_size * TENSOR_SIZE);
             let mut context_data = Vec::with_capacity(batch_size * CONTEXT_TENSOR_SIZE);
             let mut policy_targets = Vec::with_capacity(batch_size * NUM_ACTIONS);
