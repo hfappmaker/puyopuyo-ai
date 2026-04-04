@@ -50,6 +50,7 @@ struct Args {
     c_visit: f32,
     gamma: f32,
     output_path: String,
+    model_path: String,
     threads: Option<usize>,
     batch_size: Option<usize>,
     min_chain: u32,
@@ -66,6 +67,7 @@ fn parse_args() -> Args {
         c_visit: 5.0,
         gamma: 0.95,
         output_path: DEFAULT_OUTPUT_PATH.to_string(),
+        model_path: MODEL_PATH.to_string(),
         threads: None,
         batch_size: None,
         min_chain: 0,
@@ -110,6 +112,10 @@ fn parse_args() -> Args {
             "--output" => {
                 i += 1;
                 result.output_path = next_val(i, "--output").clone();
+            }
+            "--model-path" => {
+                i += 1;
+                result.model_path = next_val(i, "--model-path").clone();
             }
             "--threads" => {
                 i += 1;
@@ -234,30 +240,31 @@ fn play_one_game(
     }
 }
 
-fn load_model<B: Backend>(device: &B::Device) -> PuyoNet<B> {
+fn load_model<B: Backend>(device: &B::Device, model_path: &str) -> PuyoNet<B> {
     let config = PuyoNetConfig::new();
+    let path = model_path.to_string();
     let load_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
         config
             .init::<B>(device)
-            .load_file(MODEL_PATH, &recorder, device)
+            .load_file(&path, &recorder, device)
     }));
     match load_result {
         Ok(Ok(m)) => {
-            println!("Loaded existing model from {}", MODEL_PATH);
+            println!("Loaded existing model from {}", model_path);
             m
         }
         Ok(Err(e)) => {
             println!(
                 "Failed to load model from {}: {}. Initializing random weights",
-                MODEL_PATH, e
+                model_path, e
             );
             config.init::<B>(device)
         }
         Err(_) => {
             println!(
                 "Model file {} is incompatible with current architecture. Initializing random weights",
-                MODEL_PATH
+                model_path
             );
             config.init::<B>(device)
         }
@@ -288,7 +295,7 @@ fn main() {
 fn main_cpu(args: Args) {
     println!("Backend: NdArray (CPU) — Gumbel MCTS self-play (parallel)");
     let device: <NdArray as Backend>::Device = Default::default();
-    let model = load_model::<NdArray>(&device);
+    let model = load_model::<NdArray>(&device, &args.model_path);
 
     let num_threads = args.threads.unwrap_or_else(|| {
         std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
@@ -308,7 +315,7 @@ fn main_gpu(args: Args) {
 
     println!("Backend: CudaJit (GPU) — Gumbel MCTS self-play (batched)");
     let device: <GpuBackend as Backend>::Device = Default::default();
-    let model = load_model::<GpuBackend>(&device);
+    let model = load_model::<GpuBackend>(&device, &args.model_path);
 
     let num_threads = args.threads.unwrap_or(DEFAULT_GPU_THREADS);
     let batch_size = args.batch_size.unwrap_or(DEFAULT_MAX_BATCH_SIZE);

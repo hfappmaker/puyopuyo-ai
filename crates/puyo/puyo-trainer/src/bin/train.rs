@@ -138,8 +138,6 @@ fn az_lr_for_global_step(global_step: usize) -> f64 {
 }
 
 fn main() {
-    std::fs::create_dir_all("artifacts").expect("Failed to create artifacts directory");
-
     let args: Vec<String> = std::env::args().collect();
     let alphazero_mode = args.iter().any(|a| a == "--alphazero");
     let data_dir = args.iter().position(|a| a == "--data-dir")
@@ -147,6 +145,14 @@ fn main() {
     let global_step = args.iter().position(|a| a == "--global-step")
         .map(|i| args[i + 1].parse::<usize>().expect("--global-step requires integer"))
         .unwrap_or(0);
+    let model_path = args.iter().position(|a| a == "--model-path")
+        .map(|i| args[i + 1].clone())
+        .unwrap_or_else(|| MODEL_PATH.to_string());
+    let artifacts_dir = args.iter().position(|a| a == "--artifacts-dir")
+        .map(|i| args[i + 1].clone())
+        .unwrap_or_else(|| "artifacts".to_string());
+
+    std::fs::create_dir_all(&artifacts_dir).expect("Failed to create artifacts directory");
 
     #[cfg(feature = "gpu")]
     println!("Backend: CUDA (GPU)");
@@ -155,10 +161,10 @@ fn main() {
 
     if alphazero_mode {
         println!("Mode: AlphaZero (Policy CE + Value MSE)");
-        train_alphazero(data_dir.as_deref(), global_step);
+        train_alphazero(data_dir.as_deref(), global_step, &model_path, &artifacts_dir);
     } else {
         println!("Mode: Supervised (Policy CE only)");
-        train_supervised();
+        train_supervised(&model_path);
     }
 }
 
@@ -166,7 +172,7 @@ fn main() {
 // Supervised training (from generate-data)
 // ---------------------------------------------------------------------------
 
-fn train_supervised() {
+fn train_supervised(model_path: &str) {
     let device: <TrainBackend as Backend>::Device = Default::default();
     let data_path = "data/training_data.bin";
 
@@ -253,7 +259,7 @@ fn train_supervised() {
         if val_loss < best_val_loss {
             best_val_loss = val_loss;
             patience_counter = 0;
-            model.valid().save_file(MODEL_PATH, &BinFileRecorder::<FullPrecisionSettings>::new()).expect("Failed to save model");
+            model.valid().save_file(model_path, &BinFileRecorder::<FullPrecisionSettings>::new()).expect("Failed to save model");
             println!("  -> Best model saved (val_loss={:.6})", val_loss);
         } else {
             patience_counter += 1;
@@ -316,7 +322,7 @@ fn compute_val_loss_supervised(
 // AlphaZero training (from self-play data)
 // ---------------------------------------------------------------------------
 
-fn train_alphazero(data_dir: Option<&str>, global_step_start: usize) {
+fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path: &str, artifacts_dir: &str) {
     let device: <TrainBackend as Backend>::Device = Default::default();
 
     let dataset = if let Some(dir) = data_dir {
@@ -360,28 +366,29 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize) {
     // Try to load existing model, otherwise init fresh
     let mut model = {
         let device_clone = device.clone();
+        let path = model_path.to_string();
         let load_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
             config
                 .init::<TrainBackend>(&device_clone)
-                .load_file(MODEL_PATH, &recorder, &device_clone)
+                .load_file(&path, &recorder, &device_clone)
         }));
         match load_result {
             Ok(Ok(m)) => {
-                println!("Loaded existing model from {}", MODEL_PATH);
+                println!("Loaded existing model from {}", model_path);
                 m
             }
             Ok(Err(e)) => {
                 println!(
                     "Failed to load model from {}: {}. Initializing fresh",
-                    MODEL_PATH, e
+                    model_path, e
                 );
                 config.init::<TrainBackend>(&device)
             }
             Err(_) => {
                 println!(
                     "Model file {} is incompatible with current architecture. Initializing fresh",
-                    MODEL_PATH
+                    model_path
                 );
                 config.init::<TrainBackend>(&device)
             }
@@ -477,13 +484,14 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize) {
     let final_v = running_v_loss / running_count as f32;
 
     // Save model (always — no val-based selection, performance judged by self-play)
-    model.valid().save_file(MODEL_PATH, &BinFileRecorder::<FullPrecisionSettings>::new()).expect("Failed to save model");
+    model.valid().save_file(model_path, &BinFileRecorder::<FullPrecisionSettings>::new()).expect("Failed to save model");
 
     let global_step_end = global_step_start + AZ_NUM_STEPS;
     println!("AlphaZero training complete. final train_loss(p={:.6}, v={:.6}) global_step={}", final_p, final_v, global_step_end);
 
     // Write final global step to file for loop script
-    std::fs::write("artifacts/global_step.txt", global_step_end.to_string())
+    let global_step_path = format!("{}/global_step.txt", artifacts_dir);
+    std::fs::write(&global_step_path, global_step_end.to_string())
         .expect("Failed to write global_step.txt");
 }
 
