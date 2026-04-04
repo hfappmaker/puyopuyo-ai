@@ -31,7 +31,7 @@ GAMES="${GAMES:-300}"
 SIMS_BASE="${SIMS_BASE:-64}"        # シミュレーション初期値
 SIMS_STEP="${SIMS_STEP:-0}"        # イテレーションごとの増加量
 SIMS_MAX="${SIMS_MAX:-64}"         # シミュレ���ション上限
-C_PUCT="${C_PUCT:-1.5}"
+C_PUCT_INIT="${C_PUCT_INIT:-1.5}"
 C_PUCT_BASE="${C_PUCT_BASE:-19652.0}"  # PUCT探索ベース定数
 M="${M:-16}"                        # Gumbel Top-k初期サンプル数
 C_VISIT="${C_VISIT:-50.0}"            # Q値スケーリング
@@ -110,7 +110,7 @@ while true; do
     cargo run --release -p puyo-trainer --bin self-play -- \
         --games "$GAMES" \
         --simulations "$SIMS" \
-        --c-puct-init "$C_PUCT" \
+        --c-puct-init "$C_PUCT_INIT" \
         --c-puct-base "$C_PUCT_BASE" \
         --m "$M" \
         --c-visit "$C_VISIT" \
