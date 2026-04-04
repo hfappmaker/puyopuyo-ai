@@ -9,7 +9,7 @@ use puyo_core::state::{
 use puyo_nn::model::PuyoNet;
 
 use az_framework::eval::Evaluator;
-use az_framework::mcts::{mcts_search, InferenceProvider};
+use az_framework::mcts::{mcts_search, mcts_search_batched, InferenceProvider};
 use az_framework::model::GameModel;
 use az_framework::nn_eval::DirectInference;
 use az_framework::value_transform::value_inverse_transform;
@@ -139,12 +139,11 @@ impl Evaluator<PuyoGame> for NnEvaluator {
         if let Some(ref mcts_config) = self.mcts_config {
             let seed = puyo_core::rand::time_seed();
 
-            let (policy, q_values) = mcts_search::<PuyoGame>(
-                state,
-                &self.provider,
-                mcts_config,
-                seed,
-            );
+            let (policy, q_values) = if mcts_config.num_leaves > 1 {
+                mcts_search_batched::<PuyoGame>(state, &self.provider, mcts_config, seed)
+            } else {
+                mcts_search::<PuyoGame>(state, &self.provider, mcts_config, seed)
+            };
 
             // Select the action with highest improved policy probability
             let mut best_index = 0;

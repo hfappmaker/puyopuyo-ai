@@ -103,7 +103,7 @@ Dual Head Network（`PuyoNet`）で盤面とコンテキスト情報（3ツモ�
 
 ### 設定メソッド
 
-- `with_mcts(config: MctsConfig)`: MCTSモードを有効化。`MctsConfig` で探索パラメータを指定（`num_simulations`, `c_puct_init`, `c_puct_base`, `m`, `c_visit`, `gamma`）
+- `with_mcts(config: MctsConfig)`: MCTSモードを有効化。`MctsConfig` で探索パラメータを指定（`num_simulations`, `c_puct_init`, `c_puct_base`, `m`, `c_visit`, `gamma`, `num_leaves`）
 - `set_num_simulations(num_simulations: usize)`: MCTS シミュレーション数を動的に変更する
 
 ### Policy-only モードの評価の流れ
@@ -117,7 +117,7 @@ Dual Head Network（`PuyoNet`）で盤面とコンテキスト情報（3ツモ�
 
 ### MCTS モードの評価の流れ
 
-1. `mcts_search()` を呼び出し、Gumbel MCTS（Sequential Halving + PUCT）で improved policy `[f32; NUM_ACTIONS]` を取得。`gamma` 引数で将来報酬の割引率を指定する
+1. `num_leaves > 1` の場合は `mcts_search_batched()` を、そうでなければ `mcts_search()` を呼び出し、Gumbel MCTS（Sequential Halving + PUCT）で improved policy `[f32; NUM_ACTIONS]` を取得。`gamma` 引数で将来報酬の割引率を指定する
 2. improved policy から最善配置を選択
 3. 詳細は `docs/spec/09-ai-search.md` の Gumbel MCTS 探索セクションを参照
 
@@ -142,6 +142,8 @@ pub trait InferenceProvider {
     /// Returns (logits[NUM_ACTIONS], value_transformed).
     /// value は inverse-transform 済み（生の累積報酬スケール）。
     fn infer(&self, board_data: &[f32], context_data: &[f32]) -> (Vec<f32>, f32);
+    /// Batch inference. Default implementation calls infer() N times.
+    fn infer_batch(&self, batch: &[(Vec<f32>, Vec<f32>)]) -> Vec<(Vec<f32>, f32)>;
 }
 ```
 

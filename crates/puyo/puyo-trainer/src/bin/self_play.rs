@@ -13,7 +13,7 @@ use burn::record::{BinFileRecorder, FullPrecisionSettings};
 use az_framework::game::Game;
 use puyo_core::config::GameConfig;
 use puyo_core::rand::time_seed;
-use puyo_player::mcts::{mcts_search, InferenceProvider};
+use puyo_player::mcts::{mcts_search, mcts_search_batched, InferenceProvider};
 use puyo_player::nn_eval::MctsConfig;
 use puyo_player::puyo_game::PuyoGame;
 use puyo_core::game::{GamePhase, GameState};
@@ -43,6 +43,7 @@ struct Args {
     model_path: String,
     threads: Option<usize>,
     batch_size: Option<usize>,
+    num_leaves: usize,
     min_chain: u32,
     cols: usize,
     rows: usize,
@@ -69,6 +70,7 @@ fn parse_args() -> Args {
         model_path: MODEL_PATH.to_string(),
         threads: None,
         batch_size: None,
+        num_leaves: 1,
         min_chain: 0,
         cols: 3,
         rows: 8,
@@ -132,6 +134,10 @@ fn parse_args() -> Args {
             "--batch-size" => {
                 i += 1;
                 result.batch_size = Some(next_val(i, "--batch-size").parse().expect("--batch-size requires integer"));
+            }
+            "--num-leaves" => {
+                i += 1;
+                result.num_leaves = next_val(i, "--num-leaves").parse().expect("--num-leaves requires integer");
             }
             "--min-chain" => {
                 i += 1;
@@ -213,6 +219,7 @@ fn play_one_game(
         m: args.m,
         c_visit: args.c_visit,
         gamma: args.gamma,
+        num_leaves: args.num_leaves,
     };
 
     while game.phase != GamePhase::GameOver && move_count < MAX_TURNS {
@@ -228,12 +235,11 @@ fn play_one_game(
         let board_data = PuyoGame::encode_board(&puyo_state);
         let context_data = PuyoGame::encode_context(&puyo_state);
 
-        let (mcts_policy, _q_values) = mcts_search::<PuyoGame>(
-            &puyo_state,
-            provider,
-            &mcts_config,
-            time_seed(),
-        );
+        let (mcts_policy, _q_values) = if mcts_config.num_leaves > 1 {
+            mcts_search_batched::<PuyoGame>(&puyo_state, provider, &mcts_config, time_seed())
+        } else {
+            mcts_search::<PuyoGame>(&puyo_state, provider, &mcts_config, time_seed())
+        };
 
         let valid_mask = PuyoGame::valid_action_mask(&puyo_state);
         let action = select_from_policy(&mcts_policy, &valid_mask);

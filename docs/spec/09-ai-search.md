@@ -96,7 +96,7 @@ Gumbel AlphaZero（Danihelka et al. 2022）に基づくモンテカルロ木探�
 | 構造体 | 説明 |
 |--------|------|
 | `MctsTree<G: Game>` | 探索木全体を管理。`Game` トレイトでジェネリック化。`gamma: f32` で割引率、`root_value: f32` でルートの価値推定、`min_value`/`max_value` でMin-Max正規化範囲を保持 |
-| `MctsNode` | 探索木の各ノード。`visit_count: u32`、`total_value: f32`、`prior: f32`、`priors: Vec<f32>`、`logits: Vec<f32>`、`children: Vec<Option<usize>>`、`expanded: bool`、`terminal: bool`、`immediate_reward: f32`（連鎖スコア）、`valid_mask: Vec<bool>`、`depth: u32` を保持。固定長配列から `Vec` に変更されゲーム非依存化 |
+| `MctsNode` | 探索木の各ノード。`visit_count: u32`、`total_value: f32`、`prior: f32`、`priors: Vec<f32>`、`logits: Vec<f32>`、`children: Vec<Option<usize>>`、`expanded: bool`、`terminal: bool`、`immediate_reward: f32`（連鎖スコア）、`valid_mask: Vec<bool>`、`depth: u32`、`virtual_loss: u32`（バッチ探索用）を保持。固定長配列から `Vec` に変更されゲーム非依存化 |
 
 `MctsTree<G: Game>` の公開メソッド:
 
@@ -167,8 +167,11 @@ MCTS がNN推論バックエンドに依存しないよう抽象化するトレ�
 ```rust
 pub trait InferenceProvider {
     fn infer(&self, board_data: &[f32], context_data: &[f32]) -> (Vec<f32>, f32);
+    fn infer_batch(&self, batch: &[(Vec<f32>, Vec<f32>)]) -> Vec<(Vec<f32>, f32)>;
 }
 ```
+
+`infer_batch` はデフォルト実装で `infer()` を N 回呼ぶ。`InferenceClient` は全リクエストを先に送信し、GPU サーバーが1回のバッチで処理する最適化実装を持つ。
 
 ### API
 
@@ -184,6 +187,17 @@ pub fn mcts_search<G: Game>(
 - **入力**: `G::State`（ぷよぷよの場合は `PuyoState`）、`InferenceProvider`（推論プロバイダ）、`MctsConfig`（探索パラメータ一式）、Gumbelシード
 - **出力**: (NUM_ACTIONS次元のimproved policy, NUM_ACTIONS次元のQ値)。固定長配列から `Vec<f32>` に変更
 
+```rust
+pub fn mcts_search_batched<G: Game>(
+    state: &G::State,
+    provider: &dyn InferenceProvider,
+    config: &MctsConfig,
+    seed: u64,
+) -> (Vec<f32>, Vec<f32>)
+```
+
+バッチ推論 + Virtual Loss 版。`config.num_leaves` 個のリーフを同時に選択し、`infer_batch()` で一括推論する。Virtual Loss により同一バッチ内で異なるリーフが選ばれる。`num_leaves == 1` の場合は `mcts_search` と同等の動作。
+
 `MctsConfig`のフィールド:
 - `num_simulations`: シミュレーション回数（デフォルト64）
 - `c_puct_init`: 動的PUCT初期値（デフォルト1.5）
@@ -191,6 +205,17 @@ pub fn mcts_search<G: Game>(
 - `m`: 初期にGumbel-Top-kで選択するアクション数（デフォルト16）
 - `c_visit`: advantageのスケーリング係数（デフォルト5.0）
 - `gamma`: 将来報酬の割引率（デフォルト0.95）
+- `num_leaves`: バッチ推論で同時に評価するリーフ数（デフォルト1）。1より大きい場合、Virtual Loss を使用して異なるパスを同時探索する
+
+### Virtual Loss（バッチ探索）
+
+`num_leaves > 1` の場合、1回のバッチサイクルで N 個のリーフを同時に選択・評価する:
+
+1. N 回繰り返し: `select_path_to_leaf` → `apply_virtual_loss` → `encode_leaf_state`
+2. `provider.infer_batch(N件)` で一括 NN 推論
+3. N 回繰り返し: `expand_node_with_result` → `backpropagate` → `remove_virtual_loss`
+
+Virtual Loss は `MctsNode.virtual_loss: u32` で管理。Select 時の PUCT 計算で `effective_n = visit_count + virtual_loss` とし、Q値を悲観的に下げる（`Q = total_value / effective_n`）。これにより同一バッチ内で異なるリーフが選択される。
 
 ## 共通ユーティリティ（puyo-core/src/placement.rs）
 

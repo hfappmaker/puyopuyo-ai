@@ -95,6 +95,37 @@ impl InferenceProvider for InferenceClient {
         let response = response_rx.recv();
         (response.logits, response.value)
     }
+
+    fn infer_batch(&self, batch: &[(Vec<f32>, Vec<f32>)]) -> Vec<(Vec<f32>, f32)> {
+        if batch.is_empty() {
+            return vec![];
+        }
+        // Send all requests first, then collect all responses.
+        // This allows the GPU server to batch them into a single forward pass.
+        let receivers: Vec<_> = batch
+            .iter()
+            .map(|(board_data, context_data)| {
+                let (response_tx, response_rx) = oneshot_channel();
+                let request = InferenceRequest {
+                    board_data: board_data.clone(),
+                    context_data: context_data.clone(),
+                    response_tx,
+                };
+                self.request_tx
+                    .send(request)
+                    .expect("Inference server has shut down");
+                response_rx
+            })
+            .collect();
+
+        receivers
+            .into_iter()
+            .map(|rx| {
+                let response = rx.recv();
+                (response.logits, response.value)
+            })
+            .collect()
+    }
 }
 
 /// Start the batched inference server on a dedicated thread.

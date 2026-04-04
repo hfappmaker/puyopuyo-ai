@@ -179,6 +179,7 @@ CPU モードでは `std::thread::scope` により並列実行され、各スレ
 | `--output` | 文字列 | `data/alphazero_data.bin` | 出力ファイルパス |
 | `--threads` | 整数 | CPUコア数（GPU: 128） | 並列ゲームスレッド数 |
 | `--batch-size` | 整数 | 128（GPU のみ） | GPU 推論サーバーの最大バッチサイズ |
+| `--num-leaves` | 整数 | 1 | ��ッチ推論で同時評価するリーフ数（Virtual Loss）。>1でバッチ探索有効化 |
 | `--min-chain` | 整数 | 0（無効） | 最低連鎖数フィルタ。指定値未満のmax_chainのゲームを除外 |
 
 `--seed-offset` により、複数回の self-play 実行で異なるゲームデータを生成できる。
@@ -189,7 +190,7 @@ Gumbel AlphaZero では、各手番でGumbel(0,1)ノイズをサンプリング�
 
 ### 手順
 
-1. 現在のモデルを使って Gumbel MCTS 探索でゲームをプレイ（`mcts_search::<PuyoGame>()` に `PuyoState` と `gamma` を渡す）
+1. 現在のモデルを使って Gumbel MCTS 探索でゲームをプレイ（`num_leaves > 1` の場合は `mcts_search_batched::<PuyoGame>()`、そうでなければ `mcts_search::<PuyoGame>()` に `PuyoState` と `gamma` を渡す）
 2. 各手番で improved policy（completed Q-values に基づく改善ポリシー）を policy target として記録
 3. ゲーム終了後、各手番の value target を累積割引報酬で逆算:
    ```

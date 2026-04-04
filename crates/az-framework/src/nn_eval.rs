@@ -17,6 +17,10 @@ pub struct MctsConfig {
     pub c_visit: f32,
     /// Discount factor for future rewards.
     pub gamma: f32,
+    /// Number of leaves to evaluate per batch NN call (virtual loss).
+    /// 1 = single inference per simulation (original behavior).
+    /// >1 = batched inference with virtual loss for diverse path selection.
+    pub num_leaves: usize,
 }
 
 impl Default for MctsConfig {
@@ -28,6 +32,7 @@ impl Default for MctsConfig {
             m: 16,
             c_visit: 5.0,
             gamma: 0.95,
+            num_leaves: 1,
         }
     }
 }

@@ -39,7 +39,8 @@ GAMMA="${GAMMA:-0.95}"              # 割引率
 REPLAY_WINDOW="${REPLAY_WINDOW:-30}"  # 直近N個のイテレーションデータを保持
 MIN_CHAIN="${MIN_CHAIN:-0}"          # 最低連鎖数フィルタ（0=無効）
 THREADS="${THREADS:-128}"            # self-playスレッド数
-INFER_BATCH_SIZE="${INFER_BATCH_SIZE:-128}"  # GPU推論バッチサイズ
+INFER_BATCH_SIZE="${INFER_BATCH_SIZE:-512}"  # GPU推論バッチサイズ
+NUM_LEAVES="${NUM_LEAVES:-24}"                # MCTS virtual loss バッチ（同時探索リーフ数）
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-512}"  # 学習バッチサイズ
 ACCUM_STEPS="${ACCUM_STEPS:-4}"              # 勾配累積ステップ数
 BOARD_COLS="${BOARD_COLS:-3}"                # ボード列数
@@ -126,6 +127,7 @@ while true; do
         --min-chain "$MIN_CHAIN" \
         --threads "$THREADS" \
         --batch-size "$INFER_BATCH_SIZE" \
+        --num-leaves "$NUM_LEAVES" \
         --model-path "$MODEL_PATH" \
         --cols "$BOARD_COLS" \
         --rows "$BOARD_ROWS" \
