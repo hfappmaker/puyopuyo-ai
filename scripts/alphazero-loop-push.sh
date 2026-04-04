@@ -20,14 +20,10 @@ DATA_DIR="$RUN_DIR/data"
 MODEL_PATH="$ARTIFACTS_DIR/puyo_model"
 mkdir -p "$ARTIFACTS_DIR" "$DATA_DIR"
 
-# 指定ブランチに切り替え（なければ作成）
+# 指定ブランチに切り替え（なければ作成、リモートのみの場合は追跡ブランチを作成）
 CURRENT_BRANCH=$(git branch --show-current)
 if [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
-    if git show-ref --verify --quiet "refs/heads/$TARGET_BRANCH"; then
-        git checkout "$TARGET_BRANCH"
-    else
-        git checkout -b "$TARGET_BRANCH"
-    fi
+    git checkout "$TARGET_BRANCH" 2>/dev/null || git checkout -b "$TARGET_BRANCH"
 fi
 
 # 設定（環境変数でオーバーライド可能）
@@ -179,7 +175,7 @@ while true; do
 
     # 6. Commit & push model
     commit_and_push "alphazero: iter $((ITERATION - 1)) training complete" \
-        "$ARTIFACTS_DIR/puyo_model.bin" "$ITER_FILE" "$GLOBAL_STEP_FILE" "$LOG_FILE"
+        "$ARTIFACTS_DIR/puyo_model.bin" "$ARTIFACTS_DIR/puyo_model.config.json" "$ITER_FILE" "$GLOBAL_STEP_FILE" "$LOG_FILE"
 
     log "=== Iteration $((ITERATION - 1)) complete ==="
 done

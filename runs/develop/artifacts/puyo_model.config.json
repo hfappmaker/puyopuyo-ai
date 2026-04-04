@@ -1,0 +1,13 @@
+{
+  "game_config": {
+    "cols": 3,
+    "rows": 8,
+    "num_colors": 3
+  },
+  "residual_channels": 64,
+  "num_residual_blocks": 6,
+  "policy_conv_channels": 2,
+  "value_conv_channels": 1,
+  "value_hidden": 64,
+  "film_hidden": 128
+}
