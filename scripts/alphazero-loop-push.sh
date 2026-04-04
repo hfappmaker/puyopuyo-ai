@@ -41,6 +41,7 @@ MIN_CHAIN="${MIN_CHAIN:-0}"          # 最低連鎖数フィルタ（0=無効）
 THREADS="${THREADS:-128}"            # self-playスレッド数
 INFER_BATCH_SIZE="${INFER_BATCH_SIZE:-128}"  # GPU推論バッチサイズ
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-512}"  # 学習バッチサイズ
+ACCUM_STEPS="${ACCUM_STEPS:-4}"              # 勾配累積ステップ数
 BOARD_COLS="${BOARD_COLS:-3}"                # ボード列数
 BOARD_ROWS="${BOARD_ROWS:-8}"               # ボード行数
 NUM_COLORS="${NUM_COLORS:-3}"               # 色数
@@ -160,6 +161,7 @@ while true; do
         --model-path "$MODEL_PATH" \
         --artifacts-dir "$ARTIFACTS_DIR" \
         --batch-size "$TRAIN_BATCH_SIZE" \
+        --accum-steps "$ACCUM_STEPS" \
         --cols "$BOARD_COLS" \
         --rows "$BOARD_ROWS" \
         --num-colors "$NUM_COLORS" \

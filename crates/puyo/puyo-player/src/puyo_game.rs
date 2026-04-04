@@ -29,7 +29,7 @@ pub struct PuyoGame;
 
 impl PuyoGame {
     fn config() -> GameConfig {
-        GAME_CONFIG.get().cloned().unwrap_or_default()
+        GAME_CONFIG.get().copied().unwrap_or_default()
     }
 }
 

@@ -207,6 +207,7 @@ fn main() {
     std::fs::create_dir_all(&artifacts_dir).expect("Failed to create artifacts directory");
 
     let gc = GameConfig::new(cols, rows, num_colors);
+    puyo_player::puyo_game::init_config(gc);
     let net_config = PuyoNetConfig::new()
         .with_residual_channels(residual_channels)
         .with_num_residual_blocks(num_blocks)

@@ -8,7 +8,7 @@ use serde::{Serialize, Deserialize};
 pub const MIN_GROUP_SIZE: usize = 4;
 
 /// ゲームの基本パラメータ。盤面サイズ・色数を実行時に指定できる。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GameConfig {
     /// ボードの列数（横幅）。
     pub cols: usize,
