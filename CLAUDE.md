@@ -60,14 +60,13 @@ crates/
 - `az-framework`の`nn`フィーチャーフラグでNN関連モジュール（`model`, `mcts`, `nn_eval`, `inference_server`）と`burn`依存を制御。
 - `puyo-player`の`nn`フィーチャーフラグで`az-framework/nn` + `puyo-nn` + `burn`を有効化。`puyo-wasm`は`nn`を有効にしてビルド。
 - `puyo-player`の`cuda`フィーチャーフラグ（`nn` + `burn/cuda`）でGPU推論を有効化。
-- `puyo-trainer`の`gpu`（デフォルト）/`cpu`フィーチャーフラグでバックエンドを切り替え。`gpu`は`burn/cuda`+`burn/fusion`+`burn/autotune`を有効にする。
+- `puyo-trainer`の`gpu`（デフォルト）フィーチャーフラグでGPUバックエンドを有効化。`burn/cuda`+`burn/fusion`+`burn/autotune`を含む。CPUビルドは`--no-default-features`で。
 
 詳細は仕様書を参照: NN → `docs/spec/12-nn.md`、WASM → `docs/spec/10-wasm-bridge.md`、学習 → `docs/spec/13-trainer.md`、フロントエンド → `docs/spec/11-frontend.md`
 
 ## モデルファイル
 
-- `artifacts/puyo_model.bin` (~500KB): 学習済みモデル（`BinFileRecorder`形式）
-- `web/public/models/`: ブラウザ用デプロイ先
+- `web/public/models/puyo_model.bin` (~2MB): 学習済みモデル（`BinFileRecorder`形式、ブラウザ用デプロイ先）
 
 ## ドキュメント更新ルール
 
@@ -92,4 +91,4 @@ crates/
 
 ## 仕様書
 
-詳細な仕様は `docs/spec/` 配下（00〜13の各ドキュメント）を参照。
+詳細な仕様は `docs/spec/` 配下（00〜03, 05〜13の各ドキュメント）を参照。
