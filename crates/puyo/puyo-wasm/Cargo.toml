@@ -10,5 +10,5 @@ crate-type = ["cdylib", "rlib"]
 puyo-core = { path = "../puyo-core" }
 puyo-player = { path = "../puyo-player", features = ["nn"] }
 puyo-nn = { path = "../puyo-nn" }
-burn = { version = "0.20", default-features = false, features = ["ndarray"] }
+burn = { version = "0.19", default-features = false, features = ["ndarray"] }
 wasm-bindgen = "0.2"

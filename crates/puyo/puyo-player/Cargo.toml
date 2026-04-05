@@ -12,4 +12,4 @@ cuda = ["nn", "burn/cuda"]
 az-framework = { path = "../../az-framework" }
 puyo-core = { path = "../puyo-core" }
 puyo-nn = { path = "../puyo-nn", optional = true }
-burn = { version = "0.20", default-features = false, features = ["ndarray"], optional = true }
+burn = { version = "0.19", default-features = false, features = ["ndarray"], optional = true }

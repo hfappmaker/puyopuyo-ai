@@ -24,7 +24,7 @@ az-framework = { path = "../../az-framework" }
 puyo-core = { path = "../puyo-core" }
 puyo-player = { path = "../puyo-player", features = ["nn"] }
 puyo-nn = { path = "../puyo-nn" }
-burn = { version = "0.20", features = ["autodiff", "train"] }
+burn = { version = "0.19", features = ["autodiff", "train"] }
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
