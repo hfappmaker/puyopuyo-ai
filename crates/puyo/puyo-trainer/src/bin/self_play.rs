@@ -21,7 +21,7 @@ use puyo_core::state::PuyoState;
 use puyo_nn::model::{PuyoNet, PuyoNetConfig};
 use puyo_trainer::data::{AlphaZeroDataset, AlphaZeroSample};
 
-use burn::backend::CudaJit;
+use burn::backend::Cuda;
 use puyo_player::nn_eval::PuyoGameModel;
 use puyo_player::inference_server;
 
@@ -366,9 +366,9 @@ fn main() {
         gc.cols, gc.rows, gc.num_colors, args.residual_channels, args.num_blocks,
     );
 
-    type GpuBackend = CudaJit<f32>;
+    type GpuBackend = Cuda<f32>;
 
-    println!("Backend: CudaJit (GPU) — Gumbel MCTS self-play (batched)");
+    println!("Backend: Cuda (GPU) — Gumbel MCTS self-play (batched)");
     let device: <GpuBackend as Backend>::Device = Default::default();
     let model = load_model::<GpuBackend>(&device, &args.model_path, &net_config);
 
