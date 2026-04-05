@@ -357,13 +357,14 @@ fn main() {
     validate_model_metadata(&args.model_path, &gc);
 
     println!(
-        "games={}, simulations={}, c_puct_init={}, c_puct_base={}, m={}, c_visit={}, gamma={}",
+        "games={}, simulations={}, c_puct_init={}, c_puct_base={}, m={}, c_visit={}, gamma={}, num_leaves={}, min_chain={}",
         args.num_games, args.num_simulations, args.c_puct_init, args.c_puct_base, args.m,
-        args.c_visit, args.gamma,
+        args.c_visit, args.gamma, args.num_leaves, args.min_chain,
     );
     println!(
-        "Game config: cols={}, rows={}, num_colors={}, residual_channels={}, num_blocks={}",
+        "Game config: cols={}, rows={}, num_colors={}, residual_channels={}, num_blocks={}, policy_conv_ch={}, value_conv_ch={}, value_hidden={}, film_hidden={}",
         gc.cols, gc.rows, gc.num_colors, args.residual_channels, args.num_blocks,
+        args.policy_conv_channels, args.value_conv_channels, args.value_hidden, args.film_hidden,
     );
 
     type GpuBackend = Cuda<f32>;
