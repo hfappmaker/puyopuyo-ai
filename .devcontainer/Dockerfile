@@ -17,14 +17,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # which Debian trixie's sqv rejects since 2026-02-01
 RUN apt-get update -o Acquire::AllowInsecureRepositories=true \
     && apt-get install -y --no-install-recommends --allow-unauthenticated \
-    cuda-compiler-13-2 \
-    libcublas-dev-13-2 \
-    cuda-cudart-dev-13-2 \
-    cuda-nvrtc-13-2 \
+    cuda-compiler-13-0 \
+    libcublas-dev-13-0 \
+    cuda-cudart-dev-13-0 \
+    cuda-nvrtc-13-0 \
     && rm -rf /var/lib/apt/lists/*
 
-ENV PATH="/usr/local/cuda-13.2/bin:${PATH}"
-ENV LD_LIBRARY_PATH="/usr/local/cuda-13.2/lib64"
+ENV PATH="/usr/local/cuda-13.0/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/usr/local/cuda-13.0/lib64"
 
 # Install wasm-pack and wasm target
 RUN rustup component add clippy rustfmt \
