@@ -40,7 +40,7 @@ REPLAY_WINDOW="${REPLAY_WINDOW:-30}"  # 直近N個のイテレーションデー
 MIN_CHAIN="${MIN_CHAIN:-0}"          # 最低連鎖数フィルタ（0=無効）
 THREADS="${THREADS:-128}"            # self-playスレッド数
 INFER_BATCH_SIZE="${INFER_BATCH_SIZE:-512}"  # GPU推論バッチサイズ
-NUM_LEAVES="${NUM_LEAVES:-24}"                # MCTS virtual loss バッチ（同時探索リーフ数）
+NUM_LEAVES="${NUM_LEAVES:-1}"                # MCTS virtual loss バッチ（同時探索リーフ数）
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-512}"  # 学習バッチサイズ
 ACCUM_STEPS="${ACCUM_STEPS:-4}"              # 勾配累積ステップ数
 BOARD_COLS="${BOARD_COLS:-3}"                # ボード列数
