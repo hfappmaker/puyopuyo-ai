@@ -97,7 +97,7 @@ SimulationEvaluator AI に自動対戦させ、訓練データを収集する。
 
 ## Phase 2: 教師あり学習 (`train`)
 
-生成データで Dual Head Network（`PuyoNet`）を学習する。`--alphazero` フラグで AlphaZero モード（Soft Policy CE + Value MSE）と教師ありモード（Hard Policy CE + Value MSE）を切り替える。AlphaZero モードでは value_target に MuZero Invertible Value Transform（`value_transform()`）を適用してから MSE 損失を計算する（詳細は `docs/spec/12-nn.md` の Value Transform セクション参照）。バックエンドは `NdArray`（CPU）または `CudaJit`（GPU、`gpu` feature flag）+ `Autodiff`。
+生成データで Dual Head Network（`PuyoNet`）を学習する。`--alphazero` フラグで AlphaZero モード（Soft Policy CE + Value MSE）と教師ありモード（Hard Policy CE + Value MSE）を切り替える。AlphaZero モードでは value_target に MuZero Invertible Value Transform（`value_transform()`）を適用してから MSE 損失を計算する（詳細は `docs/spec/12-nn.md` の Value Transform セクション参照）。バックエンドは `NdArray`（CPU）または `Cuda`（GPU、`gpu` feature flag）+ `Autodiff`。
 
 ### パラメータ
 

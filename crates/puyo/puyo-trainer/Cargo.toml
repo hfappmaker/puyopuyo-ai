@@ -17,14 +17,14 @@ path = "src/bin/self_play.rs"
 
 [features]
 default = ["gpu"]
-gpu = ["burn/cuda-jit", "burn/fusion", "burn/autotune", "puyo-player/cuda"]
+gpu = ["burn/cuda", "burn/fusion", "burn/autotune", "puyo-player/cuda"]
 
 [dependencies]
 az-framework = { path = "../../az-framework" }
 puyo-core = { path = "../puyo-core" }
 puyo-player = { path = "../puyo-player", features = ["nn"] }
 puyo-nn = { path = "../puyo-nn" }
-burn = { version = "0.16", features = ["autodiff", "train"] }
+burn = { version = "0.20", features = ["autodiff", "train"] }
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

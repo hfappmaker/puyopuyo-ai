@@ -6,10 +6,10 @@ edition = "2021"
 [features]
 default = []
 nn = ["az-framework/nn", "puyo-nn", "burn"]
-cuda = ["nn", "burn/cuda-jit"]
+cuda = ["nn", "burn/cuda"]
 
 [dependencies]
 az-framework = { path = "../../az-framework" }
 puyo-core = { path = "../puyo-core" }
 puyo-nn = { path = "../puyo-nn", optional = true }
-burn = { version = "0.16", default-features = false, features = ["ndarray"], optional = true }
+burn = { version = "0.20", default-features = false, features = ["ndarray"], optional = true }
