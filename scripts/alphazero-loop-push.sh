@@ -92,7 +92,6 @@ commit_and_push() {
     for pattern in "$@"; do
         git add $pattern 2>/dev/null || true
     done
-    git add -u "$DATA_DIR/"  # stage deletions
     if git diff --cached --quiet; then
         log "No changes to commit"
         return
@@ -181,9 +180,9 @@ while true; do
         fi
     fi
 
-    # 3. Commit & push self-play data
+    # 3. Commit & push self-play log
     commit_and_push "alphazero: iter $ITERATION self-play (games=${TOTAL_GAMES} [${NUM_GPUS}x${GAMES}], sims=$SIMS)" \
-        "$DATA_DIR/alphazero_iter_*.bin" "$ARTIFACTS_DIR/alphazero-loop-*.log"
+        "$ARTIFACTS_DIR/alphazero-loop-*.log"
 
     # 4. Train (GPU) with replay buffer
     log "Train start (AlphaZero mode, replay buffer, global_step=$GLOBAL_STEP)"
