@@ -1,5 +1,5 @@
 use burn::backend::Autodiff;
-use burn::backend::Cuda;
+use burn::backend::CudaJit;
 use burn::module::AutodiffModule;
 use burn::grad_clipping::GradientClippingConfig;
 use burn::optim::{SgdConfig, GradientsParams, GradientsAccumulator, Optimizer};
@@ -16,7 +16,7 @@ use puyo_core::rand::time_seed;
 use puyo_trainer::data::{AlphaZeroDataset, Dataset};
 use serde::{Serialize, Deserialize};
 
-type TrainBackend = Autodiff<Cuda<f32>>;
+type TrainBackend = Autodiff<CudaJit<f32>>;
 type InnerBackend = <TrainBackend as AutodiffBackend>::InnerBackend;
 
 const MODEL_PATH: &str = "artifacts/puyo_model";

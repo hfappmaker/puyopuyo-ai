@@ -12,9 +12,9 @@ use puyo_core::config::GameConfig;
 #[derive(Module, Debug)]
 pub struct ResidualBlock<B: Backend> {
     conv1: Conv2d<B>,
-    norm1: BatchNorm<B>,
+    norm1: BatchNorm<B, 2>,
     conv2: Conv2d<B>,
-    norm2: BatchNorm<B>,
+    norm2: BatchNorm<B, 2>,
     activation: Relu,
 }
 
@@ -86,11 +86,11 @@ pub struct PuyoNet<B: Backend> {
     res_blocks: Vec<ResidualBlock<B>>,
     // Policy head
     policy_conv: Conv2d<B>,
-    policy_norm: BatchNorm<B>,
+    policy_norm: BatchNorm<B, 2>,
     policy_fc: Linear<B>,
     // Value head
     value_conv: Conv2d<B>,
-    value_norm: BatchNorm<B>,
+    value_norm: BatchNorm<B, 2>,
     value_fc1: Linear<B>,
     value_fc2: Linear<B>,
     activation: Relu,

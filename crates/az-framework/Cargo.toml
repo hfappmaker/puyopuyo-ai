@@ -8,6 +8,6 @@ default = []
 nn = ["burn"]
 
 [dependencies]
-burn = { version = "0.20", default-features = false, features = ["ndarray"], optional = true }
+burn = { version = "0.16", default-features = false, features = ["ndarray"], optional = true }
 serde = { version = "1", features = ["derive"] }
 bincode = "1"
