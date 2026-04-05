@@ -53,6 +53,7 @@ POLICY_CONV_CHANNELS="${POLICY_CONV_CHANNELS:-2}"   # Policy head Conv チャネ
 VALUE_CONV_CHANNELS="${VALUE_CONV_CHANNELS:-1}"     # Value head Conv チャネル数
 VALUE_HIDDEN="${VALUE_HIDDEN:-64}"                   # Value head FC 隠れ層サイズ
 FILM_HIDDEN="${FILM_HIDDEN:-128}"                    # FiLM 隠れ層サイズ
+LR_STAGES="${LR_STAGES:-0:0.2,10000:0.02,30000:0.002,50000:0.0002}"  # global_step 別 LR スケジュール (threshold:lr,...)
 # ログファイル名を算出（100イテレーションごとにローテーション）
 update_log_file() {
     local start=$(( ((ITERATION - 1) / 100) * 100 + 1 ))
@@ -202,6 +203,7 @@ while true; do
         --value-conv-channels "$VALUE_CONV_CHANNELS" \
         --value-hidden "$VALUE_HIDDEN" \
         --film-hidden "$FILM_HIDDEN" \
+        --lr-stages "$LR_STAGES" \
         2>&1 | tee -a "$LOG_FILE"
 
     # Update global step from training output

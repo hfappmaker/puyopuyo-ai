@@ -29,12 +29,13 @@ const EARLY_STOPPING_PATIENCE: usize = 5;
 // AlphaZero-specific training parameters (step-based)
 const AZ_NUM_STEPS: usize = 1000;
 const ACCUM_STEPS: usize = 4; // gradient accumulation: effective batch = BATCH_SIZE * ACCUM_STEPS = 2048
-// Global step LR schedule (AlphaZero-style 4-stage drop)
-const AZ_LR_STAGES: [(usize, f64); 4] = [
-    (0,      0.2),    // step 0~100k: LR = 0.2
-    (10000, 0.02),   // step 100k~300k: LR = 0.02
-    (30000, 0.002),  // step 300k~500k: LR = 0.002
-    (50000, 0.0002),  // step 500k~: LR = 0.0002
+// Global step LR schedule (AlphaZero-style 4-stage drop, default).
+// Overridable via `--lr-stages "threshold:lr,threshold:lr,..."` CLI flag.
+const AZ_LR_STAGES_DEFAULT: [(usize, f64); 4] = [
+    (0,      0.2),    // step 0~10k:  LR = 0.2
+    (10000, 0.02),   // step 10k~30k: LR = 0.02
+    (30000, 0.002),  // step 30k~50k: LR = 0.002
+    (50000, 0.0002), // step 50k~:    LR = 0.0002
 ];
 const TRAIN_SPLIT_RATIO: f64 = 0.9;
 const VALUE_LOSS_WEIGHT: f32 = 0.5;
@@ -145,14 +146,34 @@ fn save_model_metadata(model_path: &str, gc: &GameConfig, net_config: &PuyoNetCo
     println!("Model metadata saved to {}", path);
 }
 
-fn az_lr_for_global_step(global_step: usize) -> f64 {
-    let mut lr = AZ_LR_STAGES[0].1;
-    for &(threshold, stage_lr) in &AZ_LR_STAGES {
+fn az_lr_for_global_step(global_step: usize, stages: &[(usize, f64)]) -> f64 {
+    let mut lr = stages[0].1;
+    for &(threshold, stage_lr) in stages {
         if global_step >= threshold {
             lr = stage_lr;
         }
     }
     lr
+}
+
+/// Parse LR stages from "threshold:lr,threshold:lr,..." format.
+/// e.g. "0:0.2,10000:0.02,30000:0.002,50000:0.0002"
+fn parse_lr_stages(s: &str) -> Vec<(usize, f64)> {
+    let mut stages: Vec<(usize, f64)> = s
+        .split(',')
+        .map(|pair| {
+            let mut it = pair.split(':');
+            let threshold = it.next().expect("--lr-stages pair missing threshold")
+                .trim().parse::<usize>().expect("--lr-stages threshold must be integer");
+            let lr = it.next().expect("--lr-stages pair missing lr")
+                .trim().parse::<f64>().expect("--lr-stages lr must be float");
+            (threshold, lr)
+        })
+        .collect();
+    assert!(!stages.is_empty(), "--lr-stages must contain at least one stage");
+    stages.sort_by_key(|&(t, _)| t);
+    assert!(stages[0].0 == 0, "--lr-stages first threshold must be 0");
+    stages
 }
 
 fn main() {
@@ -203,6 +224,9 @@ fn main() {
     let film_hidden = args.iter().position(|a| a == "--film-hidden")
         .map(|i| args[i + 1].parse::<usize>().expect("--film-hidden requires integer"))
         .unwrap_or(128);
+    let lr_stages = args.iter().position(|a| a == "--lr-stages")
+        .map(|i| parse_lr_stages(&args[i + 1]))
+        .unwrap_or_else(|| AZ_LR_STAGES_DEFAULT.to_vec());
 
     std::fs::create_dir_all(&artifacts_dir).expect("Failed to create artifacts directory");
 
@@ -223,7 +247,7 @@ fn main() {
 
     if alphazero_mode {
         println!("Mode: AlphaZero (Policy CE + Value MSE)");
-        train_alphazero(data_dir.as_deref(), global_step, &model_path, &artifacts_dir, batch_size, accum_steps, &gc, &net_config);
+        train_alphazero(data_dir.as_deref(), global_step, &model_path, &artifacts_dir, batch_size, accum_steps, &lr_stages, &gc, &net_config);
     } else {
         println!("Mode: Supervised (Policy CE only)");
         train_supervised(&model_path, batch_size, &gc, &net_config);
@@ -400,7 +424,7 @@ fn compute_val_loss_supervised(
 // AlphaZero training (from self-play data)
 // ---------------------------------------------------------------------------
 
-fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path: &str, artifacts_dir: &str, batch_size: usize, accum_steps: usize, gc: &GameConfig, net_config: &PuyoNetConfig) {
+fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path: &str, artifacts_dir: &str, batch_size: usize, accum_steps: usize, lr_stages: &[(usize, f64)], gc: &GameConfig, net_config: &PuyoNetConfig) {
     let device: <TrainBackend as Backend>::Device = Default::default();
 
     let num_channels = gc.num_channels();
@@ -484,8 +508,8 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path:
         .with_gradient_clipping(Some(GradientClippingConfig::Norm(1.0)))
         .init();
 
-    let start_lr = az_lr_for_global_step(global_step_start);
-    let end_lr = az_lr_for_global_step(global_step_start + AZ_NUM_STEPS);
+    let start_lr = az_lr_for_global_step(global_step_start, lr_stages);
+    let end_lr = az_lr_for_global_step(global_step_start + AZ_NUM_STEPS, lr_stages);
     println!("AlphaZero training: {} steps, global_step={}, LR {:.0e} (end ~{:.0e}), batch_size={}, accum_steps={}, effective_batch={}",
         AZ_NUM_STEPS, global_step_start, start_lr, end_lr, batch_size, accum_steps, batch_size * accum_steps);
 
@@ -495,7 +519,7 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path:
     let mut accum: GradientsAccumulator<puyo_nn::model::PuyoNet<TrainBackend>> = GradientsAccumulator::new();
 
     for step in 0..AZ_NUM_STEPS {
-        let lr = az_lr_for_global_step(global_step_start + step);
+        let lr = az_lr_for_global_step(global_step_start + step, lr_stages);
 
         // Gradient accumulation: run accum_steps micro-batches per optimizer step
         for _micro in 0..accum_steps {

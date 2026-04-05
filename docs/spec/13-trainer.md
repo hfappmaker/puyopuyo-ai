@@ -107,22 +107,24 @@ SimulationEvaluator AI に自動対戦させ、訓練データを収集する。
 | `NUM_EPOCHS` | 50 | 教師あり学習の最大エポック数 |
 | `LR_MAX` / `LR_MIN` | 5e-4 / 1e-5 | 教師あり学習の Cosine Annealing 学習率範囲 |
 | `AZ_NUM_STEPS` | 1,000 | AlphaZero 学習のステップ数（エポックではなくステップベース） |
-| `AZ_LR_MAX` / `AZ_LR_MIN` | 2e-4 / 1e-5 | AlphaZero 学習の Cosine Annealing 学習率範囲 |
+| `AZ_LR_STAGES_DEFAULT` | `[(0, 0.2), (10000, 0.02), (30000, 0.002), (50000, 0.0002)]` | AlphaZero 学習の global_step ベース 4-stage drop スケジュール（`--lr-stages "threshold:lr,..."` で上書き可能） |
 | `EARLY_STOPPING_PATIENCE` | 5 | 教師あり学習の Early Stopping patience（AlphaZero モードでは不使用） |
 | `TRAIN_SPLIT_RATIO` | 0.9 | 教師あり学習の訓練/検証データ分割比率 |
 | `VALUE_LOSS_WEIGHT` | 0.5 | Value 損失の重み係数 |
 | `MODEL_PATH` | `artifacts/puyo_model` | モデル保存先 |
 
-### 学習率スケジューラ（Cosine Annealing）
+### 学習率スケジューラ
 
-教師あり学習ではエポック単位、AlphaZero 学習ではステップ単位で学習率を Cosine 減衰させる。
+教師あり学習ではエポック単位で Cosine Annealing、AlphaZero 学習では global_step に応じた 4-stage drop を使用する。
 
 ```
-# 教師あり学習
+# 教師あり学習（Cosine Annealing）
 lr(epoch) = LR_MIN + 0.5 × (LR_MAX - LR_MIN) × (1 + cos(π × epoch / NUM_EPOCHS))
 
-# AlphaZero 学習
-lr(step) = AZ_LR_MIN + 0.5 × (AZ_LR_MAX - AZ_LR_MIN) × (1 + cos(π × step / AZ_NUM_STEPS))
+# AlphaZero 学習（4-stage drop, global_step ベース）
+# AZ_LR_STAGES_DEFAULT = [(0, 0.2), (10000, 0.02), (30000, 0.002), (50000, 0.0002)]
+# global_step が threshold 以上となる最後のステージの lr を採用する。
+# CLI では --lr-stages "0:0.2,10000:0.02,30000:0.002,50000:0.0002" の形式で上書き可能。
 ```
 
 ### Early Stopping（教師あり学習のみ）
@@ -142,7 +144,7 @@ Validation loss が `EARLY_STOPPING_PATIENCE` エポック連続で改善しな�
 ### AlphaZero 学習の手順
 
 1. 全データを訓練に使用（val split なし — 性能は self-play の報酬で判断）
-2. ステップごとに Cosine Annealing で学習率を計算（`AZ_LR_MAX` → `AZ_LR_MIN`）
+2. ステップごとに global_step ベースの 4-stage drop で学習率を計算（`AZ_LR_STAGES` に従う）
 3. 各ステップでランダムミニバッチをサンプリングし、オンザフライで色置換データ拡張を適用
 4. 損失関数: Policy は Soft Cross-Entropy（MCTS 訪問分布を正解ラベル、無効アクションをマスク）+ Value は MSE（`value_transform` 適用、重み `VALUE_LOSS_WEIGHT=0.5`）
 5. 最適化: Adam（Weight decay 1e-4 付き）
