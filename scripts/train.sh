@@ -27,6 +27,7 @@ export C_VISIT=50.0
 export GAMMA=0.95
 export REPLAY_WINDOW=30
 export MIN_CHAIN=0
+export NUM_GPUS=1
 export THREADS=128
 export INFER_BATCH_SIZE=2048
 export NUM_LEAVES=1

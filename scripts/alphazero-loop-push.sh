@@ -38,7 +38,8 @@ C_VISIT="${C_VISIT:-50.0}"            # Q値スケーリング
 GAMMA="${GAMMA:-0.95}"              # 割引率
 REPLAY_WINDOW="${REPLAY_WINDOW:-30}"  # 直近N個のイテレーションデータを保持
 MIN_CHAIN="${MIN_CHAIN:-0}"          # 最低連鎖数フィルタ（0=無効）
-THREADS="${THREADS:-128}"            # self-playスレッド数
+NUM_GPUS="${NUM_GPUS:-1}"            # self-play 並列 GPU 数（各 GPU ごとに 1 プロセス起動）
+THREADS="${THREADS:-128}"            # self-playスレッド数（GPU あたり）
 INFER_BATCH_SIZE="${INFER_BATCH_SIZE:-512}"  # GPU推論バッチサイズ
 NUM_LEAVES="${NUM_LEAVES:-1}"                # MCTS virtual loss バッチ（同時探索リーフ数）
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-512}"  # 学習バッチサイズ
@@ -102,7 +103,7 @@ commit_and_push() {
 update_log_file
 log "Pre-building release binaries..."
 cargo build --release -p puyo-trainer --bins 2>&1 | tee -a "$LOG_FILE"
-log "=== AlphaZero Loop Start (branch=$TARGET_BRANCH, run_dir=$RUN_DIR, iteration=$ITERATION, games=$GAMES, sims=$SIMS_BASE+$SIMS_STEP/iter, max=$SIMS_MAX, min_chain=$MIN_CHAIN, threads=$THREADS) ==="
+log "=== AlphaZero Loop Start (branch=$TARGET_BRANCH, run_dir=$RUN_DIR, iteration=$ITERATION, games=${GAMES}x${NUM_GPUS}gpu, sims=$SIMS_BASE+$SIMS_STEP/iter, max=$SIMS_MAX, min_chain=$MIN_CHAIN, threads=$THREADS) ==="
 
 while true; do
     # シミュレーション数: SIMS_BASE + (ITERATION - 1) * SIMS_STEP（上限 SIMS_MAX���
@@ -114,47 +115,73 @@ while true; do
     update_log_file
     log "--- Iteration $ITERATION (sims=$SIMS, global_step=$GLOBAL_STEP) ---"
 
-    OUTPUT_FILE="$DATA_DIR/alphazero_iter_${ITERATION}.bin"
-
-    # 1. Self-play (Gumbel MCTS)
-    log "Self-play start (m=$M, c_visit=$C_VISIT)"
-    cargo run --release -p puyo-trainer --bin self-play -- \
-        --games "$GAMES" \
-        --simulations "$SIMS" \
-        --c-puct-init "$C_PUCT_INIT" \
-        --c-puct-base "$C_PUCT_BASE" \
-        --m "$M" \
-        --c-visit "$C_VISIT" \
-        --gamma "$GAMMA" \
-        --min-chain "$MIN_CHAIN" \
-        --threads "$THREADS" \
-        --batch-size "$INFER_BATCH_SIZE" \
-        --num-leaves "$NUM_LEAVES" \
-        --model-path "$MODEL_PATH" \
-        --cols "$BOARD_COLS" \
-        --rows "$BOARD_ROWS" \
-        --num-colors "$NUM_COLORS" \
-        --residual-channels "$RESIDUAL_CHANNELS" \
-        --num-blocks "$NUM_BLOCKS" \
-        --policy-conv-channels "$POLICY_CONV_CHANNELS" \
-        --value-conv-channels "$VALUE_CONV_CHANNELS" \
-        --value-hidden "$VALUE_HIDDEN" \
-        --film-hidden "$FILM_HIDDEN" \
-        --output "$OUTPUT_FILE" \
-        2>&1 | tee -a "$LOG_FILE"
+    # 1. Self-play (Gumbel MCTS) — GPU ごとに並列実行（各 GPU で $GAMES ゲーム）
+    TOTAL_GAMES=$((GAMES * NUM_GPUS))
+    log "Self-play start (m=$M, c_visit=$C_VISIT, num_gpus=$NUM_GPUS, games_per_gpu=$GAMES, total=$TOTAL_GAMES)"
+    PIDS=()
+    # Ctrl+C / TERM 受信時に子プロセスを確実に停止
+    cleanup_children() {
+        log "Interrupted, terminating self-play child processes..."
+        for pid in "${PIDS[@]}"; do
+            kill -TERM "$pid" 2>/dev/null || true
+        done
+        wait 2>/dev/null || true
+        exit 130
+    }
+    trap cleanup_children INT TERM
+    for gpu in $(seq 0 $((NUM_GPUS - 1))); do
+        OUTPUT_FILE="$DATA_DIR/alphazero_iter_${ITERATION}_gpu${gpu}.bin"
+        (
+            CUDA_VISIBLE_DEVICES=$gpu cargo run --release -p puyo-trainer --bin self-play -- \
+                --games "$GAMES" \
+                --simulations "$SIMS" \
+                --c-puct-init "$C_PUCT_INIT" \
+                --c-puct-base "$C_PUCT_BASE" \
+                --m "$M" \
+                --c-visit "$C_VISIT" \
+                --gamma "$GAMMA" \
+                --min-chain "$MIN_CHAIN" \
+                --threads "$THREADS" \
+                --batch-size "$INFER_BATCH_SIZE" \
+                --num-leaves "$NUM_LEAVES" \
+                --model-path "$MODEL_PATH" \
+                --cols "$BOARD_COLS" \
+                --rows "$BOARD_ROWS" \
+                --num-colors "$NUM_COLORS" \
+                --residual-channels "$RESIDUAL_CHANNELS" \
+                --num-blocks "$NUM_BLOCKS" \
+                --policy-conv-channels "$POLICY_CONV_CHANNELS" \
+                --value-conv-channels "$VALUE_CONV_CHANNELS" \
+                --value-hidden "$VALUE_HIDDEN" \
+                --film-hidden "$FILM_HIDDEN" \
+                --output "$OUTPUT_FILE" \
+                2>&1 | sed -u "s/^/[gpu${gpu}] /" | tee -a "$LOG_FILE"
+        ) &
+        PIDS+=($!)
+    done
+    FAILED=0
+    for pid in "${PIDS[@]}"; do
+        wait "$pid" || FAILED=1
+    done
+    trap - INT TERM
+    if [ "$FAILED" -ne 0 ]; then
+        log "ERROR: one or more self-play processes failed"
+        exit 1
+    fi
 
     # 2. Remove old data files beyond replay window
     OLD_ITER=$((ITERATION - REPLAY_WINDOW))
     if [ "$OLD_ITER" -gt 0 ]; then
-        OLD_FILE="$DATA_DIR/alphazero_iter_${OLD_ITER}.bin"
-        if [ -f "$OLD_FILE" ]; then
-            log "Removing old data: $OLD_FILE"
-            rm -f "$OLD_FILE"
+        OLD_PATTERN="$DATA_DIR/alphazero_iter_${OLD_ITER}_gpu*.bin"
+        # shellcheck disable=SC2086
+        if compgen -G "$OLD_PATTERN" > /dev/null; then
+            log "Removing old data: $OLD_PATTERN"
+            rm -f $OLD_PATTERN
         fi
     fi
 
     # 3. Commit & push self-play data
-    commit_and_push "alphazero: iter $ITERATION self-play (games=$GAMES, sims=$SIMS)" \
+    commit_and_push "alphazero: iter $ITERATION self-play (games=${TOTAL_GAMES} [${NUM_GPUS}x${GAMES}], sims=$SIMS)" \
         "$DATA_DIR/alphazero_iter_*.bin" "$ARTIFACTS_DIR/alphazero-loop-*.log"
 
     # 4. Train (GPU) with replay buffer
