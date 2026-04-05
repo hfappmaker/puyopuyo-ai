@@ -2,24 +2,27 @@
 # source scripts/train.sh
 # bash scripts/alphazero-loop-push.sh develop
 
+git config user.email "test@example.com"
+git config user.name "test"
+
 # --- ゲーム設定 ---
 export BOARD_COLS=6
 export BOARD_ROWS=14
 export NUM_COLORS=4
 
 # --- モデル設定 ---
-export RESIDUAL_CHANNELS=256
-export NUM_BLOCKS=24
+export RESIDUAL_CHANNELS=128
+export NUM_BLOCKS=6
 export POLICY_CONV_CHANNELS=2
 export VALUE_CONV_CHANNELS=1
 export VALUE_HIDDEN=64
-export FILM_HIDDEN=256
+export FILM_HIDDEN=128
 
 # --- 学習パラメータ ---
 export GAMES=300
-export SIMS_BASE=256
+export SIMS_BASE=512
 export SIMS_STEP=0
-export SIMS_MAX=256
+export SIMS_MAX=512
 export C_PUCT_INIT=1.5
 export C_PUCT_BASE=19652.0
 export M=24
@@ -32,4 +35,4 @@ export THREADS=128
 export INFER_BATCH_SIZE=2048
 export NUM_LEAVES=1
 export TRAIN_BATCH_SIZE=2048
-export ACCUM_STEPS=2
+export ACCUM_STEPS=1
