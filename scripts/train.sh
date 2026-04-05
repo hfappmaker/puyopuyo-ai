@@ -19,7 +19,7 @@ export VALUE_HIDDEN=64
 export FILM_HIDDEN=128
 
 # --- 学習パラメータ ---
-export GAMES=300
+export GAMES=1000
 export SIMS_BASE=512
 export SIMS_STEP=0
 export SIMS_MAX=512
@@ -31,7 +31,7 @@ export GAMMA=0.95
 export REPLAY_WINDOW=30
 export MIN_CHAIN=0
 export NUM_GPUS=1
-export THREADS=128
+export THREADS=512
 export INFER_BATCH_SIZE=2048
 export NUM_LEAVES=1
 export TRAIN_BATCH_SIZE=2048
