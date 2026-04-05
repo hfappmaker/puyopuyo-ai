@@ -32,3 +32,4 @@ web/public/models/
 .DS_Store
 Thumbs.db
 web/.claude/settings.local.json
+runs/*/data/
