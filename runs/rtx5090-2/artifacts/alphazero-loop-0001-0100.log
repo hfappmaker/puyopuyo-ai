@@ -7727,3 +7727,315 @@ AlphaZero training: 1000 steps, global_step=21000, LR 2e-2 (end ~2e-2), batch_si
   step 50/1000 p_loss=1.1711 v_loss=1.0294 lr=0.020000  step 100/1000 p_loss=1.1756 v_loss=1.0300 lr=0.020000  step 150/1000 p_loss=1.1765 v_loss=1.0233 lr=0.020000  step 200/1000 p_loss=1.1731 v_loss=1.0177 lr=0.020000  step 250/1000 p_loss=1.1690 v_loss=1.0182 lr=0.020000  step 300/1000 p_loss=1.1655 v_loss=1.0183 lr=0.020000  step 350/1000 p_loss=1.1622 v_loss=1.0185 lr=0.020000  step 400/1000 p_loss=1.1591 v_loss=1.0195 lr=0.020000  step 450/1000 p_loss=1.1550 v_loss=1.0179 lr=0.020000  step 500/1000 p_loss=1.1516 v_loss=1.0173 lr=0.020000  step 550/1000 p_loss=1.1486 v_loss=1.0155 lr=0.020000  step 600/1000 p_loss=1.1457 v_loss=1.0149 lr=0.020000  step 650/1000 p_loss=1.1430 v_loss=1.0149 lr=0.020000  step 700/1000 p_loss=1.1405 v_loss=1.0146 lr=0.020000  step 750/1000 p_loss=1.1378 v_loss=1.0137 lr=0.020000  step 800/1000 p_loss=1.1353 v_loss=1.0125 lr=0.020000  step 850/1000 p_loss=1.1327 v_loss=1.0117 lr=0.020000  step 900/1000 p_loss=1.1304 v_loss=1.0111 lr=0.020000  step 950/1000 p_loss=1.1281 v_loss=1.0113 lr=0.020000  step 1000/1000 p_loss=1.1259 v_loss=1.0112 lr=0.020000
 Model metadata saved to runs/rtx5090-2/artifacts/puyo_model.config.json
 AlphaZero training complete. final train_loss(p=1.125926, v=1.011190) global_step=22000
+[2026-04-05 14:34:48] === Iteration 22 complete ===
+[2026-04-05 14:34:48] --- Iteration 23 (sims=256, global_step=22000) ---
+[2026-04-05 14:34:48] Self-play start (m=24, c_visit=50.0, num_gpus=1, games_per_gpu=300, total=300)
+[gpu0]     Finished `release` profile [optimized] target(s) in 0.30s
+[gpu0]      Running `target/release/self-play --games 300 --simulations 256 --c-puct-init 1.5 --c-puct-base 19652.0 --m 24 --c-visit 50.0 --gamma 0.95 --min-chain 0 --threads 128 --batch-size 2048 --num-leaves 1 --model-path runs/rtx5090-2/artifacts/puyo_model --cols 6 --rows 14 --num-colors 4 --residual-channels 128 --num-blocks 6 --policy-conv-channels 2 --value-conv-channels 1 --value-hidden 64 --film-hidden 128 --output runs/rtx5090-2/data/alphazero_iter_23_gpu0.bin`
+[gpu0] games=300, simulations=256, c_puct_init=1.5, c_puct_base=19652, m=24, c_visit=50, gamma=0.95, num_leaves=1, min_chain=0
+[gpu0] Game config: cols=6, rows=14, num_colors=4, residual_channels=128, num_blocks=6, policy_conv_ch=2, value_conv_ch=1, value_hidden=64, film_hidden=128
+[gpu0] Backend: Cuda (GPU) — Gumbel MCTS self-play (batched)
+[gpu0] Loaded existing model from runs/rtx5090-2/artifacts/puyo_model
+[gpu0] Using 128 game threads, max_batch_size=2048
+[gpu0] [   1/300] samples:     50 | chain(game/max/avg): 4/4/4.0 | reward(game/avg): 8240/8240 | 0.02 games/s | ETA: 15659s
+[gpu0] [   2/300] samples:    100 | chain(game/max/avg): 3/4/3.5 | reward(game/avg): 5060/6650 | 0.04 games/s | ETA: 7815s
+[gpu0] [   3/300] samples:    150 | chain(game/max/avg): 6/6/4.3 | reward(game/avg): 11780/8360 | 0.06 games/s | ETA: 5201s
+[gpu0] [   4/300] samples:    200 | chain(game/max/avg): 3/6/4.0 | reward(game/avg): 5590/7668 | 0.08 games/s | ETA: 3889s
+[gpu0] [   5/300] samples:    250 | chain(game/max/avg): 5/6/4.2 | reward(game/avg): 8520/7838 | 0.10 games/s | ETA: 3101s
+[gpu0] [   6/300] samples:    300 | chain(game/max/avg): 3/6/4.0 | reward(game/avg): 3340/7088 | 0.11 games/s | ETA: 2577s
+[gpu0] [   7/300] samples:    350 | chain(game/max/avg): 4/6/4.0 | reward(game/avg): 6580/7016 | 0.13 games/s | ETA: 2201s
+[gpu0] [   8/300] samples:    400 | chain(game/max/avg): 4/6/4.0 | reward(game/avg): 4080/6649 | 0.15 games/s | ETA: 1920s
+[gpu0] [   9/300] samples:    450 | chain(game/max/avg): 5/6/4.1 | reward(game/avg): 9810/7000 | 0.17 games/s | ETA: 1701s
+[gpu0] [  10/300] samples:    500 | chain(game/max/avg): 4/6/4.1 | reward(game/avg): 5970/6897 | 0.19 games/s | ETA: 1527s
+[gpu0] [  11/300] samples:    550 | chain(game/max/avg): 5/6/4.2 | reward(game/avg): 8520/7045 | 0.21 games/s | ETA: 1384s
+[gpu0] [  12/300] samples:    600 | chain(game/max/avg): 3/6/4.1 | reward(game/avg): 5130/6885 | 0.23 games/s | ETA: 1265s
+[gpu0] [  13/300] samples:    650 | chain(game/max/avg): 5/6/4.2 | reward(game/avg): 16080/7592 | 0.25 games/s | ETA: 1164s
+[gpu0] [  14/300] samples:    700 | chain(game/max/avg): 4/6/4.1 | reward(game/avg): 7200/7564 | 0.27 games/s | ETA: 1078s
+[gpu0] [  15/300] samples:    750 | chain(game/max/avg): 3/6/4.1 | reward(game/avg): 4760/7377 | 0.28 games/s | ETA: 1003s
+[gpu0] [  16/300] samples:    800 | chain(game/max/avg): 4/6/4.1 | reward(game/avg): 6240/7306 | 0.30 games/s | ETA: 938s
+[gpu0] [  17/300] samples:    850 | chain(game/max/avg): 4/6/4.1 | reward(game/avg): 5100/7176 | 0.32 games/s | ETA: 882s
+[gpu0] [  18/300] samples:    900 | chain(game/max/avg): 4/6/4.1 | reward(game/avg): 6460/7137 | 0.34 games/s | ETA: 831s
+[gpu0] [  19/300] samples:    950 | chain(game/max/avg): 4/6/4.1 | reward(game/avg): 8100/7187 | 0.36 games/s | ETA: 784s
+[gpu0] [  20/300] samples:   1000 | chain(game/max/avg): 4/6/4.0 | reward(game/avg): 6120/7134 | 0.38 games/s | ETA: 743s
+[gpu0] [  21/300] samples:   1050 | chain(game/max/avg): 4/6/4.0 | reward(game/avg): 7320/7143 | 0.40 games/s | ETA: 705s
+[gpu0] [  22/300] samples:   1100 | chain(game/max/avg): 5/6/4.1 | reward(game/avg): 10700/7305 | 0.41 games/s | ETA: 671s
+[gpu0] [  23/300] samples:   1150 | chain(game/max/avg): 3/6/4.0 | reward(game/avg): 4630/7188 | 0.43 games/s | ETA: 641s
+[gpu0] [  24/300] samples:   1200 | chain(game/max/avg): 5/6/4.1 | reward(game/avg): 11920/7385 | 0.45 games/s | ETA: 615s
+[gpu0] [  25/300] samples:   1250 | chain(game/max/avg): 3/6/4.0 | reward(game/avg): 4480/7269 | 0.47 games/s | ETA: 591s
+[gpu0] [  26/300] samples:   1300 | chain(game/max/avg): 4/6/4.0 | reward(game/avg): 5880/7216 | 0.48 games/s | ETA: 566s
+[gpu0] [  27/300] samples:   1350 | chain(game/max/avg): 4/6/4.0 | reward(game/avg): 7660/7232 | 0.50 games/s | ETA: 544s
+[gpu0] [  28/300] samples:   1400 | chain(game/max/avg): 3/6/4.0 | reward(game/avg): 6350/7201 | 0.52 games/s | ETA: 525s
+[gpu0] [  29/300] samples:   1450 | chain(game/max/avg): 4/6/4.0 | reward(game/avg): 6960/7192 | 0.54 games/s | ETA: 506s
+[gpu0] [  30/300] samples:   1500 | chain(game/max/avg): 4/6/4.0 | reward(game/avg): 6860/7181 | 0.55 games/s | ETA: 487s
+[gpu0] [  31/300] samples:   1550 | chain(game/max/avg): 4/6/4.0 | reward(game/avg): 6340/7154 | 0.57 games/s | ETA: 470s
+[gpu0] [  32/300] samples:   1600 | chain(game/max/avg): 2/6/3.9 | reward(game/avg): 4060/7058 | 0.59 games/s | ETA: 453s
+[gpu0] [  33/300] samples:   1650 | chain(game/max/avg): 4/6/3.9 | reward(game/avg): 6900/7053 | 0.61 games/s | ETA: 438s
+[gpu0] [  34/300] samples:   1700 | chain(game/max/avg): 5/6/4.0 | reward(game/avg): 11130/7173 | 0.63 games/s | ETA: 424s
+[gpu0] [  35/300] samples:   1750 | chain(game/max/avg): 2/6/3.9 | reward(game/avg): 2160/7029 | 0.65 games/s | ETA: 410s
+[gpu0] [  36/300] samples:   1800 | chain(game/max/avg): 3/6/3.9 | reward(game/avg): 6520/7015 | 0.66 games/s | ETA: 398s
+[gpu0] [  37/300] samples:   1850 | chain(game/max/avg): 3/6/3.9 | reward(game/avg): 3940/6932 | 0.68 games/s | ETA: 386s
+[gpu0] [  38/300] samples:   1900 | chain(game/max/avg): 2/6/3.8 | reward(game/avg): 2240/6809 | 0.70 games/s | ETA: 376s
+[gpu0] [  39/300] samples:   1950 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 6920/6812 | 0.71 games/s | ETA: 366s
+[gpu0] [  40/300] samples:   2000 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 5740/6785 | 0.73 games/s | ETA: 357s
+[gpu0] [  41/300] samples:   2050 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 5300/6749 | 0.75 games/s | ETA: 347s
+[gpu0] [  42/300] samples:   2100 | chain(game/max/avg): 5/6/3.8 | reward(game/avg): 11340/6858 | 0.76 games/s | ETA: 338s
+[gpu0] [  43/300] samples:   2150 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 10530/6943 | 0.77 games/s | ETA: 332s
+[gpu0] [  44/300] samples:   2200 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 5120/6902 | 0.79 games/s | ETA: 324s
+[gpu0] [  45/300] samples:   2250 | chain(game/max/avg): 5/6/3.8 | reward(game/avg): 8220/6931 | 0.80 games/s | ETA: 318s
+[gpu0] [  46/300] samples:   2300 | chain(game/max/avg): 2/6/3.8 | reward(game/avg): 1940/6823 | 0.82 games/s | ETA: 310s
+[gpu0] [  47/300] samples:   2350 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 3100/6743 | 0.83 games/s | ETA: 303s
+[gpu0] [  48/300] samples:   2400 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 8560/6781 | 0.83 games/s | ETA: 303s
+[gpu0] [  49/300] samples:   2450 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 8380/6814 | 0.85 games/s | ETA: 296s
+[gpu0] [  50/300] samples:   2500 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 5040/6778 | 0.86 games/s | ETA: 290s
+[gpu0] [  51/300] samples:   2550 | chain(game/max/avg): 6/6/3.8 | reward(game/avg): 12120/6883 | 0.88 games/s | ETA: 283s
+[gpu0] [  52/300] samples:   2600 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 5180/6850 | 0.89 games/s | ETA: 278s
+[gpu0] [  53/300] samples:   2650 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 6080/6836 | 0.91 games/s | ETA: 271s
+[gpu0] [  54/300] samples:   2700 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 9770/6890 | 0.93 games/s | ETA: 266s
+[gpu0] [  55/300] samples:   2750 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 6860/6890 | 0.94 games/s | ETA: 260s
+[gpu0] [  56/300] samples:   2800 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 4990/6856 | 0.96 games/s | ETA: 255s
+[gpu0] [  57/300] samples:   2850 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 7040/6859 | 0.97 games/s | ETA: 250s
+[gpu0] [  58/300] samples:   2900 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 6460/6852 | 0.99 games/s | ETA: 245s
+[gpu0] [  59/300] samples:   2950 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 9250/6893 | 1.01 games/s | ETA: 240s
+[gpu0] [  60/300] samples:   3000 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 6900/6893 | 1.02 games/s | ETA: 235s
+[gpu0] [  61/300] samples:   3050 | chain(game/max/avg): 5/6/3.8 | reward(game/avg): 12500/6985 | 1.04 games/s | ETA: 230s
+[gpu0] [  62/300] samples:   3100 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 6100/6970 | 1.06 games/s | ETA: 226s
+[gpu0] [  63/300] samples:   3150 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 4380/6929 | 1.07 games/s | ETA: 221s
+[gpu0] [  64/300] samples:   3200 | chain(game/max/avg): 6/6/3.9 | reward(game/avg): 21250/7153 | 1.09 games/s | ETA: 217s
+[gpu0] [  65/300] samples:   3250 | chain(game/max/avg): 4/6/3.9 | reward(game/avg): 5660/7130 | 1.10 games/s | ETA: 213s
+[gpu0] [  66/300] samples:   3300 | chain(game/max/avg): 4/6/3.9 | reward(game/avg): 7370/7134 | 1.12 games/s | ETA: 209s
+[gpu0] [  67/300] samples:   3350 | chain(game/max/avg): 4/6/3.9 | reward(game/avg): 5400/7108 | 1.13 games/s | ETA: 206s
+[gpu0] [  68/300] samples:   3400 | chain(game/max/avg): 3/6/3.9 | reward(game/avg): 6600/7100 | 1.15 games/s | ETA: 202s
+[gpu0] [  69/300] samples:   3450 | chain(game/max/avg): 4/6/3.9 | reward(game/avg): 7480/7106 | 1.16 games/s | ETA: 198s
+[gpu0] [  70/300] samples:   3500 | chain(game/max/avg): 3/6/3.9 | reward(game/avg): 5140/7078 | 1.18 games/s | ETA: 195s
+[gpu0] [  71/300] samples:   3550 | chain(game/max/avg): 4/6/3.9 | reward(game/avg): 6340/7067 | 1.20 games/s | ETA: 191s
+[gpu0] [  72/300] samples:   3600 | chain(game/max/avg): 4/6/3.9 | reward(game/avg): 8340/7085 | 1.21 games/s | ETA: 188s
+[gpu0] [  73/300] samples:   3650 | chain(game/max/avg): 5/6/3.9 | reward(game/avg): 8540/7105 | 1.23 games/s | ETA: 184s
+[gpu0] [  74/300] samples:   3700 | chain(game/max/avg): 4/6/3.9 | reward(game/avg): 6720/7100 | 1.25 games/s | ETA: 181s
+[gpu0] [  75/300] samples:   3750 | chain(game/max/avg): 4/6/3.9 | reward(game/avg): 5520/7079 | 1.26 games/s | ETA: 178s
+[gpu0] [  76/300] samples:   3800 | chain(game/max/avg): 4/6/3.9 | reward(game/avg): 5300/7055 | 1.28 games/s | ETA: 175s
+[gpu0] [  77/300] samples:   3850 | chain(game/max/avg): 4/6/3.9 | reward(game/avg): 6920/7054 | 1.29 games/s | ETA: 173s
+[gpu0] [  78/300] samples:   3900 | chain(game/max/avg): 5/6/3.9 | reward(game/avg): 12600/7125 | 1.31 games/s | ETA: 170s
+[gpu0] [  79/300] samples:   3950 | chain(game/max/avg): 3/6/3.9 | reward(game/avg): 3410/7078 | 1.32 games/s | ETA: 167s
+[gpu0] [  80/300] samples:   4000 | chain(game/max/avg): 3/6/3.9 | reward(game/avg): 5840/7062 | 1.33 games/s | ETA: 165s
+[gpu0] [  81/300] samples:   4050 | chain(game/max/avg): 3/6/3.9 | reward(game/avg): 6740/7058 | 1.35 games/s | ETA: 162s
+[gpu0] [  82/300] samples:   4100 | chain(game/max/avg): 4/6/3.9 | reward(game/avg): 5760/7042 | 1.36 games/s | ETA: 160s
+[gpu0] [  83/300] samples:   4150 | chain(game/max/avg): 3/6/3.9 | reward(game/avg): 4900/7017 | 1.38 games/s | ETA: 157s
+[gpu0] [  84/300] samples:   4200 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 6240/7007 | 1.40 games/s | ETA: 155s
+[gpu0] [  85/300] samples:   4250 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 7120/7009 | 1.41 games/s | ETA: 152s
+[gpu0] [  86/300] samples:   4300 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 6070/6998 | 1.43 games/s | ETA: 150s
+[gpu0] [  87/300] samples:   4350 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 4850/6973 | 1.44 games/s | ETA: 148s
+[gpu0] [  88/300] samples:   4400 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 5680/6958 | 1.46 games/s | ETA: 146s
+[gpu0] [  89/300] samples:   4450 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 9060/6982 | 1.47 games/s | ETA: 143s
+[gpu0] [  90/300] samples:   4500 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 2660/6934 | 1.49 games/s | ETA: 141s
+[gpu0] [  91/300] samples:   4550 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 6120/6925 | 1.50 games/s | ETA: 139s
+[gpu0] [  92/300] samples:   4600 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 4200/6895 | 1.52 games/s | ETA: 137s
+[gpu0] [  93/300] samples:   4650 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 4420/6869 | 1.53 games/s | ETA: 135s
+[gpu0] [  94/300] samples:   4700 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 5020/6849 | 1.55 games/s | ETA: 133s
+[gpu0] [  95/300] samples:   4750 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 9380/6876 | 1.56 games/s | ETA: 131s
+[gpu0] [  96/300] samples:   4800 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 7160/6879 | 1.57 games/s | ETA: 130s
+[gpu0] [  97/300] samples:   4850 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 7240/6882 | 1.58 games/s | ETA: 129s
+[gpu0] [  98/300] samples:   4900 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 5320/6867 | 1.59 games/s | ETA: 127s
+[gpu0] [  99/300] samples:   4950 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 6570/6864 | 1.60 games/s | ETA: 126s
+[gpu0] [ 100/300] samples:   5000 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 10360/6898 | 1.61 games/s | ETA: 124s
+[gpu0] [ 101/300] samples:   5050 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 6720/6897 | 1.04 games/s | ETA: 191s
+[gpu0] [ 102/300] samples:   5100 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 5390/6882 | 1.05 games/s | ETA: 189s
+[gpu0] [ 103/300] samples:   5150 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 7740/6890 | 1.06 games/s | ETA: 186s
+[gpu0] [ 104/300] samples:   5200 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 3700/6860 | 1.07 games/s | ETA: 183s
+[gpu0] [ 105/300] samples:   5250 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 4800/6840 | 1.08 games/s | ETA: 181s
+[gpu0] [ 106/300] samples:   5300 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 5580/6828 | 1.09 games/s | ETA: 178s
+[gpu0] [ 107/300] samples:   5350 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 7880/6838 | 1.10 games/s | ETA: 176s
+[gpu0] [ 108/300] samples:   5400 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 7200/6841 | 1.11 games/s | ETA: 173s
+[gpu0] [ 109/300] samples:   5450 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 5200/6826 | 1.12 games/s | ETA: 171s
+[gpu0] [ 110/300] samples:   5500 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5710/6816 | 1.13 games/s | ETA: 168s
+[gpu0] [ 111/300] samples:   5550 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 7460/6822 | 1.14 games/s | ETA: 166s
+[gpu0] [ 112/300] samples:   5600 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 6830/6822 | 1.15 games/s | ETA: 164s
+[gpu0] [ 113/300] samples:   5650 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4640/6803 | 1.16 games/s | ETA: 161s
+[gpu0] [ 114/300] samples:   5700 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 5800/6794 | 1.17 games/s | ETA: 159s
+[gpu0] [ 115/300] samples:   5750 | chain(game/max/avg): 5/6/3.7 | reward(game/avg): 10880/6829 | 1.18 games/s | ETA: 157s
+[gpu0] [ 116/300] samples:   5800 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4540/6810 | 1.19 games/s | ETA: 155s
+[gpu0] [ 117/300] samples:   5850 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 6370/6806 | 1.20 games/s | ETA: 153s
+[gpu0] [ 118/300] samples:   5900 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4470/6786 | 1.21 games/s | ETA: 151s
+[gpu0] [ 119/300] samples:   5950 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 5270/6773 | 1.22 games/s | ETA: 149s
+[gpu0] [ 120/300] samples:   6000 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6800/6774 | 1.23 games/s | ETA: 147s
+[gpu0] [ 121/300] samples:   6050 | chain(game/max/avg): 5/6/3.7 | reward(game/avg): 8800/6790 | 1.24 games/s | ETA: 145s
+[gpu0] [ 122/300] samples:   6100 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 7270/6794 | 1.24 games/s | ETA: 143s
+[gpu0] [ 123/300] samples:   6150 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 2420/6759 | 1.22 games/s | ETA: 145s
+[gpu0] [ 124/300] samples:   6200 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 7720/6766 | 1.21 games/s | ETA: 145s
+[gpu0] [ 125/300] samples:   6250 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 7740/6774 | 1.22 games/s | ETA: 144s
+[gpu0] [ 126/300] samples:   6300 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 4720/6758 | 1.22 games/s | ETA: 142s
+[gpu0] [ 127/300] samples:   6350 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4460/6740 | 1.23 games/s | ETA: 141s
+[gpu0] [ 128/300] samples:   6400 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 5020/6726 | 1.24 games/s | ETA: 139s
+[gpu0] [ 129/300] samples:   6450 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 6510/6725 | 1.25 games/s | ETA: 137s
+[gpu0] [ 130/300] samples:   6500 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 5920/6719 | 1.25 games/s | ETA: 136s
+[gpu0] [ 131/300] samples:   6550 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 7100/6721 | 1.26 games/s | ETA: 134s
+[gpu0] [ 132/300] samples:   6600 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6120/6717 | 1.27 games/s | ETA: 132s
+[gpu0] [ 133/300] samples:   6650 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 5220/6706 | 1.28 games/s | ETA: 131s
+[gpu0] [ 134/300] samples:   6700 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 8790/6721 | 1.29 games/s | ETA: 129s
+[gpu0] [ 135/300] samples:   6750 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 5560/6713 | 1.30 games/s | ETA: 127s
+[gpu0] [ 136/300] samples:   6800 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6500/6711 | 1.30 games/s | ETA: 126s
+[gpu0] [ 137/300] samples:   6850 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5120/6699 | 1.31 games/s | ETA: 124s
+[gpu0] [ 138/300] samples:   6900 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4500/6683 | 1.32 games/s | ETA: 123s
+[gpu0] [ 139/300] samples:   6950 | chain(game/max/avg): 5/6/3.7 | reward(game/avg): 7920/6692 | 1.32 games/s | ETA: 122s
+[gpu0] [ 140/300] samples:   7000 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5580/6684 | 1.33 games/s | ETA: 120s
+[gpu0] [ 141/300] samples:   7050 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 3850/6664 | 1.34 games/s | ETA: 119s
+[gpu0] [ 142/300] samples:   7100 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6060/6660 | 1.35 games/s | ETA: 117s
+[gpu0] [ 143/300] samples:   7150 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4340/6644 | 1.35 games/s | ETA: 116s
+[gpu0] [ 144/300] samples:   7200 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 5020/6633 | 1.35 games/s | ETA: 115s
+[gpu0] [ 145/300] samples:   7250 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5860/6627 | 1.36 games/s | ETA: 114s
+[gpu0] [ 146/300] samples:   7300 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 4400/6612 | 1.37 games/s | ETA: 113s
+[gpu0] [ 147/300] samples:   7350 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6100/6609 | 1.38 games/s | ETA: 111s
+[gpu0] [ 148/300] samples:   7400 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6540/6608 | 1.38 games/s | ETA: 110s
+[gpu0] [ 149/300] samples:   7450 | chain(game/max/avg): 2/6/3.7 | reward(game/avg): 5530/6601 | 1.38 games/s | ETA: 110s
+[gpu0] [ 150/300] samples:   7500 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 9770/6622 | 1.38 games/s | ETA: 108s
+[gpu0] [ 151/300] samples:   7550 | chain(game/max/avg): 5/6/3.7 | reward(game/avg): 9140/6639 | 1.39 games/s | ETA: 107s
+[gpu0] [ 152/300] samples:   7600 | chain(game/max/avg): 5/6/3.7 | reward(game/avg): 12740/6679 | 1.40 games/s | ETA: 106s
+[gpu0] [ 153/300] samples:   7650 | chain(game/max/avg): 5/6/3.7 | reward(game/avg): 10800/6706 | 1.41 games/s | ETA: 105s
+[gpu0] [ 154/300] samples:   7700 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 7240/6709 | 1.41 games/s | ETA: 104s
+[gpu0] [ 155/300] samples:   7750 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 4560/6695 | 1.42 games/s | ETA: 102s
+[gpu0] [ 156/300] samples:   7800 | chain(game/max/avg): 5/6/3.8 | reward(game/avg): 13840/6741 | 1.43 games/s | ETA: 101s
+[gpu0] [ 157/300] samples:   7850 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 5590/6734 | 1.43 games/s | ETA: 100s
+[gpu0] [ 158/300] samples:   7900 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 6640/6733 | 1.44 games/s | ETA: 98s
+[gpu0] [ 159/300] samples:   7950 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 5140/6723 | 1.45 games/s | ETA: 97s
+[gpu0] [ 160/300] samples:   8000 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 4120/6707 | 1.46 games/s | ETA: 96s
+[gpu0] [ 161/300] samples:   8050 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 6220/6704 | 1.47 games/s | ETA: 95s
+[gpu0] [ 162/300] samples:   8100 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 5200/6695 | 1.47 games/s | ETA: 94s
+[gpu0] [ 163/300] samples:   8150 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 6980/6696 | 1.48 games/s | ETA: 93s
+[gpu0] [ 164/300] samples:   8200 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 4860/6685 | 1.49 games/s | ETA: 91s
+[gpu0] [ 165/300] samples:   8250 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5550/6678 | 1.50 games/s | ETA: 90s
+[gpu0] [ 166/300] samples:   8300 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4920/6668 | 1.50 games/s | ETA: 89s
+[gpu0] [ 167/300] samples:   8350 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 3880/6651 | 1.51 games/s | ETA: 88s
+[gpu0] [ 168/300] samples:   8400 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5540/6644 | 1.52 games/s | ETA: 87s
+[gpu0] [ 169/300] samples:   8450 | chain(game/max/avg): 2/6/3.7 | reward(game/avg): 3280/6624 | 1.53 games/s | ETA: 86s
+[gpu0] [ 170/300] samples:   8500 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5260/6616 | 1.53 games/s | ETA: 85s
+[gpu0] [ 171/300] samples:   8550 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 7200/6620 | 1.54 games/s | ETA: 84s
+[gpu0] [ 172/300] samples:   8600 | chain(game/max/avg): 2/6/3.7 | reward(game/avg): 4220/6606 | 1.55 games/s | ETA: 83s
+[gpu0] [ 173/300] samples:   8650 | chain(game/max/avg): 5/6/3.7 | reward(game/avg): 9350/6622 | 1.56 games/s | ETA: 82s
+[gpu0] [ 174/300] samples:   8700 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 6760/6623 | 1.56 games/s | ETA: 81s
+[gpu0] [ 175/300] samples:   8750 | chain(game/max/avg): 6/6/3.7 | reward(game/avg): 14700/6669 | 1.57 games/s | ETA: 79s
+[gpu0] [ 176/300] samples:   8800 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6410/6667 | 1.58 games/s | ETA: 78s
+[gpu0] [ 177/300] samples:   8850 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 5820/6662 | 1.59 games/s | ETA: 77s
+[gpu0] [ 178/300] samples:   8900 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 7460/6667 | 1.60 games/s | ETA: 76s
+[gpu0] [ 179/300] samples:   8950 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5740/6662 | 1.60 games/s | ETA: 75s
+[gpu0] [ 180/300] samples:   9000 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4580/6650 | 1.61 games/s | ETA: 74s
+[gpu0] [ 181/300] samples:   9050 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4600/6639 | 1.62 games/s | ETA: 74s
+[gpu0] [ 182/300] samples:   9100 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 3860/6624 | 1.63 games/s | ETA: 73s
+[gpu0] [ 183/300] samples:   9150 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6480/6623 | 1.63 games/s | ETA: 72s
+[gpu0] [ 184/300] samples:   9200 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 6490/6622 | 1.64 games/s | ETA: 71s
+[gpu0] [ 185/300] samples:   9250 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 5620/6617 | 1.65 games/s | ETA: 70s
+[gpu0] [ 186/300] samples:   9300 | chain(game/max/avg): 5/6/3.7 | reward(game/avg): 9740/6633 | 1.66 games/s | ETA: 69s
+[gpu0] [ 187/300] samples:   9350 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 3420/6616 | 1.67 games/s | ETA: 68s
+[gpu0] [ 188/300] samples:   9400 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4710/6606 | 1.68 games/s | ETA: 67s
+[gpu0] [ 189/300] samples:   9450 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 6660/6606 | 1.68 games/s | ETA: 66s
+[gpu0] [ 190/300] samples:   9500 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4280/6594 | 1.69 games/s | ETA: 65s
+[gpu0] [ 191/300] samples:   9550 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 7530/6599 | 1.70 games/s | ETA: 64s
+[gpu0] [ 192/300] samples:   9600 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 8330/6608 | 1.70 games/s | ETA: 63s
+[gpu0] [ 193/300] samples:   9650 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5360/6602 | 1.71 games/s | ETA: 63s
+[gpu0] [ 194/300] samples:   9700 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4980/6593 | 1.71 games/s | ETA: 62s
+[gpu0] [ 195/300] samples:   9750 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5760/6589 | 1.72 games/s | ETA: 61s
+[gpu0] [ 196/300] samples:   9800 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 7600/6594 | 1.73 games/s | ETA: 60s
+[gpu0] [ 197/300] samples:   9850 | chain(game/max/avg): 5/6/3.7 | reward(game/avg): 9180/6607 | 1.73 games/s | ETA: 59s
+[gpu0] [ 198/300] samples:   9900 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 3320/6591 | 1.74 games/s | ETA: 59s
+[gpu0] [ 199/300] samples:   9950 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5520/6585 | 1.74 games/s | ETA: 58s
+[gpu0] [ 200/300] samples:  10000 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 5260/6579 | 1.74 games/s | ETA: 57s
+[gpu0] [ 201/300] samples:  10050 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 8270/6587 | 1.42 games/s | ETA: 70s
+[gpu0] [ 202/300] samples:  10100 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5500/6582 | 1.43 games/s | ETA: 69s
+[gpu0] [ 203/300] samples:  10150 | chain(game/max/avg): 6/6/3.7 | reward(game/avg): 11080/6604 | 1.43 games/s | ETA: 68s
+[gpu0] [ 204/300] samples:  10200 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5160/6597 | 1.44 games/s | ETA: 67s
+[gpu0] [ 205/300] samples:  10250 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 7520/6601 | 1.44 games/s | ETA: 66s
+[gpu0] [ 206/300] samples:  10300 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 8710/6612 | 1.45 games/s | ETA: 65s
+[gpu0] [ 207/300] samples:  10350 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4860/6603 | 1.46 games/s | ETA: 64s
+[gpu0] [ 208/300] samples:  10400 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 3930/6590 | 1.46 games/s | ETA: 63s
+[gpu0] [ 209/300] samples:  10450 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5180/6583 | 1.47 games/s | ETA: 62s
+[gpu0] [ 210/300] samples:  10500 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 9860/6599 | 1.48 games/s | ETA: 61s
+[gpu0] [ 211/300] samples:  10550 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5390/6593 | 1.48 games/s | ETA: 60s
+[gpu0] [ 212/300] samples:  10600 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 5900/6590 | 1.49 games/s | ETA: 59s
+[gpu0] [ 213/300] samples:  10650 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4960/6582 | 1.50 games/s | ETA: 58s
+[gpu0] [ 214/300] samples:  10700 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5980/6580 | 1.50 games/s | ETA: 57s
+[gpu0] [ 215/300] samples:  10750 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4660/6571 | 1.51 games/s | ETA: 56s
+[gpu0] [ 216/300] samples:  10800 | chain(game/max/avg): 6/6/3.7 | reward(game/avg): 14420/6607 | 1.52 games/s | ETA: 55s
+[gpu0] [ 217/300] samples:  10850 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4980/6599 | 1.52 games/s | ETA: 55s
+[gpu0] [ 218/300] samples:  10900 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6560/6599 | 1.53 games/s | ETA: 54s
+[gpu0] [ 219/300] samples:  10950 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 8160/6606 | 1.53 games/s | ETA: 53s
+[gpu0] [ 220/300] samples:  11000 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5960/6604 | 1.53 games/s | ETA: 52s
+[gpu0] [ 221/300] samples:  11050 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6660/6604 | 1.51 games/s | ETA: 52s
+[gpu0] [ 222/300] samples:  11100 | chain(game/max/avg): 6/6/3.7 | reward(game/avg): 14220/6638 | 1.49 games/s | ETA: 52s
+[gpu0] [ 223/300] samples:  11150 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6230/6636 | 1.48 games/s | ETA: 52s
+[gpu0] [ 224/300] samples:  11200 | chain(game/max/avg): 5/6/3.7 | reward(game/avg): 10970/6656 | 1.47 games/s | ETA: 52s
+[gpu0] [ 225/300] samples:  11250 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4780/6647 | 1.46 games/s | ETA: 51s
+[gpu0] [ 226/300] samples:  11300 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 7770/6652 | 1.46 games/s | ETA: 51s
+[gpu0] [ 227/300] samples:  11350 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6270/6651 | 1.46 games/s | ETA: 50s
+[gpu0] [ 228/300] samples:  11400 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5920/6647 | 1.46 games/s | ETA: 49s
+[gpu0] [ 229/300] samples:  11450 | chain(game/max/avg): 5/6/3.7 | reward(game/avg): 12500/6673 | 1.46 games/s | ETA: 48s
+[gpu0] [ 230/300] samples:  11500 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5710/6669 | 1.46 games/s | ETA: 48s
+[gpu0] [ 231/300] samples:  11550 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 6320/6667 | 1.46 games/s | ETA: 47s
+[gpu0] [ 232/300] samples:  11600 | chain(game/max/avg): 5/6/3.7 | reward(game/avg): 8600/6676 | 1.47 games/s | ETA: 46s
+[gpu0] [ 233/300] samples:  11650 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 4720/6667 | 1.47 games/s | ETA: 46s
+[gpu0] [ 234/300] samples:  11700 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5040/6660 | 1.48 games/s | ETA: 45s
+[gpu0] [ 235/300] samples:  11750 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 7560/6664 | 1.48 games/s | ETA: 44s
+[gpu0] [ 236/300] samples:  11800 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6910/6665 | 1.48 games/s | ETA: 43s
+[gpu0] [ 237/300] samples:  11850 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6300/6664 | 1.49 games/s | ETA: 42s
+[gpu0] [ 238/300] samples:  11900 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6940/6665 | 1.50 games/s | ETA: 41s
+[gpu0] [ 239/300] samples:  11950 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4500/6656 | 1.50 games/s | ETA: 41s
+[gpu0] [ 240/300] samples:  12000 | chain(game/max/avg): 6/6/3.7 | reward(game/avg): 13000/6682 | 1.51 games/s | ETA: 40s
+[gpu0] [ 241/300] samples:  12050 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 7360/6685 | 1.51 games/s | ETA: 39s
+[gpu0] [ 242/300] samples:  12100 | chain(game/max/avg): 6/6/3.7 | reward(game/avg): 12240/6708 | 1.52 games/s | ETA: 38s
+[gpu0] [ 243/300] samples:  12150 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 11100/6726 | 1.52 games/s | ETA: 37s
+[gpu0] [ 244/300] samples:  12200 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 8420/6733 | 1.53 games/s | ETA: 37s
+[gpu0] [ 245/300] samples:  12250 | chain(game/max/avg): 5/6/3.7 | reward(game/avg): 10590/6749 | 1.53 games/s | ETA: 36s
+[gpu0] [ 246/300] samples:  12300 | chain(game/max/avg): 5/6/3.7 | reward(game/avg): 9700/6761 | 1.53 games/s | ETA: 35s
+[gpu0] [ 247/300] samples:  12350 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 9120/6770 | 1.54 games/s | ETA: 35s
+[gpu0] [ 248/300] samples:  12400 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6740/6770 | 1.54 games/s | ETA: 34s
+[gpu0] [ 249/300] samples:  12450 | chain(game/max/avg): 5/6/3.7 | reward(game/avg): 11670/6790 | 1.54 games/s | ETA: 33s
+[gpu0] [ 250/300] samples:  12500 | chain(game/max/avg): 5/6/3.8 | reward(game/avg): 9560/6801 | 1.55 games/s | ETA: 32s
+[gpu0] [ 251/300] samples:  12550 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4560/6792 | 1.55 games/s | ETA: 32s
+[gpu0] [ 252/300] samples:  12600 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 8060/6797 | 1.55 games/s | ETA: 31s
+[gpu0] [ 253/300] samples:  12650 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 5840/6793 | 1.55 games/s | ETA: 30s
+[gpu0] [ 254/300] samples:  12700 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 9760/6805 | 1.55 games/s | ETA: 30s
+[gpu0] [ 255/300] samples:  12750 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5960/6801 | 1.56 games/s | ETA: 29s
+[gpu0] [ 256/300] samples:  12800 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4560/6793 | 1.56 games/s | ETA: 28s
+[gpu0] [ 257/300] samples:  12850 | chain(game/max/avg): 5/6/3.8 | reward(game/avg): 16160/6829 | 1.57 games/s | ETA: 27s
+[gpu0] [ 258/300] samples:  12900 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4300/6819 | 1.57 games/s | ETA: 27s
+[gpu0] [ 259/300] samples:  12950 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 6570/6818 | 1.58 games/s | ETA: 26s
+[gpu0] [ 260/300] samples:  13000 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 7160/6820 | 1.58 games/s | ETA: 25s
+[gpu0] [ 261/300] samples:  13050 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5590/6815 | 1.59 games/s | ETA: 25s
+[gpu0] [ 262/300] samples:  13100 | chain(game/max/avg): 5/6/3.7 | reward(game/avg): 9000/6823 | 1.59 games/s | ETA: 24s
+[gpu0] [ 263/300] samples:  13150 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5180/6817 | 1.60 games/s | ETA: 23s
+[gpu0] [ 264/300] samples:  13200 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6820/6817 | 1.60 games/s | ETA: 22s
+[gpu0] [ 265/300] samples:  13250 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 8170/6822 | 1.61 games/s | ETA: 22s
+[gpu0] [ 266/300] samples:  13300 | chain(game/max/avg): 5/6/3.8 | reward(game/avg): 8940/6830 | 1.61 games/s | ETA: 21s
+[gpu0] [ 267/300] samples:  13350 | chain(game/max/avg): 4/6/3.8 | reward(game/avg): 8210/6835 | 1.61 games/s | ETA: 20s
+[gpu0] [ 268/300] samples:  13400 | chain(game/max/avg): 3/6/3.8 | reward(game/avg): 5740/6831 | 1.62 games/s | ETA: 20s
+[gpu0] [ 269/300] samples:  13450 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4100/6821 | 1.62 games/s | ETA: 19s
+[gpu0] [ 270/300] samples:  13500 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 6400/6820 | 1.63 games/s | ETA: 18s
+[gpu0] [ 271/300] samples:  13550 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6200/6817 | 1.63 games/s | ETA: 18s
+[gpu0] [ 272/300] samples:  13600 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 5560/6813 | 1.64 games/s | ETA: 17s
+[gpu0] [ 273/300] samples:  13650 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 2420/6797 | 1.64 games/s | ETA: 16s
+[gpu0] [ 274/300] samples:  13700 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 4280/6787 | 1.65 games/s | ETA: 16s
+[gpu0] [ 275/300] samples:  13750 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 7660/6791 | 1.65 games/s | ETA: 15s
+[gpu0] [ 276/300] samples:  13800 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 5380/6785 | 1.66 games/s | ETA: 14s
+[gpu0] [ 277/300] samples:  13850 | chain(game/max/avg): 6/6/3.7 | reward(game/avg): 17260/6823 | 1.66 games/s | ETA: 14s
+[gpu0] [ 278/300] samples:  13900 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 6190/6821 | 1.67 games/s | ETA: 13s
+[gpu0] [ 279/300] samples:  13950 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 7080/6822 | 1.67 games/s | ETA: 13s
+[gpu0] [ 280/300] samples:  14000 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 6660/6821 | 1.68 games/s | ETA: 12s
+[gpu0] [ 281/300] samples:  14050 | chain(game/max/avg): 3/6/3.7 | reward(game/avg): 3600/6810 | 1.68 games/s | ETA: 11s
+[gpu0] [ 282/300] samples:  14100 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 4640/6802 | 1.69 games/s | ETA: 11s
+[gpu0] [ 283/300] samples:  14150 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 6310/6800 | 1.69 games/s | ETA: 10s
+[gpu0] [ 284/300] samples:  14200 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 4580/6793 | 1.70 games/s | ETA: 9s
+[gpu0] [ 285/300] samples:  14250 | chain(game/max/avg): 4/6/3.7 | reward(game/avg): 3680/6782 | 1.70 games/s | ETA: 9s
+[gpu0] [ 286/300] samples:  14300 | chain(game/max/avg): 6/6/3.8 | reward(game/avg): 15020/6810 | 1.71 games/s | ETA: 8s
+[gpu0] [ 287/300] samples:  14350 | chain(game/max/avg): 5/6/3.8 | reward(game/avg): 10280/6823 | 1.71 games/s | ETA: 8s
+[gpu0] [ 288/300] samples:  14400 | chain(game/max/avg): 8/8/3.8 | reward(game/avg): 28380/6897 | 1.72 games/s | ETA: 7s
+[gpu0] [ 289/300] samples:  14450 | chain(game/max/avg): 6/8/3.8 | reward(game/avg): 12120/6915 | 1.73 games/s | ETA: 6s
+[gpu0] [ 290/300] samples:  14500 | chain(game/max/avg): 3/8/3.8 | reward(game/avg): 4530/6907 | 1.73 games/s | ETA: 6s
+[gpu0] [ 291/300] samples:  14550 | chain(game/max/avg): 3/8/3.8 | reward(game/avg): 6280/6905 | 1.73 games/s | ETA: 5s
+[gpu0] [ 292/300] samples:  14600 | chain(game/max/avg): 3/8/3.8 | reward(game/avg): 5630/6901 | 1.74 games/s | ETA: 5s
+[gpu0] [ 293/300] samples:  14650 | chain(game/max/avg): 3/8/3.8 | reward(game/avg): 2920/6887 | 1.74 games/s | ETA: 4s
+[gpu0] [ 294/300] samples:  14700 | chain(game/max/avg): 4/8/3.8 | reward(game/avg): 7180/6888 | 1.75 games/s | ETA: 3s
+[gpu0] [ 295/300] samples:  14750 | chain(game/max/avg): 5/8/3.8 | reward(game/avg): 9620/6897 | 1.75 games/s | ETA: 3s
+[gpu0] [ 296/300] samples:  14800 | chain(game/max/avg): 4/8/3.8 | reward(game/avg): 7610/6900 | 1.75 games/s | ETA: 2s
+[gpu0] [ 297/300] samples:  14850 | chain(game/max/avg): 4/8/3.8 | reward(game/avg): 7960/6903 | 1.76 games/s | ETA: 2s
+[gpu0] [ 298/300] samples:  14900 | chain(game/max/avg): 3/8/3.8 | reward(game/avg): 4540/6895 | 1.76 games/s | ETA: 1s
+[gpu0] [ 299/300] samples:  14950 | chain(game/max/avg): 4/8/3.8 | reward(game/avg): 9980/6906 | 1.76 games/s | ETA: 1s
+[gpu0] [ 300/300] samples:  15000 | chain(game/max/avg): 3/8/3.8 | reward(game/avg): 4910/6899 | 1.76 games/s | ETA: 0s
+[gpu0] Self-play complete: 300 games, 15000 samples, max chain: 8
+[gpu0] Saved to runs/rtx5090-2/data/alphazero_iter_23_gpu0.bin
