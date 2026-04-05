@@ -100,6 +100,8 @@ commit_and_push() {
 }
 
 update_log_file
+log "Pre-building release binaries..."
+cargo build --release -p puyo-trainer --bins 2>&1 | tee -a "$LOG_FILE"
 log "=== AlphaZero Loop Start (branch=$TARGET_BRANCH, run_dir=$RUN_DIR, iteration=$ITERATION, games=$GAMES, sims=$SIMS_BASE+$SIMS_STEP/iter, max=$SIMS_MAX, min_chain=$MIN_CHAIN, threads=$THREADS) ==="
 
 while true; do
