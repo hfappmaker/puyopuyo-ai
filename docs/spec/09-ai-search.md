@@ -180,19 +180,18 @@ pub fn mcts_search<G: Game>(
     state: &G::State,
     provider: &dyn InferenceProvider,
     config: &MctsConfig,
-    seed: u64,
 ) -> (Vec<f32>, Vec<f32>)
 ```
 
-- **入力**: `G::State`（ぷよぷよの場合は `PuyoState`）、`InferenceProvider`（推論プロバイダ）、`MctsConfig`（探索パラメータ一式）、Gumbelシード
+- **入力**: `G::State`（ぷよぷよの場合は `PuyoState`）、`InferenceProvider`（推論プロバイダ）、`MctsConfig`（探索パラメータ一式）
 - **出力**: (NUM_ACTIONS次元のimproved policy, NUM_ACTIONS次元のQ値)。固定長配列から `Vec<f32>` に変更
+- Gumbel ノイズ用のシードは `config.seed_provider` から内部生成される
 
 ```rust
 pub fn mcts_search_batched<G: Game>(
     state: &G::State,
     provider: &dyn InferenceProvider,
     config: &MctsConfig,
-    seed: u64,
 ) -> (Vec<f32>, Vec<f32>)
 ```
 
@@ -206,6 +205,19 @@ pub fn mcts_search_batched<G: Game>(
 - `c_visit`: advantageのスケーリング係数（デフォルト5.0）
 - `gamma`: 将来報酬の割引率（デフォルト0.95）
 - `num_leaves`: バッチ推論で同時に評価するリーフ数（デフォルト1）。1より大きい場合、Virtual Loss を使用して異なるパスを同時探索する
+- `seed_provider`: Gumbelノイズ用シード生成（`Arc<dyn SeedProvider>`、デフォルト: `TimeSeedProvider`）
+
+### SeedProvider trait
+
+```rust
+pub trait SeedProvider: Send + Sync {
+    fn seed(&self) -> u64;
+}
+```
+
+Gumbel ノイズ生成に使うシードの供給源を抽象化する。組み込み実装:
+- `TimeSeedProvider`: 現在時刻（ナノ秒）ベース。WASM ではアトミックカウンタにフォールバック
+- `FixedSeedProvider(u64)`: 固定シード。テスト・デバッグ用
 
 ### Virtual Loss（バッチ探索）
 

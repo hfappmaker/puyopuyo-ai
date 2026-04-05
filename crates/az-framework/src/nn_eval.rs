@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use burn::prelude::*;
 
-use crate::mcts::InferenceProvider;
+use crate::mcts::{InferenceProvider, SeedProvider, TimeSeedProvider};
 use crate::model::GameModel;
 
 /// MCTS configuration (Gumbel AlphaZero).
@@ -21,6 +23,9 @@ pub struct MctsConfig {
     /// 1 = single inference per simulation (original behavior).
     /// >1 = batched inference with virtual loss for diverse path selection.
     pub num_leaves: usize,
+    /// Seed provider for Gumbel noise generation.
+    /// Default: `TimeSeedProvider` (time-based).
+    pub seed_provider: Arc<dyn SeedProvider>,
 }
 
 impl Default for MctsConfig {
@@ -33,6 +38,7 @@ impl Default for MctsConfig {
             c_visit: 5.0,
             gamma: 0.95,
             num_leaves: 1,
+            seed_provider: Arc::new(TimeSeedProvider),
         }
     }
 }

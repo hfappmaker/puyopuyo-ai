@@ -137,12 +137,10 @@ impl Evaluator<PuyoGame> for NnEvaluator {
 
         // MCTS mode: use Gumbel tree search
         if let Some(ref mcts_config) = self.mcts_config {
-            let seed = puyo_core::rand::time_seed();
-
             let (policy, q_values) = if mcts_config.num_leaves > 1 {
-                mcts_search_batched::<PuyoGame>(state, &self.provider, mcts_config, seed)
+                mcts_search_batched::<PuyoGame>(state, &self.provider, mcts_config)
             } else {
-                mcts_search::<PuyoGame>(state, &self.provider, mcts_config, seed)
+                mcts_search::<PuyoGame>(state, &self.provider, mcts_config)
             };
 
             // Select the action with highest improved policy probability

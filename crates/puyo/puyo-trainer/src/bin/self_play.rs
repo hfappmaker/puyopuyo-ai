@@ -220,6 +220,7 @@ fn play_one_game(
         c_visit: args.c_visit,
         gamma: args.gamma,
         num_leaves: args.num_leaves,
+        ..Default::default()
     };
 
     while game.phase != GamePhase::GameOver && move_count < MAX_TURNS {
@@ -236,9 +237,9 @@ fn play_one_game(
         let context_data = PuyoGame::encode_context(&puyo_state);
 
         let (mcts_policy, _q_values) = if mcts_config.num_leaves > 1 {
-            mcts_search_batched::<PuyoGame>(&puyo_state, provider, &mcts_config, time_seed())
+            mcts_search_batched::<PuyoGame>(&puyo_state, provider, &mcts_config)
         } else {
-            mcts_search::<PuyoGame>(&puyo_state, provider, &mcts_config, time_seed())
+            mcts_search::<PuyoGame>(&puyo_state, provider, &mcts_config)
         };
 
         let valid_mask = PuyoGame::valid_action_mask(&puyo_state);

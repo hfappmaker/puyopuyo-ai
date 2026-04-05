@@ -103,7 +103,7 @@ Dual Head Network（`PuyoNet`）で盤面とコンテキスト情報（3ツモ�
 
 ### 設定メソッド
 
-- `with_mcts(config: MctsConfig)`: MCTSモードを有効化。`MctsConfig` で探索パラメータを指定（`num_simulations`, `c_puct_init`, `c_puct_base`, `m`, `c_visit`, `gamma`, `num_leaves`）
+- `with_mcts(config: MctsConfig)`: MCTSモードを有効化。`MctsConfig` で探索パラメータを指定（`num_simulations`, `c_puct_init`, `c_puct_base`, `m`, `c_visit`, `gamma`, `num_leaves`, `seed_provider`）
 - `set_num_simulations(num_simulations: usize)`: MCTS シミュレーション数を動的に変更する
 
 ### Policy-only モードの評価の流れ

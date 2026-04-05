@@ -2,6 +2,54 @@ use crate::game::Game;
 
 use crate::nn_eval::MctsConfig;
 
+/// Trait for generating seeds used by Gumbel MCTS.
+/// Implement this to control how randomness is injected into the search.
+pub trait SeedProvider: Send + Sync {
+    fn seed(&self) -> u64;
+}
+
+/// Default seed provider using current time (nanosecond precision).
+/// On WASM targets (where `std::time::SystemTime` is unreliable),
+/// falls back to an atomic counter mixed with a constant.
+pub struct TimeSeedProvider;
+
+impl TimeSeedProvider {
+    fn splitmix64(s: u64) -> u64 {
+        let s = (s ^ (s >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+        let s = (s ^ (s >> 27)).wrapping_mul(0x94D049BB133111EB);
+        s ^ (s >> 31)
+    }
+}
+
+impl SeedProvider for TimeSeedProvider {
+    fn seed(&self) -> u64 {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            TimeSeedProvider::splitmix64(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
+            )
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static COUNTER: AtomicU64 = AtomicU64::new(0x1234_5678_9abc_def0);
+            TimeSeedProvider::splitmix64(COUNTER.fetch_add(1, Ordering::Relaxed))
+        }
+    }
+}
+
+/// Fixed seed provider for deterministic testing.
+pub struct FixedSeedProvider(pub u64);
+
+impl SeedProvider for FixedSeedProvider {
+    fn seed(&self) -> u64 {
+        self.0
+    }
+}
+
 /// Trait abstracting NN inference so MCTS is backend-agnostic.
 /// Implementations: `DirectInference` (single-sample, any burn backend),
 /// `BatchedInference` (GPU batched via inference server).
@@ -868,13 +916,13 @@ fn compute_sigma_bar<G: Game>(
 /// Run Gumbel MCTS search using Sequential Halving with Gumbel noise.
 ///
 /// Returns (improved_policy, q_values).
-/// `seed` is used for deterministic Gumbel noise sampling.
+/// Seed is generated internally via `config.seed_provider`.
 pub fn mcts_search<G: Game>(
     state: &G::State,
     provider: &dyn InferenceProvider,
     config: &MctsConfig,
-    seed: u64,
 ) -> (Vec<f32>, Vec<f32>) {
+    let seed = config.seed_provider.seed();
     let num_actions = G::num_actions();
     let mut tree = MctsTree::<G>::new(state, config.gamma);
 
@@ -942,12 +990,13 @@ pub fn mcts_search<G: Game>(
 /// When `num_leaves == 1`, behavior is equivalent to `mcts_search`.
 ///
 /// Returns (improved_policy, q_values).
+/// Seed is generated internally via `config.seed_provider`.
 pub fn mcts_search_batched<G: Game>(
     state: &G::State,
     provider: &dyn InferenceProvider,
     config: &MctsConfig,
-    seed: u64,
 ) -> (Vec<f32>, Vec<f32>) {
+    let seed = config.seed_provider.seed();
     let num_actions = G::num_actions();
     let mut tree = MctsTree::<G>::new(state, config.gamma);
 
