@@ -86887,3 +86887,49 @@ AlphaZero training complete. final train_loss(p=2.488534, v=1.776750) global_ste
 [gpu0] Self-play complete: 1000 games, 50000 samples, max chain: 9
 [gpu0] Saved to runs/rtx5090-3/data/alphazero_iter_82_gpu0.bin
 [2026-04-06 14:29:08] Removing old data: runs/rtx5090-3/data/alphazero_iter_52_gpu*.bin
+[2026-04-06 14:29:11] Train start (AlphaZero mode, replay buffer, global_step=81000)
+    Finished `release` profile [optimized] target(s) in 0.31s
+     Running `target/release/train --alphazero --data-dir runs/rtx5090-3/data --global-step 81000 --model-path runs/rtx5090-3/artifacts/puyo_model --artifacts-dir runs/rtx5090-3/artifacts --batch-size 2048 --accum-steps 1 --cols 6 --rows 14 --num-colors 4 --residual-channels 128 --num-blocks 6 --policy-conv-channels 2 --value-conv-channels 1 --value-hidden 64 --film-hidden 128 --lr-stages '0:0.2,100000:0.02,300000:0.002,500000:0.0002'`
+Backend: CUDA (GPU)
+Game config: cols=6, rows=14, num_colors=4
+Net config: residual_channels=128, num_blocks=6
+Mode: AlphaZero (Policy CE + Value MSE)
+Loading AlphaZero datasets from runs/rtx5090-3/data...
+Found 30 data files
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_53_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_54_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_55_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_56_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_57_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_58_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_59_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_60_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_61_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_62_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_63_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_64_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_65_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_66_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_67_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_68_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_69_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_70_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_71_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_72_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_73_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_74_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_75_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_76_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_77_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_78_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_79_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_80_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_81_gpu0.bin
+  Loaded 50000 samples from runs/rtx5090-3/data/alphazero_iter_82_gpu0.bin
+Loaded 1500000 total samples
+Train: 1500000 samples (color augmented on-the-fly, no val split)
+Loaded existing model from runs/rtx5090-3/artifacts/puyo_model
+AlphaZero training: 1000 steps, global_step=81000, LR 2e-1 (end ~2e-1), batch_size=2048, accum_steps=1, effective_batch=2048
+  step 50/1000 p_loss=2.4834 v_loss=1.7983 lr=0.200000  step 100/1000 p_loss=2.4858 v_loss=1.7938 lr=0.200000  step 150/1000 p_loss=2.4869 v_loss=1.7906 lr=0.200000  step 200/1000 p_loss=2.4869 v_loss=1.7924 lr=0.200000  step 250/1000 p_loss=2.4873 v_loss=1.7938 lr=0.200000  step 300/1000 p_loss=2.4873 v_loss=1.7902 lr=0.200000  step 350/1000 p_loss=2.4878 v_loss=1.7904 lr=0.200000  step 400/1000 p_loss=2.4883 v_loss=1.7904 lr=0.200000  step 450/1000 p_loss=2.4878 v_loss=1.7896 lr=0.200000  step 500/1000 p_loss=2.4873 v_loss=1.7900 lr=0.200000  step 550/1000 p_loss=2.4879 v_loss=1.7903 lr=0.200000  step 600/1000 p_loss=2.4879 v_loss=1.7902 lr=0.200000  step 650/1000 p_loss=2.4879 v_loss=1.7900 lr=0.200000  step 700/1000 p_loss=2.4878 v_loss=1.7898 lr=0.200000  step 750/1000 p_loss=2.4879 v_loss=1.7910 lr=0.200000  step 800/1000 p_loss=2.4882 v_loss=1.7910 lr=0.200000  step 850/1000 p_loss=2.4883 v_loss=1.7917 lr=0.200000  step 900/1000 p_loss=2.4882 v_loss=1.7914 lr=0.200000  step 950/1000 p_loss=2.4881 v_loss=1.7913 lr=0.200000  step 1000/1000 p_loss=2.4882 v_loss=1.7904 lr=0.200000
+Model metadata saved to runs/rtx5090-3/artifacts/puyo_model.config.json
+AlphaZero training complete. final train_loss(p=2.488204, v=1.790419) global_step=82000
