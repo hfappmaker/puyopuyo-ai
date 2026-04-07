@@ -74,8 +74,8 @@ impl<B: Backend> ResidualBlock<B> {
 ///   FiLM generator: context -> Linear -> ReLU -> Linear -> film_output
 ///     -> split into num_residual_blocks x (gamma[ch], beta[ch]) for each residual block
 ///   Backbone: stem (num_channels ch -> residual_channels ch) -> (BatchNorm + FiLM) ResidualBlock x N
-///   Policy Head: Conv1x1 -> BatchNorm -> ReLU -> flatten + context -> FC(->num_actions)
-///   Value Head:  Conv1x1 -> BatchNorm -> ReLU -> flatten + context -> FC(->64) -> ReLU -> FC(->1)
+///   Policy Head: Conv1x1 -> BatchNorm -> ReLU -> flatten -> FC(->num_actions)
+///   Value Head:  Conv1x1 -> BatchNorm -> ReLU -> flatten -> FC(->64) -> ReLU -> FC(->1)
 #[derive(Module, Debug)]
 pub struct PuyoNet<B: Backend> {
     // FiLM generator
@@ -157,11 +157,11 @@ impl PuyoNetConfig {
             // Policy head
             policy_conv: Conv2dConfig::new([rc, pcc], [1, 1]).init(device),
             policy_norm: BatchNormConfig::new(pcc).init(device),
-            policy_fc: LinearConfig::new(policy_flat + context_size, num_actions).init(device),
+            policy_fc: LinearConfig::new(policy_flat, num_actions).init(device),
             // Value head
             value_conv: Conv2dConfig::new([rc, vcc], [1, 1]).init(device),
             value_norm: BatchNormConfig::new(vcc).init(device),
-            value_fc1: LinearConfig::new(value_flat + context_size, vh).init(device),
+            value_fc1: LinearConfig::new(value_flat, vh).init(device),
             value_fc2: LinearConfig::new(vh, 1).init(device),
             activation: Relu::new(),
         }
@@ -206,22 +206,20 @@ impl<B: Backend> PuyoNet<B> {
             x = block.forward(x, gamma, beta);
         }
 
-        // Policy head: Conv1x1 -> BatchNorm -> ReLU -> flatten + context -> FC
+        // Policy head: Conv1x1 -> BatchNorm -> ReLU -> flatten -> FC
         let p = self.policy_conv.forward(x.clone());
         let p = self.policy_norm.forward(p);
         let p = self.activation.forward(p);
         let policy_flat = p.dims()[1] * p.dims()[2] * p.dims()[3];
         let p = p.reshape([batch_size, policy_flat]);
-        let p = Tensor::cat(vec![p, context.clone()], 1);
         let policy_logits = self.policy_fc.forward(p);
 
-        // Value head: Conv1x1 -> BatchNorm -> ReLU -> flatten + context -> FC -> ReLU -> FC
+        // Value head: Conv1x1 -> BatchNorm -> ReLU -> flatten -> FC -> ReLU -> FC
         let v = self.value_conv.forward(x);
         let v = self.value_norm.forward(v);
         let v = self.activation.forward(v);
         let value_flat = v.dims()[1] * v.dims()[2] * v.dims()[3];
         let v = v.reshape([batch_size, value_flat]);
-        let v = Tensor::cat(vec![v, context], 1);
         let v = self.value_fc1.forward(v);
         let v = self.activation.forward(v);
         let value = self.value_fc2.forward(v);
