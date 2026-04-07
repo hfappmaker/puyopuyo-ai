@@ -20,7 +20,7 @@ export FILM_HIDDEN=256
 export LR_STAGES="0:0.2,100000:0.02,300000:0.002,500000:0.0002"
 
 # --- 学習パラメータ ---
-export GAMES=3000
+export GAMES=3072
 export SIMS_BASE=512
 export SIMS_STEP=0
 export SIMS_MAX=512
