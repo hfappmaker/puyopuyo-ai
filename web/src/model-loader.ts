@@ -13,7 +13,11 @@ export async function loadNnModel(game: WasmGame): Promise<boolean> {
 
     const modelBytes = new Uint8Array(await modelResponse.arrayBuffer());
 
-    game.load_nn_model(modelBytes);
+    const success = game.load_nn_model(modelBytes);
+    if (!success) {
+      console.warn("NN model is incompatible with current architecture. Using heuristic AI.");
+      return false;
+    }
     console.log("NN policy model loaded");
     return true;
   } catch (e) {
@@ -36,7 +40,11 @@ export async function loadNnModelWithMcts(
 
     const modelBytes = new Uint8Array(await modelResponse.arrayBuffer());
 
-    game.load_nn_model_with_mcts(modelBytes, numSimulations);
+    const success = game.load_nn_model_with_mcts(modelBytes, numSimulations);
+    if (!success) {
+      console.warn("NN model is incompatible with current architecture. Using heuristic AI.");
+      return false;
+    }
     console.log(`NN MCTS model loaded (simulations=${numSimulations})`);
     return true;
   } catch (e) {

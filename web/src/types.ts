@@ -22,8 +22,8 @@ export interface WasmGame {
   ai_play_move(): number;
   apply_placement_direct(col: number, ori: number): number;
   enumerate_placements(): Uint8Array;
-  load_nn_model(model_bytes: Uint8Array): void;
-  load_nn_model_with_mcts(model_bytes: Uint8Array, num_simulations: number): void;
+  load_nn_model(model_bytes: Uint8Array): boolean;
+  load_nn_model_with_mcts(model_bytes: Uint8Array, num_simulations: number): boolean;
   set_mcts_simulations(num_simulations: number): void;
   use_heuristic(): void;
   restart(): void;

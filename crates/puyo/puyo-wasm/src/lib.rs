@@ -60,35 +60,43 @@ impl WasmGame {
         self.config.num_colors as u32
     }
 
-    /// Load NN model weights from bytes.
+    /// Load NN model weights from bytes. Returns true on success, false on failure.
     /// model_bytes: binary model data (BinBytesRecorder format)
     #[wasm_bindgen]
-    pub fn load_nn_model(&mut self, model_bytes: &[u8]) {
+    pub fn load_nn_model(&mut self, model_bytes: &[u8]) -> bool {
         let device: <InferBackend as Backend>::Device = Default::default();
         let config = PuyoNetConfig::new().with_game_config(self.config);
-        let record = BinBytesRecorder::<FullPrecisionSettings>::default()
+        let record = match BinBytesRecorder::<FullPrecisionSettings>::default()
             .load(model_bytes.to_vec(), &device)
-            .expect("Failed to load model record");
+        {
+            Ok(r) => r,
+            Err(_) => return false,
+        };
         let model: PuyoNet<InferBackend> = config.init(&device).load_record(record);
         self.evaluator = Box::new(NnEvaluator::new(model, device));
+        true
     }
 
-    /// Load NN model with MCTS mode.
+    /// Load NN model with MCTS mode. Returns true on success, false on failure.
     /// model_bytes: binary model data (BinBytesRecorder format)
     /// num_simulations: number of MCTS simulations per move
     #[wasm_bindgen]
-    pub fn load_nn_model_with_mcts(&mut self, model_bytes: &[u8], num_simulations: u32) {
+    pub fn load_nn_model_with_mcts(&mut self, model_bytes: &[u8], num_simulations: u32) -> bool {
         let device: <InferBackend as Backend>::Device = Default::default();
         let config = PuyoNetConfig::new().with_game_config(self.config);
-        let record = BinBytesRecorder::<FullPrecisionSettings>::default()
+        let record = match BinBytesRecorder::<FullPrecisionSettings>::default()
             .load(model_bytes.to_vec(), &device)
-            .expect("Failed to load model record");
+        {
+            Ok(r) => r,
+            Err(_) => return false,
+        };
         let model: PuyoNet<InferBackend> = config.init(&device).load_record(record);
         let mcts_config = MctsConfig {
             num_simulations: num_simulations as usize,
             ..MctsConfig::default()
         };
         self.evaluator = Box::new(NnEvaluator::new(model, device).with_mcts(mcts_config));
+        true
     }
 
     /// Update MCTS simulation count without reloading the model.
