@@ -35,8 +35,8 @@ impl GameConfig {
     /// アクション空間のサイズ: cols × 4方向。
     pub fn num_actions(&self) -> usize { self.cols * 4 }
 
-    /// 入力チャンネル数: 色ごとの one-hot + occupancy + adjacency。
-    pub fn num_channels(&self) -> usize { self.num_colors + 2 }
+    /// 入力チャンネル数: 色ごとの one-hot。
+    pub fn num_channels(&self) -> usize { self.num_colors }
 
     /// 盤面テンソルのフラットサイズ。
     pub fn tensor_size(&self) -> usize { self.num_channels() * self.rows * self.cols }

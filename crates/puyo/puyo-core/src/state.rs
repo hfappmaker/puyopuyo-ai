@@ -16,19 +16,13 @@ pub struct PuyoState {
 ///
 /// チャンネル:
 /// - 0..(num_colors-1): 色ごとのone-hot
-/// - num_colors: occupancy map (ぷよの有無)
-/// - num_colors+1: adjacency map (同色隣接数 / 4.0)
 pub fn board_to_tensor_data(board: &Board) -> Vec<f32> {
     let cfg = &board.config;
     let cols = cfg.cols;
     let rows = cfg.rows;
-    let num_colors = cfg.num_colors;
     let tensor_size = cfg.tensor_size();
 
     let mut data = vec![0.0f32; tensor_size];
-
-    let occ_offset = num_colors * rows * cols;
-    let adj_offset = (num_colors + 1) * rows * cols;
 
     for col in 0..cols {
         for row in 0..rows {
@@ -36,19 +30,6 @@ pub fn board_to_tensor_data(board: &Board) -> Vec<f32> {
             if color.is_color() {
                 let ch = color as u8 as usize - 1;
                 data[ch * rows * cols + row * cols + col] = 1.0;
-
-                data[occ_offset + row * cols + col] = 1.0;
-
-                let count = [
-                    col > 0 && board.get(col - 1, row) == color,
-                    col + 1 < cols && board.get(col + 1, row) == color,
-                    row > 0 && board.get(col, row - 1) == color,
-                    row + 1 < rows && board.get(col, row + 1) == color,
-                ]
-                .iter()
-                .filter(|&&b| b)
-                .count();
-                data[adj_offset + row * cols + col] = count as f32 / 4.0;
             }
         }
     }

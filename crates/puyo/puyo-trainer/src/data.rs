@@ -36,12 +36,10 @@ fn generate_perms(
 }
 
 /// board_data にインプレースで色置換を適用する。
-/// board_data は [num_channels ch][rows][cols] floats。ch0..(num_colors-1)を入れ替え、残りは不変。
+/// board_data は [num_colors ch][rows][cols] floats。色チャネルを入れ替える。
 pub fn apply_color_perm_board(board_data: &mut [f32], perm: &[usize]) {
     let num_colors = perm.len();
-    // Infer plane_size from data length and channel count (num_colors + 2 channels total)
-    let num_channels = num_colors + 2;
-    let plane_size = board_data.len() / num_channels;
+    let plane_size = board_data.len() / num_colors;
 
     let mut color_planes = vec![0.0f32; num_colors * plane_size];
     color_planes.copy_from_slice(&board_data[..num_colors * plane_size]);
@@ -181,24 +179,6 @@ mod tests {
         apply_color_perm_board(&mut data, &perm);
         assert_eq!(data[0], 0.0);
         assert_eq!(data[plane_size], 1.0);
-    }
-
-    #[test]
-    fn test_board_perm_preserves_non_color_channels() {
-        let gc = GameConfig::default();
-        let tensor_size = gc.tensor_size();
-        let num_colors = gc.num_colors;
-        let plane_size = gc.rows * gc.cols;
-        let occ_offset = num_colors * plane_size;
-        let adj_offset = (num_colors + 1) * plane_size;
-        let mut data = vec![0.0f32; tensor_size];
-        data[occ_offset] = 1.0;
-        data[adj_offset] = 0.5;
-        let mut perm = identity_perm(num_colors);
-        perm.reverse();
-        apply_color_perm_board(&mut data, &perm);
-        assert_eq!(data[occ_offset], 1.0);
-        assert_eq!(data[adj_offset], 0.5);
     }
 
     #[test]

@@ -8,7 +8,7 @@
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use burn::prelude::*;
-use burn::record::{BinFileRecorder, FullPrecisionSettings};
+use burn::record::{BinFileRecorder, FullPrecisionSettings, HalfPrecisionSettings};
 
 use az_framework::game::Game;
 use puyo_core::config::GameConfig;
@@ -54,6 +54,7 @@ struct Args {
     value_conv_channels: usize,
     value_hidden: usize,
     film_hidden: usize,
+    fp16: bool,
 }
 
 fn parse_args() -> Args {
@@ -81,6 +82,7 @@ fn parse_args() -> Args {
         value_conv_channels: 1,
         value_hidden: 64,
         film_hidden: 128,
+        fp16: false,
     };
     let next_val = |i: usize, flag: &str| -> &String {
         args.get(i).unwrap_or_else(|| {
@@ -178,6 +180,9 @@ fn parse_args() -> Args {
             "--film-hidden" => {
                 i += 1;
                 result.film_hidden = next_val(i, "--film-hidden").parse().expect("--film-hidden requires integer");
+            }
+            "--fp16" => {
+                result.fp16 = true;
             }
             other => eprintln!("Unknown option: {} (ignoring)", other),
         }
@@ -311,11 +316,15 @@ fn validate_model_metadata(model_path: &str, gc: &GameConfig) {
     }
 }
 
-fn load_model<B: Backend>(device: &B::Device, model_path: &str, net_config: &PuyoNetConfig) -> PuyoNet<B> {
+fn load_model<B: Backend, S: burn::record::PrecisionSettings>(
+    device: &B::Device,
+    model_path: &str,
+    net_config: &PuyoNetConfig,
+) -> PuyoNet<B> {
     let config = net_config.clone();
     let path = model_path.to_string();
     let load_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
+        let recorder = BinFileRecorder::<S>::new();
         config
             .init::<B>(device)
             .load_file(&path, &recorder, device)
@@ -340,6 +349,41 @@ fn load_model<B: Backend>(device: &B::Device, model_path: &str, net_config: &Puy
             config.init::<B>(device)
         }
     }
+}
+
+fn run_with_backend<B: Backend + 'static>(
+    fp16: bool,
+    args: &Args,
+    gc: &GameConfig,
+    net_config: &PuyoNetConfig,
+) {
+    let precision_label = if fp16 { "f16" } else { "f32" };
+    println!("Backend: Cuda (GPU, {}) — Gumbel MCTS self-play (batched)", precision_label);
+    let device: B::Device = Default::default();
+
+    let model = if fp16 {
+        load_model::<B, HalfPrecisionSettings>(&device, &args.model_path, net_config)
+    } else {
+        load_model::<B, FullPrecisionSettings>(&device, &args.model_path, net_config)
+    };
+
+    let num_threads = args.threads.unwrap_or(DEFAULT_GPU_THREADS);
+    let batch_size = args.batch_size.unwrap_or(DEFAULT_MAX_BATCH_SIZE);
+    println!("Using {} game threads, max_batch_size={}", num_threads, batch_size);
+
+    let client = inference_server::start_inference_server(
+        PuyoGameModel::with_config(model, gc.clone()),
+        device,
+        batch_size,
+    );
+
+    run_games_parallel(args, gc, num_threads, |_| {
+        let thread_client = client.clone();
+        (thread_client, 0usize)
+    });
+
+    // Skip destructors to avoid CUDA cleanup crash (double free on exit)
+    std::process::exit(0);
 }
 
 fn main() {
@@ -367,28 +411,11 @@ fn main() {
         args.policy_conv_channels, args.value_conv_channels, args.value_hidden, args.film_hidden,
     );
 
-    type GpuBackend = Cuda<f32>;
-
-    println!("Backend: Cuda (GPU) — Gumbel MCTS self-play (batched)");
-    let device: <GpuBackend as Backend>::Device = Default::default();
-    let model = load_model::<GpuBackend>(&device, &args.model_path, &net_config);
-
-    let num_threads = args.threads.unwrap_or(DEFAULT_GPU_THREADS);
-    let batch_size = args.batch_size.unwrap_or(DEFAULT_MAX_BATCH_SIZE);
-    println!(
-        "Using {} game threads, max_batch_size={}",
-        num_threads, batch_size,
-    );
-
-    let client = inference_server::start_inference_server(PuyoGameModel::with_config(model, gc.clone()), device, batch_size);
-
-    run_games_parallel(&args, &gc, num_threads, |_| {
-        let thread_client = client.clone();
-        (thread_client, 0usize)
-    });
-
-    // Skip destructors to avoid CUDA cleanup crash (double free on exit)
-    std::process::exit(0);
+    if args.fp16 {
+        run_with_backend::<Cuda<half::f16>>(true, &args, &gc, &net_config);
+    } else {
+        run_with_backend::<Cuda<f32>>(false, &args, &gc, &net_config);
+    }
 }
 
 /// Run self-play games in parallel.

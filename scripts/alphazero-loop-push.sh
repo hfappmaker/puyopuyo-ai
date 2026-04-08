@@ -54,6 +54,7 @@ VALUE_CONV_CHANNELS="${VALUE_CONV_CHANNELS:-1}"     # Value head Conv チャネ�
 VALUE_HIDDEN="${VALUE_HIDDEN:-64}"                   # Value head FC 隠れ層サイズ
 FILM_HIDDEN="${FILM_HIDDEN:-128}"                    # FiLM 隠れ層サイズ
 LR_STAGES="${LR_STAGES:-0:0.2,10000:0.02,30000:0.002,50000:0.0002}"  # global_step 別 LR スケジュール (threshold:lr,...)
+FP16="${FP16:-0}"                                      # 1 にすると self-play 推論を FP16 で実行
 # ログファイル名を算出（100イテレーションごとにローテーション）
 update_log_file() {
     local start=$(( ((ITERATION - 1) / 100) * 100 + 1 ))
@@ -154,6 +155,7 @@ while true; do
                 --value-conv-channels "$VALUE_CONV_CHANNELS" \
                 --value-hidden "$VALUE_HIDDEN" \
                 --film-hidden "$FILM_HIDDEN" \
+                $([ "$FP16" = "1" ] && echo "--fp16") \
                 --output "$OUTPUT_FILE" \
                 2>&1 | sed -u "s/^/[gpu${gpu}] /" | tee -a "$LOG_FILE"
         ) &
