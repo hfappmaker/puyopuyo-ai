@@ -66,13 +66,20 @@ function setupAiModeToggle(gameLoop: GameLoop): void {
 async function main() {
   const wasm = await loadWasm();
 
+  const COLS = 6;
+  const ROWS = 14;
+  const NUM_COLORS = 4;
+
+  const createGame = () => new wasm.WasmGame(COLS, ROWS, NUM_COLORS);
+  const game = createGame();
+
   const config: BoardConfig = {
-    cols: wasm.board_cols(),
-    rows: wasm.board_rows(),
-    visibleRows: wasm.board_visible_rows(),
-    numColors: wasm.num_colors(),
-    boardWidth: wasm.board_cols() * CELL_SIZE,
-    boardHeight: wasm.board_rows() * CELL_SIZE,
+    cols: game.board_cols(),
+    rows: game.board_rows(),
+    visibleRows: game.board_visible_rows(),
+    numColors: game.num_colors(),
+    boardWidth: game.board_cols() * CELL_SIZE,
+    boardHeight: game.board_rows() * CELL_SIZE,
   };
 
   const boardCanvas = document.getElementById("board-canvas") as HTMLCanvasElement;
@@ -84,9 +91,6 @@ async function main() {
 
   const renderer = new Renderer(boardCanvas, nextCanvas, nextNextCanvas, config);
   const ui = new UI();
-
-  const createGame = () => new wasm.WasmGame();
-  const game = createGame();
 
   const gameLoop = new GameLoop(game, renderer, ui, createGame);
   gameLoop.start();

@@ -1,5 +1,9 @@
 /// Mirror of WasmGame interface for type safety.
 export interface WasmGame {
+  board_cols(): number;
+  board_rows(): number;
+  board_visible_rows(): number;
+  num_colors(): number;
   get_board(): Uint8Array;
   get_current_piece(): Uint8Array;
   get_next_piece(): Uint8Array;
@@ -28,10 +32,6 @@ export interface WasmGame {
 
 export interface WasmModule {
   WasmGame: {
-    new(): WasmGame;
+    new(cols: number, rows: number, num_colors: number): WasmGame;
   };
-  board_cols(): number;
-  board_rows(): number;
-  board_visible_rows(): number;
-  num_colors(): number;
 }

@@ -8,7 +8,7 @@ use puyo_core::config::GameConfig;
 use puyo_player::eval::SimulationEvaluator;
 use puyo_player::nn_eval::{MctsConfig, NnEvaluator};
 use puyo_player::placement::enumerate_placements;
-use puyo_player::puyo_game::PuyoGame;
+use puyo_player::puyo_game::{self, PuyoGame};
 use puyo_player::Evaluator;
 use puyo_core::game::{GamePhase, GameState};
 use puyo_core::state::PuyoState;
@@ -16,47 +16,48 @@ use puyo_nn::model::{PuyoNet, PuyoNetConfig};
 
 type InferBackend = NdArray;
 
-// ─── ボード設定定数（スタンドアロン関数） ───
-
-/// ボードの列数。
-#[wasm_bindgen]
-pub fn board_cols() -> u32 {
-    GameConfig::default().cols as u32
-}
-
-/// ボードの行数（隠し行含む）。
-#[wasm_bindgen]
-pub fn board_rows() -> u32 {
-    GameConfig::default().rows as u32
-}
-
-/// 表示行数。
-#[wasm_bindgen]
-pub fn board_visible_rows() -> u32 {
-    GameConfig::default().visible_rows() as u32
-}
-
-/// 使用する色の数。
-#[wasm_bindgen]
-pub fn num_colors() -> u32 {
-    GameConfig::default().num_colors as u32
-}
-
 #[wasm_bindgen]
 pub struct WasmGame {
     state: GameState,
+    config: GameConfig,
     evaluator: Box<dyn Evaluator<PuyoGame>>,
 }
 
 #[wasm_bindgen]
-#[allow(clippy::new_without_default)]
 impl WasmGame {
     #[wasm_bindgen(constructor)]
-    pub fn new() -> WasmGame {
+    pub fn new(cols: usize, rows: usize, num_colors: usize) -> WasmGame {
+        let config = GameConfig::new(cols, rows, num_colors);
+        puyo_game::init_config(config);
         WasmGame {
-            state: GameState::default(),
+            state: GameState::new(config),
+            config,
             evaluator: Box::new(SimulationEvaluator),
         }
+    }
+
+    /// ボードの列数。
+    #[wasm_bindgen]
+    pub fn board_cols(&self) -> u32 {
+        self.config.cols as u32
+    }
+
+    /// ボードの行数（隠し行含む）。
+    #[wasm_bindgen]
+    pub fn board_rows(&self) -> u32 {
+        self.config.rows as u32
+    }
+
+    /// 表示行数。
+    #[wasm_bindgen]
+    pub fn board_visible_rows(&self) -> u32 {
+        self.config.visible_rows() as u32
+    }
+
+    /// 使用する色の数。
+    #[wasm_bindgen]
+    pub fn num_colors(&self) -> u32 {
+        self.config.num_colors as u32
     }
 
     /// Load NN model weights from bytes.
@@ -64,7 +65,7 @@ impl WasmGame {
     #[wasm_bindgen]
     pub fn load_nn_model(&mut self, model_bytes: &[u8]) {
         let device: <InferBackend as Backend>::Device = Default::default();
-        let config = PuyoNetConfig::new();
+        let config = PuyoNetConfig::new().with_game_config(self.config);
         let record = BinBytesRecorder::<FullPrecisionSettings>::default()
             .load(model_bytes.to_vec(), &device)
             .expect("Failed to load model record");
@@ -78,7 +79,7 @@ impl WasmGame {
     #[wasm_bindgen]
     pub fn load_nn_model_with_mcts(&mut self, model_bytes: &[u8], num_simulations: u32) {
         let device: <InferBackend as Backend>::Device = Default::default();
-        let config = PuyoNetConfig::new();
+        let config = PuyoNetConfig::new().with_game_config(self.config);
         let record = BinBytesRecorder::<FullPrecisionSettings>::default()
             .load(model_bytes.to_vec(), &device)
             .expect("Failed to load model record");
