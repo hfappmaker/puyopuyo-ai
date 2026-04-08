@@ -9,20 +9,21 @@ fn splitmix64(s: u64) -> u64 {
 }
 
 /// 現在時刻からランダムなシードを生成する。
+/// 呼び出しごとにカウンターを加算し、同一時刻でも異なる値を返す。
 pub fn time_seed() -> u64 {
+    use core::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let count = COUNTER.fetch_add(1, Ordering::Relaxed);
+
     #[cfg(not(target_arch = "wasm32"))]
-    {
-        splitmix64(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos() as u64,
-        )
-    }
+    let raw = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64;
     #[cfg(target_arch = "wasm32")]
-    {
-        splitmix64((js_sys::Date::now() * 1_000_000.0) as u64)
-    }
+    let raw = (js_sys::Date::now() * 1_000_000.0) as u64;
+
+    splitmix64(raw.wrapping_add(count))
 }
 
 /// time_seed() を使ってランダムなピースを生成する。
