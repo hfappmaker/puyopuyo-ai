@@ -18,7 +18,7 @@ export VALUE_CONV_CHANNELS=1
 export VALUE_HIDDEN=256
 export FILM_HIDDEN=256
 export LR_STAGES="0:0.2,100000:0.02,300000:0.002,500000:0.0002"
-export FP16=0
+export FP16=1
 
 # --- 学習パラメータ ---
 export GAMES=4096
