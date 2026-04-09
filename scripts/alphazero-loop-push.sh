@@ -55,6 +55,7 @@ VALUE_HIDDEN="${VALUE_HIDDEN:-64}"                   # Value head FC 隠れ層�
 FILM_HIDDEN="${FILM_HIDDEN:-128}"                    # FiLM 隠れ層サイズ
 LR_STAGES="${LR_STAGES:-0:0.2,10000:0.02,30000:0.002,50000:0.0002}"  # global_step 別 LR スケジュール (threshold:lr,...)
 TRAIN_STEPS="${TRAIN_STEPS:-1000}"                    # 1イテレーションあたりの学習ステップ数
+ITER_LR_STAGES="${ITER_LR_STAGES:-}"                  # イテレーション内LRスケジュール（空=global_stepベース）
 FP16="${FP16:-0}"                                      # 1 にすると self-play 推論を FP16 で実行
 # ログファイル名を算出（100イテレーションごとにローテーション）
 update_log_file() {
@@ -207,6 +208,7 @@ while true; do
         --film-hidden "$FILM_HIDDEN" \
         --lr-stages "$LR_STAGES" \
         --num-steps "$TRAIN_STEPS" \
+        ${ITER_LR_STAGES:+--iter-lr-stages "$ITER_LR_STAGES"} \
         2>&1 | tee -a "$LOG_FILE"
 
     # Update global step from training output

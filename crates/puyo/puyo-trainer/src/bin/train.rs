@@ -230,6 +230,8 @@ fn main() {
     let num_steps = args.iter().position(|a| a == "--num-steps")
         .map(|i| args[i + 1].parse::<usize>().expect("--num-steps requires integer"))
         .unwrap_or(AZ_NUM_STEPS);
+    let iter_lr_stages: Option<Vec<(usize, f64)>> = args.iter().position(|a| a == "--iter-lr-stages")
+        .map(|i| parse_lr_stages(&args[i + 1]));
 
     std::fs::create_dir_all(&artifacts_dir).expect("Failed to create artifacts directory");
 
@@ -250,7 +252,7 @@ fn main() {
 
     if alphazero_mode {
         println!("Mode: AlphaZero (Policy CE + Value MSE)");
-        train_alphazero(data_dir.as_deref(), global_step, &model_path, &artifacts_dir, batch_size, accum_steps, num_steps, &lr_stages, &gc, &net_config);
+        train_alphazero(data_dir.as_deref(), global_step, &model_path, &artifacts_dir, batch_size, accum_steps, num_steps, &lr_stages, iter_lr_stages.as_deref(), &gc, &net_config);
     } else {
         println!("Mode: Supervised (Policy CE only)");
         train_supervised(&model_path, batch_size, &gc, &net_config);
@@ -427,7 +429,7 @@ fn compute_val_loss_supervised(
 // AlphaZero training (from self-play data)
 // ---------------------------------------------------------------------------
 
-fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path: &str, artifacts_dir: &str, batch_size: usize, accum_steps: usize, num_steps: usize, lr_stages: &[(usize, f64)], gc: &GameConfig, net_config: &PuyoNetConfig) {
+fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path: &str, artifacts_dir: &str, batch_size: usize, accum_steps: usize, num_steps: usize, lr_stages: &[(usize, f64)], iter_lr_stages: Option<&[(usize, f64)]>, gc: &GameConfig, net_config: &PuyoNetConfig) {
     let device: <TrainBackend as Backend>::Device = Default::default();
 
     let num_channels = gc.num_channels();
@@ -511,10 +513,15 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path:
         .with_gradient_clipping(Some(GradientClippingConfig::Norm(1.0)))
         .init();
 
-    let start_lr = az_lr_for_global_step(global_step_start, lr_stages);
-    let end_lr = az_lr_for_global_step(global_step_start + num_steps, lr_stages);
-    println!("AlphaZero training: {} steps, global_step={}, LR {:.0e} (end ~{:.0e}), batch_size={}, accum_steps={}, effective_batch={}",
-        num_steps, global_step_start, start_lr, end_lr, batch_size, accum_steps, batch_size * accum_steps);
+    let (effective_lr_stages, step_offset, lr_mode) = if let Some(stages) = iter_lr_stages {
+        (stages, 0, "per-iter")
+    } else {
+        (lr_stages, global_step_start, "global")
+    };
+    let start_lr = az_lr_for_global_step(step_offset, effective_lr_stages);
+    let end_lr = az_lr_for_global_step(step_offset + num_steps.saturating_sub(1), effective_lr_stages);
+    println!("AlphaZero training: {} steps, global_step={}, LR {:.0e} (end ~{:.0e}), batch_size={}, accum_steps={}, effective_batch={}, lr_mode={}",
+        num_steps, global_step_start, start_lr, end_lr, batch_size, accum_steps, batch_size * accum_steps, lr_mode);
 
     let mut running_p_loss = 0.0f32;
     let mut running_v_loss = 0.0f32;
@@ -522,7 +529,7 @@ fn train_alphazero(data_dir: Option<&str>, global_step_start: usize, model_path:
     let mut accum: GradientsAccumulator<puyo_nn::model::PuyoNet<TrainBackend>> = GradientsAccumulator::new();
 
     for step in 0..num_steps {
-        let lr = az_lr_for_global_step(global_step_start + step, lr_stages);
+        let lr = az_lr_for_global_step(step_offset + step, effective_lr_stages);
 
         // Gradient accumulation: run accum_steps micro-batches per optimizer step
         for _micro in 0..accum_steps {
